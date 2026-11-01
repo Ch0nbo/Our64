@@ -1,0 +1,36 @@
+# GLideN64 with the null backend as a mupen64plus plugin for the PC, so
+# tools/replay-pc/replay64 can time the decoder alone. Same sources as the
+# console build (gliden64.mk): portable C++, no SSE paths.
+
+include gliden64.mk
+BUILD := build-pc
+SO    := $(BUILD)/mupen64plus-video-GLideN64-null.so
+CXXFLAGS := -O2 -g -fPIC -std=c++17 -w -ffp-contract=off $(GLIDEN64_DEFINES) -DOS_LINUX $(GLIDEN64_INCLUDE)
+CFLAGS   := -O2 -g -fPIC -w -DOS_LINUX $(GLIDEN64_INCLUDE)
+OBJS := $(addprefix $(BUILD)/,$(GLIDEN64_CORE:.cpp=.o) $(GLIDEN64_C:.c=.o))
+
+$(SO): $(OBJS)
+	$(CXX) -shared -o $@ $^ -lpthread
+$(BUILD)/%.o: $(G)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) -MMD -MP $(CXXFLAGS) -c $< -o $@
+$(BUILD)/%.o: $(G)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -MMD -MP $(CFLAGS) -c $< -o $@
+clean:
+	rm -rf $(BUILD)
+-include $(OBJS:.o=.d)
+
+# gprof build: the decoder linked into replay64 itself (perf and valgrind are
+# not installed on this PC). Run it, then: gprof build-pc-prof/replay64-prof gmon.out
+PBUILD := build-pc-prof
+POBJS := $(addprefix $(PBUILD)/,$(GLIDEN64_CORE:.cpp=.o) $(GLIDEN64_C:.c=.o))
+REPLAY := ../tools/replay-pc
+$(PBUILD)/replay64-prof: $(POBJS) $(REPLAY)/replay64.cpp
+	$(CXX) -O2 -g -pg -std=c++17 -I$(G)/inc -DREPLAY64_STATIC -rdynamic $(REPLAY)/replay64.cpp $(POBJS) -o $@ -lz -ldl -lpthread
+$(PBUILD)/%.o: $(G)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -pg -c $< -o $@
+$(PBUILD)/%.o: $(G)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -pg -c $< -o $@

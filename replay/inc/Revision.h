@@ -1,0 +1,2 @@
+#define PLUGIN_REVISION "our64"
+#define PLUGIN_REVISION_W L"our64"

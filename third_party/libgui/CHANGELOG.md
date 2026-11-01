@@ -1,0 +1,493 @@
+# Changelog
+
+All notable changes to libgui are documented here. Versions follow
+`MAJOR.MINOR`; dates are approximate, taken from the commit history.
+
+
+## [Unreleased]
+
+### Added
+
+**Shape geometry (`GuiGeometry.h`)**
+* `GuiMesh` tessellates rectangles, rounded rectangles (per-corner
+  radii, capsules), ellipses, convex polygons, lines, outlines (inside /
+  centre / outside), arc strokes and soft shadows into triangle lists of
+  `MeshVertex` (position plus per-vertex RGBA). `GuiFill` gives a solid
+  color or a two-color linear gradient. Edges are anti-aliased by a
+  feathered fringe that fades to alpha 0, so no multisampling is needed.
+  Platform-agnostic: no GX, GX2 or FreeType dependency.
+* `GuiPath` (lines and cubic Beziers) and `GuiFlattenPath()` /
+  `GuiPathBounds()`: flatten to a polygon within a tolerance
+* `GuiMesh::addPolygon()` fills concave polygons (ear clipping). Strokes 
+  don't fold over a corner next to a very short edge, and every triangle of 
+  a band or fill is wound the same way.
+* `PixelColor` moved from `VideoDriver.h` to the new `drivers/Mesh.h`
+  (still included by `VideoDriver.h`) next to the new `MeshVertex`, so
+  host builds can use them without FreeType.
+* Host-side tests in `test/` (`make -C test`): coverage, winding,
+  gradient, feather and degenerate-input checks, plus a software-rendered
+  PNG gallery. Run by CI.
+
+**Mesh drawing (`ImageRenderer::drawMesh`)**
+* New pure virtual `ImageRenderer::drawMesh(const MeshVertex*, size_t)`
+  draws a triangle list with per-vertex colors in design-canvas
+  coordinates, blended source-over, so gradients and feathered edges
+  cost one draw. GameCube/Wii: a `GX_TRIANGLES` loop (split at 65535
+  vertices) in the same GX state as `drawRectangle()`. Wii U: a new
+  `WutDrawCmd::Kind::Mesh` backed by a per-frame vertex arena
+  (`2^18` vertices), drawn through `ColorShader` with identity
+  uniforms; no new shader. A mesh that does not fit in what is left of
+  the arena in a frame is dropped.
+* Demo: a **Shapes** page (Settings > Shapes) draws the gallery from
+  `GuiMesh` with no image assets.
+
+**Shape mesh cache and backend-resident meshes**
+* New `GuiMeshCache` (`GuiMeshCache.h`): shapes with the same size,
+  corners, paint, feather and curve tolerance share one cached mesh
+  instead of each tessellating and holding its own (a keyboard's letter
+  keys use one). Unreferenced meshes stay cached up to a budget (32768
+  vertices, longest idle evicted first); `GuiMeshCache::flush()` frees
+  them, and the demo calls it when the menu exits.
+* `GuiShape` fades between states in four steps whose in-between meshes
+  are shared and cached, instead of re-tessellating every frame of a fade.
+* New `ImageRenderer::createMesh()` / `destroyMesh()` /
+  `drawMeshInstance()` (default no-ops, so `drawMesh()` remains the
+  fallback). A mesh drawn a second time is handed to the backend:
+  GameCube/Wii record it as a GX display list placed with the position
+  matrix (`GX_CallDispList`); Wii U keeps static GX2 vertex buffers placed
+  with `ColorShader`'s offset and scale (`WutDrawCmd::Kind::MeshInstance`).
+  Destroyed meshes are freed only once the GPU is done with them (after
+  `GX_DrawDone()` / after draining GX2 in `prepareFrame()`). Draws with
+  alpha below 255 still go through `drawMesh()`.
+* Smaller meshes: the default curve tolerance of `GuiMesh` is 0.3 (was
+  0.15), `GuiShape` uses 0.3 physical pixels, shadow bands scale with the
+  blur (2 to 6, was always 6), and a fill's anti-aliased edge is left out
+  where an opaque inside outline covers it (`edgeFringe` on
+  `addRoundRect()` / `addEllipse()` / `addRect()` / `addPolygon()`).
+  A resting 40x40 key goes from 2664 to 1332 vertices.
+
+**Code-drawn widgets: paints, themes, shapes**
+* `GuiPaint` describes a look (fill or gradient, outline, shadow or
+  glow) as a chainable value: `GuiPaint().gradient(a, b).stroke(2, edge).shadow(14, black, 0, 4)`.
+  Paints compare and blend (`GuiPaint::mix`), and a part that exists on one
+  side only fades in or out. `GuiShapeStyle` is a set of paints per state
+  (normal, focused, pressed, disabled); unset states fall back sensibly.
+* `GuiTheme` holds the shared colors and metrics and builds ready styles:
+  `panelStyle()`, `cardStyle()`, `buttonStyle()`, `chipStyle()`.
+  `GuiTheme::current()` is the library-wide theme.
+* `GuiShape` is a `GuiElement` that draws a rectangle (optionally rounded,
+  or a capsule) or ellipse from a `GuiShapeStyle`, scaled and faded like an
+  image, with blended changes between states. Geometry is cached and only
+  rebuilt when size, style or feather change.
+* `GuiButton` image and icon slots now take any `GuiElement` (a `GuiImage`
+  still works unchanged), and the button mirrors its state into them
+  (`setState` / `resetState` are now overridden), so a `GuiShape` inside a
+  button restyles itself on hover, press and disable.
+* Demo: the Shapes page gains two image-free buttons, one live and one
+  disabled, with centred labels.
+
+**Layout containers**
+* `GuiRow`, `GuiColumn`, `GuiGrid` and `GuiOverlay` are `GuiWindow`s that
+  place and size their children from rules: padding, spacing, justify
+  (start, centre, end, space-between), alignment across the main axis
+  (including stretch), and growth weights. `GuiItem` carries per-child
+  options: `row.add(&label, GuiItem().grow(1))`. `addSpace()` and `addGap()`
+  add flexible and fixed empty space. A container width or height of 0 fits
+  the content. `GuiOverlay` stacks children in one box; a `background()` child
+  fills it, which is how a shape goes behind content.
+* Layout runs by itself: when a child's size or visibility changes, or the
+  container's rules change, it reflows (a label with new text pushes its
+  neighbours), and nested containers settle in one pass. The math lives in
+  the platform-agnostic `GuiLayoutSolver` and is tested on the host.
+* `GuiElement` gains a small layout protocol (`getNaturalSize`,
+  `setLayoutPosition`, `setLayoutSize`, `layout`, `collectNavigable`) with
+  defaults that suit any sized element. `GuiText` reports its rendered size;
+  layout places text with `setAlignment(LEFT, TOP)`, which is what anchors it
+  by its top-left corner.
+* `GuiWindow` moves the D-pad selection through nested layout containers by
+  on-screen position (`GuiNavigate`): the nearest selectable item in the
+  direction, rows of mixed heights count as one row, and moving sideways past
+  the end of a row continues on the next. Disabled buttons are skipped. A window
+  without layout containers keeps the existing selection behaviour.
+* Demo: a **Layout** page builds the Controllers screen from the design
+  mockups with the containers: a title bar, two cards, a grid of facts and a grid of
+  buttons that the D-pad moves between in every direction.
+
+**Builder layer (`GuiUi.h`)**
+* `UiScope` creates and owns a page's elements (`make<T>()`, or `row()`,
+  `column()`, `grid(n)`, `overlay()`, `label()`, `chip()`, `button()`, `card()`), so building a
+  screen needs no `new`, no `delete` and no helper structs holding the pieces. Teardown is safe in
+  any parent/child order (elements made by a scope unhook themselves). `own<T>()` keeps any
+  other object for the scope's lifetime. The scope also holds the defaults the widgets use: the
+  click trigger, the sounds and the theme.
+* Bindings: `label.bind([&]{ return GuiFormat("battery %d%%", pct); })` keeps text equal to a
+  function's result, `visibleWhen()` and `enabledWhen()` do the same for visibility and enabled
+  state, and `ui.bind(fn)` runs anything once per frame. They run when the scope is attached to
+  a window (`ui.attachTo(window)`); the text is only rebuilt when the string changes.
+* `GuiLabel`, `GuiChip` and `GuiTextButton` draw from `GuiTheme` with no image assets.
+  `GuiTextButton` is a capsule that lights up on focus, with a centred label, `onClick` and
+  `onFocus` callbacks, and a button with a callback stays selected after a click so the
+  D-pad keeps its place; without a callback `getState() == STATE::CLICKED` still works as before.
+* `GuiCard` is a container with a styled backdrop that the D-pad and pointer can select and
+  click: focus glow, `onFocus`, `onClick`, `disabled()` / `enabledWhen()` (it disables its
+  surface, never the window, which would dim the screen) and `selectable(false)` for a plain panel.
+* `GuiLayout` gains `add(GuiElement&)` and short setter names (`size`, `gap`, `pad`, `align`,
+  `justifyContent`) so a layout reads top to bottom. `GuiFormat()` is `printf` returning a
+  `std::string`.
+* The Layout demo is rewritten with the builders: the whole Controllers screen is one
+  constructor, with focusable cards, live battery figures, a status line driven by callbacks and
+  a button that enables itself once a card has been visited.
+* Host tests: a `host_stubs.cpp` stands in for the platform pieces so the real containers,
+  builders and window run on a host, and `test_ui` runs under AddressSanitizer and UBSan
+  (builder teardown order, bindings, callbacks, card selection and the whole demo screen's D-pad
+  traversal). `make -C test all elements` runs everything; CI does.
+
+**Controller drawing and the configuration screen**
+* `GuiControllerLayout` describes a controller as data: a silhouette of rounded pieces and a table of
+  controls (round buttons, rounded rectangles, analog sticks) keyed by the `INPUT_BTN_*` /
+  `INPUT_TRIGGER_*` / `INPUT_THUMB_*` bits. `GuiProControllerLayout()` is a Pro-style pad (two sticks, D-pad,
+  ABXY, L/R/ZL/ZR, plus, minus, home, capture). Another controller is another table, not new drawing code.
+* `GuiControllerView` draws any layout from shapes: the silhouette is one merged outline, controls light up
+  while pressed (`setLit`), the control being edited is highlighted with a glow (`setHighlight`), an
+  optional line leads from a list row to it (`setLeader`), and analog sticks follow their position
+  (`setStick`). The drawing itself (`GuiBuildControllerBody`, `GuiBuildControllerSpot`, ...) is
+  platform-agnostic and host-tested.
+* `GuiGlyph` is a small control icon drawn from shapes (a lettered circle, a bumper, D-pad arrows, plus, minus,
+  stick click, capture, home) for list rows and hint bars; `ui.glyph(GLYPH::BUTTON, "A")`.
+* `GuiRoundRectPolygon()` returns a rounded rectangle as a polygon, rotated about its center, so a shape
+  can be tilted or several pieces merged into one silhouette (draw each piece's outline first and the fills after).
+* `GuiTheme::rowStyle()` (a flat list row that shows a gray bar when focused) and `barStyle()`.
+* Demo: a **Controller** page (Layout > Config) is a controller configuration screen: the controller in
+  the middle, shoulder and system controls in lists on either side, the sticks, D-pad and face buttons grouped
+  underneath, and a highlight and leader line that follow the selected row. Every row is a `GuiCard`, so the
+  D-pad and pointer move between them; A on a row picks the next example target.
+
+**Theming**
+* The controller drawing and the list and bar styles don't bake in a palette: the silhouette, stick wells and
+  aps, the focused-row bar, the dark bar and the focused-button outline are derived from the `GuiTheme` colors
+  (`GuiMixColor()`, a new public per-channel blend), so an app theme recolors them.
+* Selection skips hidden elements (`visibleWhen(false)`), so a panel that is not showing cannot take the D-pad.
+
+**Builders**
+* `GuiTextButton::fontSize()` sets the label's size, for compact buttons such as key caps.
+
+**Fixed**
+* `GuiControllerView` no longer rounds its size up by a pixel when `layout size * scale` is a whole number
+  that floating point leaves a hair high (400 * 0.6 gave 241 instead of 240).
+
+## [2.01] - October 1, 2026
+
+### Added
+
+**Wii U high-resolution assets**
+* A second, higher-resolution asset set for Wii U (`data/images_hd`,
+  selected by `Makefile.wiiu`), replacing the shared 480p
+  `data/images` set used by GameCube/Wii on that platform.
+* `PlatformConfig`, passed to the now-parameterized `Platform::init()`
+  (previously `init(int width, int height)`): carries the design canvas
+  size plus `assetScaleX`/`assetScaleY`, the ratio between a
+  higher-resolution asset set and the design canvas. `GuiImageData`
+  divides a decoded image's pixel dimensions by these factors so layout
+  code keeps working in the one shared 640x480 coordinate space.
+  `Platform::getConfig()` returns the config a platform was initialized
+  with.
+
+### Changed
+
+**Wii U rendering performance**
+* `WutVideoDriver` now records every UI draw into a list, and
+  replays it once against the TV context and once against the GamePad
+  context per frame, instead of switching GX2 contexts on every single
+  draw. Consecutive draws that share a shader, quad attributes, texture,
+  or sampler skip re-binding them on replay.
+* `ImageRenderer::destroyTexture()`/`GlyphRenderer::destroyTexture()` on
+  Wii U now flush the pending draw queue first, so a texture is never
+  freed while a still-unreplayed draw references it.
+
+**Text scrolling**
+* `GuiText`'s horizontal scroll now advances by comparing the video
+  driver's frame timer to the tick of its last step
+  (`GuiText::scrollStepDue()`), rather than checking
+  `frameTimer % textScrollDelay == 0`.
+
+**Wii U input**
+* Wii U Pro controllers and Bloopair both now work
+* Wiimote pitch/roll/yaw (`hw_pitch`/`hw_roll`/`hw_yaw` for
+  `INPUT_HW_DRC`) are now reported in degrees rather than raw
+  `vpadStatus.angle` units.
+* The Wiimote IR pointer's `cursor_angle` is now computed from
+  `atan2(angle.y, angle.x)` instead of being set directly from
+  `kpadStatus.angle.y`, fixing incorrect on-screen cursor rotation.
+* Sideways-Wiimote detection with no extension connected now follows
+  `setWiimoteOrientation()`/`getWiimoteOrientation()` instead of
+  guessing from raw accelerometer axis magnitude.
+
+**Logging**
+* Wii's UDP log backend (`OgcLoggerUdp`) now waits for the network to
+  actually be up (`WiiNetwork::notifyWhenUp()`) instead of calling
+  `net_init()` synchronously from `init()`, and fixes the
+  `sockaddr_in`/`net_sendto()` length (`sin_len`) libogc2's `net_*` BSD
+  socket shim expects but doesn't enforce.
+* GameCube/Wii's USB Gecko log backend (`OgcLoggerUsbGecko`) now uses
+  libogc's `<ogc/usbgecko.h>` instead of a hand-rolled EXI identify/send
+  protocol.
+* Log lines can be prefixed with a `[seconds.milliseconds]` timestamp
+  since process start (`LogConfig::includeTimestamp`, on by default).
+
+### Fixed
+
+* Wii U (`WutFileSystemDriver`): browsing into a mounted SMB share used
+  its non-stable `prefix` for path construction instead of
+  `stablePrefix`, breaking directory listing under some mount orders.
+
+## [2.00] - September 23, 2026
+
+The headline of this release is **Wii U support**, added alongside a
+**GameCube build** - both made possible by refactoring the library
+behind a real hardware abstraction layer. libgui went from "a Wii
+library" to "a library that happens to run on three consoles" without
+changing the public shape of `GuiElement`/`GuiWindow`/`GuiButton`/etc.
+Existing Wii apps built against 1.07 will need to update against the new
+driver layer (see below) but the core widget API is unchanged.
+
+This release also adds full storage hot-plug with multiple simultaneous
+USB drives, network shares (SMB) on every console, and a multi-backend
+logging framework.
+
+### Added
+
+**Wii U support**
+* New `WutPlatform`, and a full `drivers/wut/` driver set: `WutVideoDriver`
+  (GX2 + libwhb's `WHBGfx*` helpers, submitting the same UI to the TV and
+  GamePad every frame), `WutAudioDriver` (AX/sndcore2, 16 fixed voice
+  slots plus a ring-buffered stereo stream path, mixed to both the TV and
+  the GamePad), `WutInputDriver` (VPAD for the GamePad's stick/buttons/
+  touch, KPAD/WPAD for up to 4 Wiimotes/Nunchuks/Classic/Pro
+  Controllers), `WutFileSystemDriver` (see **Storage** below), and
+  `WutThreadDriver` (coreinit `OSThread`/`OSMutex`/`OSCondition`).
+* Two small custom GX2 shaders (`Texture2DShader`, `ColorShader`) plus
+  the supporting shader plumbing (`Shader`, `VertexShader`, `PixelShader`,
+  `FetchShader`) in `drivers/wut/shaders/`, replacing GX's fixed-function
+  pipeline for the Wii U build.
+* GamePad touch input mapped onto the same unified cursor/button fields
+  used by the Wiimote's IR pointer, so touch-driven UI works without a
+  separate gesture API.
+* HOME button handling: HOME is delivered to the app as an ordinary
+  `INPUT_BTN_HOME` press rather than opening the system overlay, and
+  `WutInputDriver::openHomeButtonOverlay()` opens the overlay on demand.
+* `Makefile.wiiu`, packaging the `.rpx` into a `.wuhb` via `wuhbtool`
+  with icon/TV-splash/GamePad-splash assets under `meta/`.
+
+**GameCube support**
+* New `GameCubePlatform` and `GameCubeFileSystemDriver` (SD Gecko in
+  memory card slot A or B, SD2SP2 in serial port 2, GC Loader, and DVD),
+  plus `Makefile.gc`. Video/audio/input code is shared with the Wii build
+  and selects GameCube behavior at compile time via devkitPPC's `HW_DOL`
+  macro.
+
+**Hardware abstraction layer**
+* Introduced the `Platform` composition root and the abstract driver
+  interfaces (`VideoDriver`, `AudioDriver`, `InputDriver`,
+  `FileSystemDriver`, `ThreadDriver`, and the `Logger`'s `LoggingDriver`
+  backends) that `source/libgui/` now talks to exclusively - no platform
+  header is included outside `source/drivers/`.
+* `InputPadData`/`InputController`: a platform-agnostic per-channel
+  input snapshot and a persistent per-channel controller object that
+  owns orientation, deadzone, and directional-repeat/scroll-delay logic,
+  replacing driver-specific pad handling in app code.
+* Application lifecycle on `Platform`: `Status` (`Running`, `Paused`,
+  `Exiting`), `SystemEvent` (`ShutdownRequested`, `ResetRequested`),
+  `triggerExit()`, `shouldExit()`, and `requestExit()`, which shuts the
+  drivers down and ends the app the way each console expects (return to
+  the Wii U system menu, IOS power-off on Wii when the power button
+  started the exit, plain exit otherwise). On Wii U the status is
+  `Paused` while the app is in the background, and the video and audio
+  drivers skip their work.
+* `VideoDriver::getRefreshRate()`/`getDeltaTime()`
+
+**Storage**
+* Storage device enumeration/mount/poll unified behind `FileSystemDriver`
+  (`StorageDevice`, `MountResult`), with a device-checking thread and
+  hot-plug polling designed to run independently of the main loop.
+* Full hot-plug on all three consoles. Wii: SD, USB, and DVD presence is
+  polled. GameCube: SD Gecko slots A/B and SD2SP2 are polled with an EXI
+  presence probe. Wii U: SD is static, USB attach/detach is detected by
+  scanning the USB stack for storage interfaces (`WutUsbProbe`), and a
+  mounted USB volume is verified with a real uncached sector read so a
+  pulled drive is noticed even when the filesystem cache could still
+  answer.
+* Multiple simultaneous USB drives: up to three on Wii (`WiiUsbMulti`
+  opens each IOS mass-storage device independently and exposes each as its
+  own disc interface) and up to three on Wii U, as `DEVICE_USB`,
+  `DEVICE_USB2`, and `DEVICE_USB3`. Drives take the first free slot in
+  attach order.
+* Wii U USB storage through libmocha's raw disc interface and libdvm
+  (`dvm_wut`), which mounts FAT, exFAT, and NTFS volumes. The SD card is
+  mounted natively by Cafe OS.
+* `StorageDevice` carries a volume label, an `alwaysListed` flag, and
+  optional capacity/free-space/block-size/read-only telemetry
+  (`metricsValid`; filled in by the Wii U driver). `isDevicePresent()` is
+  a cheap cached presence check that never mounts anything, so a device
+  list can show only devices that are actually there.
+* `getValidLoadDevices()`/`getValidSaveDevices()`, `getPath()` helpers, and
+  `FindFirstMountedPath()`.
+
+**Network shares (SMB)**
+* New `SmbDriver` interface, owned by `FileSystemDriver` and reached via
+  `getSmb()`, with `OgcSmbDriver` (GameCube via the Broadband Adapter, and
+  Wii) and `WutSmbDriver` (Wii U), all built on libsmb2. A connected share
+  is mounted as the `DEVICE_SMB` device at `smb:/` through a newlib
+  devoptab, so the app uses ordinary POSIX file calls. `connect()` brings
+  the network up as needed and returns `Success`, `InvalidSettings`,
+  `NetworkUnavailable`, or `ConnectFailed`, with libsmb2's own error text
+  available from `getLastError()`.
+
+**Logging framework**
+* New multi-backend `Logger` (`Logger.h`), reached through the
+  `LOG_DEBUG`/`LOG_INFO`/`LOG_WARN`/`LOG_ERROR` macros (also usable from C
+  code), with four severity levels plus `None`.
+* Backends behind a `LoggingDriver` interface: console debug output
+  (`SYS_Report`/`OSReport`), non-blocking UDP (Wii and Wii U), USB Gecko
+  over EXI (GameCube and Wii), USB serial (Wii U, when the optional
+  `usbserial` module header is available at build time), and a generic
+  stdio-based file backend (`LoggerFile`) that works on every platform.
+* `LogConfig` selects a single backend or, with `LogMode::Multi`, any
+  combination via a `LOGGER_*` bitmask; configures the UDP target, Gecko
+  channel, serial baud rate, log file path and flush policy
+  (`Immediate`, `EveryNWrites`, `Never`); and toggles level tags and
+  sequence numbers. The console debug output can be mirrored
+  automatically, so logging works in emulators with no configuration.
+* Reconfigurable at runtime: `Logger::init()` can be called again and
+  reconciles the active backends, and `setLevel()` changes the minimum
+  severity. A backend that fails to start (no SD card, bad address, no
+  network) is skipped and reported instead of being fatal.
+* Allocation-free (fixed 512-byte stack line buffer), thread-safe (one
+  mutex serializes dispatch), and harmless to call before the logger
+  exists or after it shuts down. Custom backends can be added with
+  `registerBackend()`.
+* Compiled out entirely by default: with `LOGGING_ENABLED` at 0 every
+  `LOG_*()` call expands to nothing, so no format strings or argument
+  evaluation are left in the binary and the logger is never created. Build
+  with `-DLOGGING_ENABLED=1` to enable it.
+
+**Threading and timing**
+* `Thread`/`Mutex`/`Cond` RAII wrapper classes, backed by `ThreadDriver`,
+  plus a portable `ThreadPriority` enum, `MutexLock` scope guard,
+  `ThreadSync` (a mutex with a work and an idle condition variable), and
+  `ThreadId` for comparing threads, including the main thread.
+* Cooperative thread stopping: `Thread::requestStop()`/`stopRequested()`
+  and an optional wake callback passed to `start()` to break a thread out of
+  a wait.
+* `Thread::JoinAll()`, an app-exit safety net that stops and joins every
+  thread still running, so nothing touches driver state once shutdown
+  begins.
+* Platform-agnostic `SystemTime`/`Ticks` monotonic timing helper
+  (`Time.h`) so app and library code no longer calls `gettime()`/`LWP_*` or
+  their Wii U equivalents directly.
+
+**Input**
+* Adaptive IR pointer smoothing on Wii U using a One Euro Filter
+  (`OneEuroFilter.h`): heavy smoothing at rest, light smoothing during fast
+  motion.
+* Menu hover rumble is a short tick with an enforced quiet gap, so moving
+  across buttons doesn't buzz continuously. The Wii U GamePad uses a
+  reduced-amplitude rumble pattern. `InputDriver::setRumbleEnabled()` toggles
+  rumble globally.
+* `InputDriver::setWiimoteOrientation()` selects vertical or horizontal
+  Wiimote orientation for the Accept/Cancel triggers and directional input.
+
+**Audio**
+* `GuiSound` separates volume into music (any looping sound) and sound
+  effects (any non-looping sound), each with its own global default volume.
+
+**Rendering & assets**
+* Rewritten, platform-agnostic FreeType2-based text renderer
+  (`GuiTextRenderer`) with per-pixel-size glyph shaping/caching,
+  delegating only the final rasterized-quad draw to a `GlyphRenderer`.
+* New hashed msgid → UTF-8 `GuiTextTranslator`, loading a single binary
+  `.lang` blob instead of per-string lookups.
+* New built-in Tremor (integer OGG) player (`GuiSoundOggPlayer`),
+  shared by every platform's `AudioDriver` for the background stream.
+
+**Template app**
+* Network Share settings screen (connect/disconnect and status), device
+  list with volume labels that shows only devices that are present, error
+  prompts when a device or share can't be opened, a "Wii U Overlay" button
+  on Wii U, and orderly shutdown of the device-checking thread.
+
+### Changed
+* `GuiImage`/`GuiImageData` refactored to use significantly less memory:
+  PNG decoding moved out of the video driver and into `GuiImageData`
+  itself, using a single caller-supplied decode scratch buffer
+  (`GuiImageData::setDecodeScratch()`) shared across every decode instead
+  of a fresh allocation per image; decoding now fails fast if no scratch
+  buffer has been set.
+* Types standardized on `<cstdint>` fixed-width types throughout the
+  public API.
+* Binary/media assets moved out of `source/` and into `data/`.
+* Numerous internal renames for consistency now that the same classes
+  serve three platforms instead of one.
+
+### Fixed
+* GUI selection/focus edge cases, and proper cleanup when elements are
+  removed from the main window mid-frame.
+* Quirks in `GuiFileBrowser`/`GuiOptionBrowser` paging.
+
+### Documentation
+* Doxygen coverage extended to the entire `source/drivers/` hierarchy
+  (previously only `source/libgui/` was documented), covering the
+  abstract interfaces and both the `ogc` and `wut` concrete driver sets.
+* Filled in missing/incorrect class and method documentation across
+  `source/libgui/` (`GuiSoundOggPlayer`, `GuiTextRenderer`,
+  `GuiTextTranslator`, `GuiTrigger`, and others).
+
+
+## [1.07] - June 28, 2026
+* Bugfix for virtual keyboard space key (missing null termination) (retro100)
+* Updated build config for newer bin2o/devkitPPC header generation (Spotlight)
+* Added WiiU Controller (libwiidrc) input support, split headers and began C++11 conversion, fixed optionbrowser/demo issues and truncation/unused-parameter warnings (Carsten Teibes)
+* Added README.md (bladeoner)
+* Fixed FreeType/portlibs linking order (meta)
+* Fixed on-screen keyboard issues, bumped GUI thread memory, removed custom FreeType dependency, compressed images and fixed sRGB profile, updated makefile for current devkitPPC, silenced a compiler warning (dborth)
+
+## [1.06] - July 22, 2011
+* Compatibility with devkitPPC r24 and libogc 1.8.7
+* Minor bug fixes and optimizations
+
+## [1.05] - October 16, 2009
+* Text alignment corrections
+* Compatibility with devkitPPC r18 and libogc 1.8.0
+* Removed outside dependencies - uses only devkitpro portlibs now
+* Added grayscale method to image class (thanks dimok!)
+* Other minor optimizations
+
+## [1.04] - August 4, 2009
+* Rewritten ogg player - fixed a crashing bug
+* Improved text rendering performance
+* Improved logic for option browser and file browser classes
+* Onscreen keyboard class improvements
+* GuiText: Added SetScroll and SetWrap and changed behavior of SetMaxWidth
+* Other minor GUI logic corrections and code cleanup
+
+## [1.03] - May 22, 2009
+* Add file browser class to template - browses your SD card
+* New images for the template (thanks mvit!)
+* Add a function to get the parent element
+
+## [1.02] - April 13, 2009
+* Fixed letterboxing on PAL
+* Add STATE_HELD for held button actions (eg: draggable elements)
+* Now tracks state changes per-remote
+* Default constructor for GuiImage
+* Keyboard corrections, added more keyboard keys
+* Better handling of multiple wiimote cursors on-screen
+* Added functions for the ability to alter button behavior for all states
+* Documented GuiTrigger class
+* Refactor - moved trigger class definition to gui.h
+
+## [1.01] - April 5, 2009
+* Changed default sound format to 16bit PCM 48000
+* Added loop option for OGG sound playback
+
+## [1.00] - April 4, 2009
+* Initial release

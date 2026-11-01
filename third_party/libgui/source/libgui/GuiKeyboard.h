@@ -1,0 +1,69 @@
+/****************************************************************************
+ * libgui
+ *
+ * Daryl Borth 2009-2026
+ * GuiKeyboard.h
+ ***************************************************************************/
+#pragma once
+
+constexpr int KB_ROWS = 4;
+constexpr int KB_COLUMNS = 11;
+
+#define MAX_KEYBOARD_DISPLAY	32
+
+//!Unshifted/shifted character pair for a single keyboard key.
+typedef struct _keytype {
+	char ch;      //!< Unshifted character
+	char chShift; //!< Character produced while shift/caps is active
+} Key;
+
+//!On-screen keyboard
+//!\ingroup grp_core
+class GuiKeyboard : public GuiWindow
+{
+	public:
+		//!\param t Initial text buffer contents (copied into kbtextstr), or nullptr for empty
+		//!\param m Maximum text length, must be < sizeof(kbtextstr)
+		GuiKeyboard(char * t, uint32_t m);
+		~GuiKeyboard();
+		void update(InputController * c);
+		char kbtextstr[256]; //!< Current entered text - read this after the keyboard closes
+	protected:
+		//!\cond INTERNAL
+		uint32_t kbtextmaxlen;
+		int shift;
+		int caps;
+		GuiText * kbText;
+		GuiImage * keyTextboxImg;
+		GuiText * keyCapsText;
+		GuiImage * keyCapsImg;
+		GuiImage * keyCapsOverImg;
+		GuiButton * keyCaps;
+		GuiText * keyShiftText;
+		GuiImage * keyShiftImg;
+		GuiImage * keyShiftOverImg;
+		GuiButton * keyShift;
+		GuiText * keyBackText;
+		GuiImage * keyBackImg;
+		GuiImage * keyBackOverImg;
+		GuiButton * keyBack;
+		GuiImage * keySpaceImg;
+		GuiImage * keySpaceOverImg;
+		GuiButton * keySpace;
+		GuiButton * keyBtn[KB_ROWS][KB_COLUMNS];
+		GuiImage * keyImg[KB_ROWS][KB_COLUMNS];
+		GuiImage * keyImgOver[KB_ROWS][KB_COLUMNS];
+		GuiText * keyTxt[KB_ROWS][KB_COLUMNS];
+		GuiImageData * keyTextbox;
+		GuiImageData * key;
+		GuiImageData * keyOver;
+		GuiImageData * keyMedium;
+		GuiImageData * keyMediumOver;
+		GuiImageData * keyLarge;
+		GuiImageData * keyLargeOver;
+		GuiSound * keySoundOver;
+		GuiSound * keySoundClick;
+		GuiTrigger * trigA;
+		Key keys[KB_ROWS][KB_COLUMNS]; //!< two chars = less space than one pointer
+		//!\endcond
+};

@@ -1,0 +1,279 @@
+/****************************************************************************
+ * Platform Abstraction Layer (WUT driver)
+ * Daryl Borth 2026
+ * WutVideoDriver.h
+ ***************************************************************************/
+#pragma once
+#include <gx2/surface.h>
+
+#include <vector>
+#include <coreinit/time.h>
+#include <gx2/sampler.h>
+#include <gx2/texture.h>
+#include "../VideoDriver.h"
+#include "../Mutex.h"
+
+//!The two physical render targets every Wii U frame is submitted to.
+//!Their pixel dimensions are not fixed: the TV follows the console's output
+//!setting (480p/720p/1080p), the GamePad is always 854x480. See
+//!WutVideoDriver::getTargetWidth()/getTargetHeight().
+enum class OutputTarget
+{
+	TV = 0,
+	DRC = 1
+};
+
+static const int OUTPUT_TARGET_COUNT = 2;
+
+//!A mesh kept in GPU-readable vertex buffers across frames (ImageRenderer::createMesh()).
+//!Positions are NDC for an instance at the design canvas origin at scale 1, so a draw only
+//!sets the shader's offset and scale to place it.
+struct WutMesh
+{
+	float * positions;		//!<3 floats per vertex (x, y, 0)
+	uint8_t * colors;		//!<RGBA8 per vertex
+	uint32_t count;			//!<Number of vertices
+	WutMesh * next;			//!<Link in the retired list
+};
+
+//!One recorded UI draw (image, glyph quad or flat rectangle). The renderers
+//!record these instead of drawing immediately, and WutVideoDriver replays the
+//!whole list once for the TV and once for the GamePad (see flushDrawQueue()).
+//!\ingroup grp_wut
+struct WutDrawCmd
+{
+	//!Which shader a queued draw goes through
+	enum class Kind : uint8_t
+	{
+		Texture,        //!<textured quad through Texture2DShader, shader-side angle/offset/scale
+		TextureRotated, //!<textured quad whose corners were pre-rotated into a Texture2DShader rotated slot
+		Color,          //!<flat-color quad through ColorShader
+		Mesh,           //!<triangle list from the mesh arena through ColorShader (see WutVideoDriver::queueMesh())
+		MeshInstance    //!<a WutMesh through ColorShader, placed by the shader-side offset/scale (see WutVideoDriver::queueMeshInstance())
+	};
+
+	Kind kind;
+	uint32_t slot;                //!<TextureRotated only: slot from Texture2DShader::uploadRotatedQuad()
+	const GX2Texture * texture;   //!<Texture/TextureRotated only
+	const GX2Sampler * sampler;   //!<Texture/TextureRotated only
+	float angle;                  //!<Texture only, radians
+	float offset[3];              //!<NDC position (unused by TextureRotated)
+	float scale[3];               //!<NDC half-extents (unused by TextureRotated)
+	float colorIntensity[4];
+	uint32_t first;          //!<Mesh only: index of the first vertex in the arena
+	uint32_t count;          //!<Mesh only: number of vertices
+	const WutMesh * mesh;    //!<MeshInstance only
+};
+
+//!Wii U VideoDriver: GX2 + libwhb's WHBGfx* helpers. Every frame's draws
+//!are submitted twice - once for the TV, once for the GamePad - so the same
+//!UI always reaches both screens; there's no separate dual-display mode.
+//!UI draws are recorded into a list and replayed per target (one context
+//!switch each) rather than switching targets around every single draw.
+//!\ingroup grp_wut
+class WutVideoDriver : public VideoDriver
+{
+	public:
+		WutVideoDriver();
+		~WutVideoDriver() override;
+
+		void init(int width, int height) override;
+		void shutdown() override;
+		void render() override;
+		void clearScreen(const PixelColor& color) override;
+
+		int getScreenWidth() const override { return screenWidth; }
+		int getScreenHeight() const override { return screenHeight; }
+		uint32_t getFrameTimer() override;
+
+		int getRefreshRate() const override;
+		float getDeltaTime() const override;
+		float getUIScale() const override { return uiScale; }
+
+		//!Physical pixel size of a render target (the TV follows the console's
+		//!output setting, the GamePad is always 854x480). Unrelated to the
+		//!design canvas returned by getScreenWidth()/getScreenHeight(), which
+		//!is stretched onto each target independently per axis.
+		int getTargetWidth(OutputTarget target) const { return targetWidth[(int)target]; }
+		int getTargetHeight(OutputTarget target) const { return targetHeight[(int)target]; }
+
+		ImageRenderer* getImageRenderer() override { return imageRenderer; }
+		GlyphRenderer* getGlyphRenderer() override { return glyphRenderer; }
+
+		//!False once the OS has taken away the foreground (HOME menu overlay,
+		//!forced exit, etc.) - GX2 is off-limits at that point, so every
+		//!draw/render entry point below checks this first and no-ops rather
+		//!than issuing a GX2 call into a context we no longer own.
+		bool isForeground() const;
+
+		// Copies the drawn TV/DRC contents to their scan buffers and submits
+		// the flip. Always pipelined: submits and returns without waiting for
+		// the GPU to finish (that wait is prepareFrame()'s job, below). The
+		// one wait done here is for the *previous* submit's flip, since the
+		// copy above can't safely land on a scan buffer the display hasn't
+		// finished swapping away from yet.
+		void presentBuffer();
+
+		//!Records a UI draw for the next flushDrawQueue(). Called by the
+		//!renderers below; must be called from the thread that draws.
+		void queueDraw(const WutDrawCmd& cmd);
+
+		//!Copies a triangle list into this frame's vertex arena (converting positions
+		//!to NDC) and records a Mesh draw. A mesh that does not fit in what is left of the
+		//!arena this frame is dropped. Same threading rule as queueDraw().
+		//!\param vertices Triangle list in design-canvas pixels
+		//!\param count Number of vertices
+		void queueMesh(const MeshVertex* vertices, size_t count);
+
+		//!Records a draw of a mesh made by WutImageRenderer::createMesh(). Nothing is copied: the
+		//!mesh must stay alive until the draw has run, which destroyMesh() guarantees by
+		//!handing it to retireMesh().
+		//!\param mesh Mesh to draw
+		//!\param x Where the mesh's (0,0) lands, design-canvas pixels
+		//!\param y Where the mesh's (0,0) lands, design-canvas pixels
+		//!\param scaleX Horizontal stretch about (x,y)
+		//!\param scaleY Vertical stretch about (x,y)
+		void queueMeshInstance(const WutMesh* mesh, float x, float y, float scaleX, float scaleY);
+
+		//!Sets a mesh aside to be freed once the GPU is done with every frame that might draw it.
+		//!Safe from any thread.
+		void retireMesh(WutMesh* mesh);
+
+		//!Replays every recorded UI draw into the TV context, then the same
+		//!list into the GamePad context, and empties the list. Does nothing
+		//!when the list is empty. presentBuffer() calls this; direct GX2
+		//!drawing that must land on top of (or under) queued UI draws, and
+		//!anything that frees a texture a queued draw may reference, must
+		//!call it first to keep ordering. Leaves the GamePad context bound.
+		void flushDrawQueue();
+
+		//!Which outputs flushDrawQueue() replays into (bit per OutputTarget:
+		//!1 << TV, 1 << DRC). Default is both. A UI overlay for one output sets
+		//!it around its draws, so even a queue overflow part way through cannot
+		//!put them on the other. Always restore it to kAllTargets.
+		static const unsigned kAllTargets = 3;
+		void setUiTargets(unsigned mask) { uiTargets = mask; }
+
+		//!Waits until the GPU has retired the last submitted frame. Nothing
+		//!happens if no frame is in flight or the foreground is gone. Anything
+		//!about to write to (or free) memory a submitted frame may still be
+		//!sampling must call this first. prepareFrame() does.
+		void waitForIdle();
+
+		// Binds the TV context state and resets the per-frame render state
+		// (viewport/scissor/blend/depth/cull) that WHBGfxInit() doesn't set
+		// on its own, and rewinds the shared shader slot counters (see
+		// ColorShader::resetFrame() / Texture2DShader::resetFrame()).
+		// `targets` (a bit per OutputTarget, as for setUiTargets()) says which
+		// outputs are cleared and rebound; an output left out keeps what it
+		// shows now, and that is what presentBuffer() will send to it again.
+		void prepareFrame(unsigned targets = kAllTargets);
+
+		//!True while the last presented frame has not finished: not yet on
+		//!screen (the swap is waiting for the next vsync) or the GPU is still
+		//!drawing it. Presenting now would make prepareFrame()/presentBuffer()
+		//!wait for it. A caller that must not block checks this first.
+		bool isPresentPending() const;
+#ifdef OUR64
+		//! OUR64: draws what was queued since the last call over a finished
+		//! frame (the game's), in a GPU state of its own; the caller restores
+		//! its own state afterwards. Nothing is cleared or presented.
+		void drawOverlay(GX2ColorBuffer * target);
+#endif
+	private:
+		static const size_t cuMaxQueuedDraws = 4096;
+		std::vector<WutDrawCmd> drawQueue;
+
+		// Vertex arena for Mesh draws. Written when a mesh is queued, made visible to the
+		// GPU in flushDrawQueue(), read by both the TV and GamePad replays, and rewound
+		// once per frame in prepareFrame() - never mid-frame, because a draw submitted
+		// earlier in the frame may still be reading it (same rule as ColorShader's slots).
+		static const uint32_t cuMeshArenaVertices = 1u << 18;
+		float * meshPositions = nullptr;	// 3 floats (NDC x, y, 0) per vertex
+		uint8_t * meshColors = nullptr;		// RGBA8 per vertex
+		uint32_t meshUsed = 0;				// vertices written this frame
+		uint32_t meshFlushed = 0;			// vertices already invalidated for the GPU
+
+		// Meshes whose owners let go of them, waiting for the GPU to finish with them
+		Mutex * retireLock = nullptr;
+		WutMesh * retiredMeshes = nullptr;
+		void freeRetiredMeshes();
+		void replayDrawQueue() const; // draws drawQueue into whichever context is currently bound
+
+		unsigned uiTargets = kAllTargets;
+		bool gpuFramesInFlight = false;   // a pipelined frame was submitted and not yet retired/drained
+		OSTime lastSubmitTimeStamp = 0;   // GX2 timestamp of that submit
+
+		// Queries GX2's current TV scan mode/aspect ratio and derives the
+		// physical TV and DRC target dims
+		void computeUIScale();
+
+		int screenWidth;
+		int screenHeight;
+		float uiScale = 1.0f;
+		int targetWidth[OUTPUT_TARGET_COUNT] = { 0, 0 };
+		int targetHeight[OUTPUT_TARGET_COUNT] = { 0, 0 };
+		PixelColor clearColor;
+
+		ImageRenderer * imageRenderer;
+		GlyphRenderer * glyphRenderer;
+};
+
+//!GX2-backed ImageRenderer for GuiImage/GuiImageData, using Texture2DShader.
+//!\ingroup grp_wut
+class WutImageRenderer : public ImageRenderer
+{
+	public:
+		//!\param driver The video driver draws are queued on
+		WutImageRenderer(WutVideoDriver * driver);
+
+		void * createTexture(int width, int height) override;
+		void loadTextureData(void * texture, const uint8_t * rgba, int width, int height) override;
+		bool canReuseTexture(int allocWidth, int allocHeight, int width, int height) const override;
+		void destroyTexture(void * texture) override;
+		void drawTexture(void * texture, float xpos, float ypos, uint16_t width, uint16_t height, float degrees, float scaleX, float scaleY, uint8_t alpha) override;
+		void drawRectangle(float x, float y, float width, float height, PixelColor color) override;
+		void drawMesh(const MeshVertex* vertices, size_t count) override;
+		void* createMesh(const MeshVertex* vertices, size_t count) override;
+		void destroyMesh(void* mesh) override;
+		void drawMeshInstance(void* mesh, float x, float y, float scaleX, float scaleY) override;
+#ifdef OUR64
+		//! OUR64: the textures drawn from now on are sampled at the nearest
+		//! texel (the game's pixels stay sharp when scaled) or filtered (the
+		//! default). Each draw keeps the sampler it was queued with.
+		void setNearest(bool on) { nearest = on; }
+		//! OUR64: drawTexture with a position and size in fractions of a
+		//! canvas pixel: the game's picture lands on whole TV pixels, which
+		//! the canvas (854x480) does not divide evenly.
+		void drawTextureRect(void * texture, float x, float y, float width, float height);
+#endif
+
+	private:
+		WutVideoDriver * driver;
+		GX2Sampler sampler;
+#ifdef OUR64
+		GX2Sampler nearestSampler;
+		bool nearest = false;
+#endif
+};
+
+//!GX2-backed GlyphRenderer for GuiTextRenderer, using Texture2DShader for
+//!glyph quads and ColorShader for solid "feature" rectangles.
+//!\ingroup grp_wut
+class WutGlyphRenderer : public GlyphRenderer
+{
+	public:
+		//!\param driver The video driver draws are queued on
+		WutGlyphRenderer(WutVideoDriver * driver);
+
+		void* createTexture(uint16_t width, uint16_t height) override;
+		void loadTextureData(void* texture, FT_Bitmap* bitmap) override;
+		void destroyTexture(void* texture) override;
+
+		void drawQuad(void* texture, float screenX, float screenY, float width, float height, const PixelColor& color) override;
+		void drawFeature(int16_t screenX, int16_t screenY, uint16_t width, uint16_t height, const PixelColor& color) override;
+
+	private:
+		WutVideoDriver * driver;
+		GX2Sampler sampler;
+};

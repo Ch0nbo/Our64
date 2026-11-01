@@ -1,0 +1,6 @@
+# Mash Start and A through title screens, then capture at four points.
+mash 200 3000
+capture 1200
+capture 2400
+capture 3600
+capture 4800

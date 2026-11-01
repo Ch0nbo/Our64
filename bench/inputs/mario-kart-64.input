@@ -1,0 +1,15 @@
+# Mario Kart 64: mash through the menus into a race, then hold A (accelerate).
+mash 200 1500
+press 1500 A 2100
+# Menus (character select is somewhere in here), then the race.
+capture 400
+capture 500
+capture 600
+capture 700
+capture 800
+capture 900
+capture 1000
+capture 1100
+capture 2000
+capture 2600
+capture 3200

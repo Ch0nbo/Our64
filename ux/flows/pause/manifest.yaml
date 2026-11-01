@@ -1,0 +1,159 @@
+# Built 2026-10-17. This is the spec as written before the build; Zach's rulings since
+# (docs/ux/requirements/2026-10-16-pause.md, "Changes ruled after the build") and section 1 of
+# docs/plans/2026-10-16-main-ui-design.md describe the screens as built and win where they
+# differ. Rewrite it from those, with screenshots from `make -C tests shots`, before a
+# stage: built review.
+flow: pause
+goal: "From any controller, mid-game, the player freezes the game, keeps or brings back a copy of it (four save state slots plus automatic ones), restarts it, or leaves, and never loses a copy or their progress by pressing the wrong button"
+stage: spec
+platform: wiiu
+stories: [1, 2, 3, 4, 5]
+app_style: "Same as launch-status: Soviet poster parody, red and cream, bold condensed headlines in a poster voice, cat1.jpg framed in headers (1.5x or less), Wii U system font and its button glyphs, one UI drawn identically on every active screen (in GamePad only mode the TV keeps its card)."
+accepted_departures: []
+domain_rules:
+  - "Nothing is drawn over a running game except controller notices at the top (Zach, 2026-10-16). The pause menu is not a running game: it draws over the frozen, dimmed last frame."
+  - "HOME opens the pause menu on every controller and cannot be rebound, so a binding mistake can never lock the player out (design rule 7)."
+  - "Destructive actions ask, name the action, and back it up: the confirm button says what it does, sits on the right, and focus starts on Cancel; overwriting and loading first save an automatic copy. Delete is the only action with no backup (design rule 3)."
+  - "Every SD write is visible outside play: the pause screens show each write and its result (design rule 4)."
+  - "A resume point is written every 60 s of play and when Our64 closes; leaving loses nothing (built in step 2)."
+  - "A disconnect pauses the game with a controller notice (built in step 4); the pause menu does not replace that."
+  - "Three kinds of save, kept apart: the game's own in-game saves, save states, and the resume point. None ever reads, writes or changes another: loading a save state or resetting leaves the in-game saves as they are, and the Load state screen lists save states only (Zach, 2026-10-16)."
+left_out:
+  - what: "Controllers screen (ports, Pak, mapping)"
+    why: "Build step 7"
+  - what: "Settings (screen mode, aspect)"
+    why: "Build step 7; the screen mode prompt at launch changes the mode until then"
+  - what: "Quit to game list"
+    why: "Build step 6: there is no game list yet; Exit to Wii U Menu is the way out"
+  - what: "Sounds"
+    why: "No documented way to use the Wii U Menu's sounds; original sounds are not designed yet"
+  - what: "Rewind, fast forward, cheats, screenshots"
+    why: "Backlog, not v1"
+screens:
+  - id: pause-menu
+    title: "Paused"
+    entered_by: "HOME on any controller during play"
+    spec:
+      shows:
+        - what: "The game's last frame, frozen and dimmed, behind everything"
+          why: "The player sees where they are; the game is visibly stopped, not crashed"
+          story: 4
+        - what: "Headline PAUSED with cat1.jpg framed beside it, and the game's title"
+          why: "Which state and which game, in the app's voice"
+        - what: "A vertical list on the left: Resume, Save state, Load state, Reset game, Exit to Wii U Menu; Resume selected when the menu opens"
+          why: "The most common choice is one press away; the list follows the Wii U VC menu (Jakob's Law)"
+          story: 1
+        - what: "On the right, the selected item's one-line description: Save state \"Keep a copy of the game now in one of 4 slots\", Load state \"Go back to a copy you kept\", Reset game \"Start the game over from the beginning\", Exit \"Save where you are and go to the Wii U Menu\""
+          why: "Recognition over recall: what each item does before it is chosen"
+          story: 5
+        - what: "Under the description: \"Resume point: today 9:40 PM\" (when the last automatic resume point was written, or \"not written yet\")"
+          why: "The player knows how much a power cut would cost them right now"
+          story: 3
+        - what: "Controller notices at the top, as during play (a disconnect, a new player)"
+          why: "Controller news stays visible in the menu too"
+        - what: "Legend bar: up/down Choose, (A) OK, (B) Resume, (HOME) Resume; glyphs of the controller pressed last"
+          why: "Every button that acts is named; B and HOME both back out, as in the Wii U HOME Menu"
+      actions:
+        - do: "Up/down on the D-pad or left stick, any controller"
+          result: "Selection moves one item; it stops at the ends"
+        - do: "A on Resume, or B, or HOME"
+          result: "The menu closes and the game runs on from the frozen frame; the button that closed it does not reach the game"
+          story: 1
+        - do: "A on Save state"
+          result: "save-slots opens in Save mode"
+          story: 5
+        - do: "A on Load state"
+          result: "save-slots opens in Load mode"
+          story: 5
+        - do: "A on Reset game"
+          result: "confirm opens: Reset game"
+        - do: "A on Exit to Wii U Menu"
+          result: "\"SAVING...\" (built in step 4) over the frozen frame while the resume point and in-game saves are written, then the Wii U Menu"
+          undo: "The next launch resumes from that resume point"
+          story: 4
+        - do: "Tap an item on the GamePad"
+          result: "Selects it; a tap on the selected item chooses it (same as A)"
+          story: 2
+      states:
+        - "the resume point was never written this session: the line says \"Resume point: from the launch, today 9:12 PM\" or \"not written yet\""
+        - "a write is running when HOME is pressed (resume point, in-game save): the menu opens at once; the line says \"Saving to SD card...\" until it ends, then its result"
+        - "a write failed this session: the line is red: \"Couldn't save to the SD card (full, locked or removed?). OUR-0201\""
+        - "power press while paused: SAVING..., as during play"
+  - id: save-slots
+    title: "Save state / Load state"
+    entered_by: "A on Save state or Load state in pause-menu"
+    spec:
+      shows:
+        - what: "Headline SAVE STATE or LOAD STATE, so the mode is never in doubt"
+          why: "One layout for both modes; the headline and the confirm wording keep them apart"
+          story: 5
+        - what: "Four slot cards in a row (Slot 1-4), each a 4:3 thumbnail of the game when it was saved and its time (\"today 9:40 PM\"), or \"Empty\" on a plain card"
+          why: "Recognition: the picture shows which part of the game each copy is"
+          story: 5
+        - what: "Load mode only: under a heading BACKUPS (kept for you automatically), a second row of three smaller cards: Before last overwrite (\"Slot 2 before it was saved over\"), Before last load, Before reset; each with thumbnail, time and that one-line description, or \"Empty\". One of each, each replaced by the next. The resume point is not a save state and is not listed"
+          why: "Every automatic backup is reachable, so a mistaken overwrite, load or reset can be undone; one of each keeps the screen uncrowded (Zach, 2026-10-16)"
+          story: 3
+        - what: "A slot from another Our64 version or another game: its card is dimmed with \"Made by another Our64 version: can't load\""
+          why: "A copy that cannot load says so before A, and the file is never touched"
+        - what: "Legend: left/right/up/down Choose, (A) Save here / Load, (Y) Delete (on a filled manual slot), (B) Back"
+          why: "Every button that acts is named; the A label says the mode's action"
+      actions:
+        - do: "D-pad or stick, any controller"
+          result: "Selection moves between cards; it stops at the edges"
+        - do: "A on an empty slot (Save mode)"
+          result: "The game is saved there at once: the card shows \"Saving...\" then the new thumbnail and time and the line \"Saved to Slot 2\"; the screen stays open"
+          undo: "Delete it with Y"
+          story: 5
+        - do: "A on a filled slot (Save mode)"
+          result: "confirm opens: Overwrite Slot 2"
+          story: 5
+        - do: "A on a filled slot (Load mode)"
+          result: "confirm opens: Load Slot 2"
+          story: 5
+        - do: "Y on a filled manual slot"
+          result: "confirm opens: Delete Slot 2"
+        - do: "B"
+          result: "Back to pause-menu with Save state or Load state still selected"
+        - do: "Tap a card"
+          result: "Selects it; a tap on the selected card is A"
+          story: 2
+      states:
+        - "no slots used yet: all four cards say Empty; in Load mode the line says \"No copies kept yet: choose Save state to keep one\""
+        - "a save write fails: the card goes back to what it was and the line is red: \"Couldn't save to the SD card (full, locked or removed?). OUR-0202\""
+        - "a slot file is damaged: its card says \"Damaged: can't load\" and A does nothing; Y still deletes it"
+  - id: confirm
+    title: "Confirm (Overwrite, Load, Reset, Delete)"
+    entered_by: "A on a filled slot (Overwrite or Load), Y on a slot (Delete), A on Reset game"
+    spec:
+      shows:
+        - what: "A dialog over the dimmed screen behind it, with a question naming the action and the target: \"Overwrite Slot 2?\", \"Load Slot 2?\", \"Delete Slot 2?\", \"Reset the game?\""
+          why: "The action and its target are named, so a wrong slot is caught"
+          story: 5
+        - what: "Overwrite: the slot's old thumbnail and time beside the new one (now), with arrows from new to old, and the line \"Your old Slot 2 save moves to Backups, so you can get it back.\" (Zach found \"kept as Before last overwrite\" unclear)"
+          why: "The player sees what they replace"
+          story: 5
+        - what: "Load: the slot's thumbnail and time, and the line \"Your game now is kept as Before last load.\""
+          why: "A load can be undone"
+          story: 3
+        - what: "Reset: \"The game starts over from its title screen. Your game now is kept as Before reset; your in-game saves stay.\""
+          why: "A reset can be undone, and saved stars are not lost"
+          story: 3
+        - what: "Delete: the slot's thumbnail and \"This copy cannot be brought back.\""
+          why: "The one action without a backup says so"
+        - what: "Two buttons: Cancel on the left, focused; the action on the right, named: \"Overwrite Slot 2\", \"Load Slot 2\", \"Delete Slot 2\", \"Reset game\""
+          why: "Design rule 3; a reflex A press cancels"
+      actions:
+        - do: "Left/right"
+          result: "Focus moves between Cancel and the action"
+        - do: "A on Cancel, or B"
+          result: "Back to the screen it came from, nothing changed"
+        - do: "A on the action"
+          result: "Overwrite: the old copy becomes Before last overwrite (replacing the one before), then the slot is saved as in save-slots. Load: the current game is saved to Before last load, then the slot loads and the game runs on with the menu closed. Reset: the current game is saved to Before reset, then the game restarts with the menu closed. Delete: the slot becomes Empty."
+          undo: "Overwrite, Load and Reset: Load state, then Before last overwrite, Before last load or Before reset"
+          story: 5
+        - do: "Tap a button"
+          result: "Same as A on it"
+          story: 2
+      states:
+        - "the automatic backup cannot be written (SD full): the action does not happen; the dialog says \"Couldn't keep a backup first, so nothing was changed. OUR-0202\" with only an OK button"
+        - "loading fails partway (file damaged after it was checked): the game is put back from Before last load and the line says so"

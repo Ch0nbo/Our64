@@ -1,0 +1,184 @@
+/* Our64 player: Our Settings, Our Controllers, Change order and Edit buttons
+ * (ux/flows/setup; rulings in docs/ux/requirements/2026-10-16-setup.md):
+ * what is selected, what each press does, layout for touch, and the words.
+ * Plain C, so tests/ runs it on the PC; drawing is ui_wiiu.cpp's business,
+ * the loops and the files setup_wiiu.c's.
+ *
+ * Presses come in as pause.h's PEV_ events (pause_events turns a
+ * controller's buttons into them). No shortcut buttons (Zach, 2026-10-16):
+ * every action is a named item chosen with A, except in Edit buttons' test
+ * layout (2026-10-29), whose actions are on buttons. HOME means Wii U Menu. */
+#ifndef OUR64_SETUP_H
+#define OUR64_SETUP_H
+#include "input.h"
+#include "pause.h"
+#include "prompt.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ---- Our Settings ---- */
+
+/* Controllers at the top (Zach, 2026-10-17), Theme at the bottom (2026-10-30). */
+enum { SET_CONTROLLERS, SET_PICTURE, SET_SCREEN, SET_THEME, SET_ROWS };
+typedef struct {
+	int row;
+	int mode, picture;   /* in use */
+	int pick[SET_ROWS];  /* the value left/right is on, per value row; A applies it */
+	int gamepad;         /* a GamePad is connected: GamePad only can be picked */
+	int touched;
+} settings_ui;
+/* SACT_CONTROLLERS and SACT_THEME open those pages. */
+enum { SACT_NONE, SACT_BACK, SACT_HOME, SACT_MODE, SACT_PICTURE, SACT_THEME, SACT_CONTROLLERS };
+void settings_open(settings_ui *s, int mode, int picture, int gamepad);
+/* SACT_MODE / SACT_PICTURE: apply s->pick[], then call settings_applied. */
+int  settings_event(settings_ui *s, int event, int target);
+void settings_applied(settings_ui *s);
+int  settings_values(int row);                 /* values on a row: 3, 2, 0 */
+int  settings_in_use(const settings_ui *s, int row); /* the value a row has now, -1 none */
+const char *settings_value_name(int row, int i);
+const char *settings_row_name(int row);
+const char *settings_row_about(const settings_ui *s); /* the line under the rows */
+void settings_row_rect(int row, int r[4]);
+void settings_value_rect(int row, int i, int r[4]);
+int  settings_hit(int x, int y);               /* row * 8 + value + 1, or row * 8 for the row itself; -1 */
+int  settings_legend(const settings_ui *s, int type, pause_key *keys, int max);
+
+/* ---- Theme (Settings > Theme, 2026-10-30): the colors and Our ROMs' layout,
+ * each applied with A, on the Settings rows' layout. ---- */
+
+enum { LOOK_COLORS, LOOK_LAYOUT, LOOK_ROWS };
+typedef struct {
+	int row;
+	int theme, layout;    /* in use */
+	int pick[LOOK_ROWS];  /* the value left/right is on, per row; A applies it */
+	int touched;
+} look_ui;
+enum { LACT_NONE, LACT_BACK, LACT_HOME, LACT_COLORS, LACT_LAYOUT };
+void look_open(look_ui *l, int theme, int layout);
+int  look_event(look_ui *l, int event, int target); /* LACT_COLORS / _LAYOUT: apply pick[], then look_applied */
+void look_applied(look_ui *l);
+int  look_values(int row);
+int  look_in_use(const look_ui *l, int row);
+const char *look_value_name(int row, int i);
+const char *look_row_name(int row);
+const char *look_row_about(const look_ui *l);
+int  look_hit(int x, int y);                   /* row * 8 + value + 1, or row * 8; -1 */
+int  look_legend(const look_ui *l, int type, pause_key *keys, int max);
+
+/* ---- Our Controllers ---- */
+
+typedef struct {
+	int type;      /* INPUT_, -1 for an empty port */
+	int battery;   /* 0-4 bars, -1 unknown */
+	int charging;
+	int gone;      /* its controller disconnected; the port waits */
+} setup_port;
+/* No Pair a controller: the Wii U Menu's own Controller Settings pairs them
+ * (Zach, 2026-10-24: opening the pairing screen from a paused game froze the console). */
+enum { CTL_RUMBLE, CTL_EDIT, CTL_ORDER, CTL_ACTIONS };
+typedef struct {
+	int card;            /* the selected player 0-3 */
+	int in_actions;      /* the selection is in the action row */
+	int action;          /* CTL_ */
+	setup_port ports[INPUT_PORTS];
+	int rumble[INPUT_PORTS];
+	int touched;
+	int refused;       /* A on something that does nothing now, counted: the screen flashes it */
+} controllers_ui;
+enum { CACT_NONE, CACT_BACK, CACT_HOME, CACT_RUMBLE, CACT_EDIT, CACT_ORDER };
+void controllers_open(controllers_ui *c);
+int  controllers_event(controllers_ui *c, int event, int target);
+int  controllers_action_enabled(const controllers_ui *c, int action);
+const char *controllers_action_reason(const controllers_ui *c, int action); /* why not now; "" when it works */
+const char *controllers_action_name(const controllers_ui *c, int action); /* "Rumble: On" */
+int controllers_action_count(void);     /* 3 */
+int controllers_action_id(int slot);    /* the CTL_ in that place from the left; -1 past the ends */
+void controllers_card_rect(int card, int r[4]);
+void controllers_action_rect(int action, int r[4]);
+int  controllers_hit(int x, int y);            /* cards 0-3, actions 10 + CTL_; -1 */
+int  controllers_legend(const controllers_ui *c, int type, pause_key *keys, int max);
+
+/* ---- Change order ---- */
+
+typedef struct {
+	int ids[INPUT_PORTS]; /* controllers in their new order */
+	int count;            /* assigned so far */
+	int total;            /* connected controllers: the step ends after the last */
+} order_ui;
+void order_open(order_ui *o, int connected);
+int  order_press(order_ui *o, int id); /* A on controller id; 1 when every controller is assigned */
+
+/* ---- Edit buttons ---- */
+
+/* Edit buttons opens on the button list (test layout 2026-10-29,
+ * docs/plans/2026-10-29-stable-release-decisions.md item 2): the 18 N64
+ * inputs, then Dead zone and Range. A captures a new button, Y adds one, X
+ * clears; on a Wii Remote or Nunchuk plus adds and minus clears. L or R
+ * switches between All games and the paused game's tab. Minus resets the tab
+ * shown (All games to Our64's buttons; the game's tab removes its profile)
+ * and then undoes that reset until the next change. Every change is written
+ * at once: menus read the controllers' own buttons, never the mapping, so no
+ * change can lock a player out. The actions are on the legend, not rows in
+ * the list (Zach, 2026-10-18). */
+enum { MAP_DEAD_ZONE = N64_INPUTS, MAP_RANGE, MAP_ROWS };
+enum { MAP_LIST, MAP_CAPTURE, MAP_FAILED };
+enum { MAP_TAB_ALL, MAP_TAB_GAME };
+/* Edit buttons' own presses, beside pause.h's PEV_ ones (mapping_events) */
+enum { MEV_ADD = 32, MEV_CLEAR, MEV_RESET, MEV_TAB };
+#define MAP_TAB_TARGET 100 /* a tab's touch target: MAP_TAB_TARGET + MAP_TAB_ */
+#define MAP_SHOWN 4 /* rows on screen at once */
+typedef struct {
+	int type;                  /* the controller type edited */
+	int has_game;              /* opened from a paused game: its tab is there */
+	int has_profile;           /* that game has a profile for this type */
+	char game[64];             /* that game, for its tab */
+	int tab;                   /* MAP_TAB_ */
+	input_map all, profile;    /* on the card: the all-games buttons, the game's (when has_profile) */
+	input_map edit;            /* the tab shown */
+	input_map before;          /* the tab before the change being written: back to it if the write fails */
+	int pending;               /* what is being written (MPEND_) */
+	int can_undo;              /* minus undoes the last reset */
+	input_map undo;            /* the tab before that reset */
+	int row, top;              /* the selection in the list, and the first row shown */
+	int screen;                /* MAP_ */
+	int capture_add;           /* the capture adds a button instead of replacing */
+	double capture_until;      /* when the capture gives up (seconds) */
+	char line[128];            /* what the last action did */
+	int other_row;             /* the input the last capture took a button from (-1 none) */
+	unsigned other_seq;        /* counts those captures: the photo blinks other_row once per count */
+	char failed_title[64], failed_body[256];
+	int touched;
+	int refused;       /* a press that does nothing now, counted: the row flashes it */
+} mapping_ui;
+enum { MPEND_CHANGE, MPEND_RESET, MPEND_UNDO };
+/* MACT_WRITE: write m->edit (as the game's profile on its tab), then
+ * mapping_written or mapping_fail. MACT_REMOVE_PROFILE: remove the game's
+ * profile, then mapping_profile_removed or mapping_fail. */
+enum { MACT_NONE, MACT_BACK, MACT_HOME, MACT_WRITE, MACT_REMOVE_PROFILE, MACT_CAPTURE };
+/* all: the all-games buttons; profile: the game's, NULL when it has none;
+ * game: the paused game, NULL or "" from Our ROMs (no game tab). */
+void mapping_open(mapping_ui *m, int type, const input_map *all, const input_map *profile, const char *game);
+/* One controller's presses as events: pause_events' moves, A and B, and MEV_. */
+int  mapping_events(int type, uint32_t pressed, int *out, int max);
+int  mapping_event(mapping_ui *m, int event, int target, double now);
+/* While capturing: the buttons and stick directions the edited type's
+ * controller pressed (SRC_ bits). MACT_WRITE when one was bound. */
+int  mapping_capture(mapping_ui *m, uint32_t pressed);
+int  mapping_tick(mapping_ui *m, double now);   /* 1 when the capture just gave up */
+void mapping_written(mapping_ui *m);
+void mapping_profile_removed(mapping_ui *m);
+void mapping_fail(mapping_ui *m, const char *title, const char *body);
+int  mapping_can_reset(const mapping_ui *m);    /* minus does something: a reset, or its undo */
+void mapping_row_text(const mapping_ui *m, int row, char *label, unsigned label_size, char *value, unsigned value_size);
+void mapping_headline(const mapping_ui *m, char *out, unsigned size, char *sub, unsigned sub_size);
+const char *mapping_tab_name(const mapping_ui *m, int tab);
+void mapping_row_rect(int shown, int r[4]);     /* the shown-th row on screen */
+void mapping_tab_rect(int tab, int r[4]);
+int  mapping_hit(const mapping_ui *m, int x, int y); /* list: row, or MAP_TAB_TARGET + tab; failed: 0; -1 */
+int  mapping_legend(const mapping_ui *m, int type, pause_key *keys, int max);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

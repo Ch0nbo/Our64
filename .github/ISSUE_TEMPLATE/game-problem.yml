@@ -1,0 +1,54 @@
+name: A game has a problem
+description: Wrong graphics, sound, speed, a freeze or a crash in one game.
+title: "<game name>: <what goes wrong>"
+labels: ["game"]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game file name
+      description: 'Exactly as on the SD card, for example "Legend of Zelda, The - Majora''s Mask (USA).z64".'
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Our64 version
+      description: Shown at the top right of Our Settings, for example 1.0.0.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What goes wrong
+      options:
+        - Graphics look wrong
+        - Sound is wrong or stutters
+        - Runs slow
+        - Freezes or crashes
+        - Controls or Paks
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where in the game, and what happens
+      description: The level or screen, what you did, what you saw. A photo or video of the TV helps.
+    validations:
+      required: true
+  - type: dropdown
+    id: always
+    attributes:
+      label: Does it happen every time?
+      options:
+        - Every time at the same place
+        - Sometimes
+        - Once so far
+  - type: textarea
+    id: log
+    attributes:
+      label: player-log.txt
+      description: Copy sd:/wiiu/our64/player-log.txt from the SD card and drag it here.
+    validations:
+      required: true

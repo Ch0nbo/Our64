@@ -1,0 +1,133 @@
+flow: launch-status
+goal: "At every launch the player says in one press how they are playing (TV only, TV + GamePad, GamePad only) from whatever controller they hold, the game picks up where they left off, and from then on every SD write and its result is visible without covering the game"
+stage: spec
+platform: wiiu
+stories: [1, 2, 3, 4]
+app_style: "Soviet poster parody: red and cream, bold condensed headlines in a poster voice, cat1.jpg (a cat with a hammer and sickle, 225x225) as a framed portrait in headers, drawn at 1.5x or less. Text and button glyphs use the Wii U system font from OSGetSharedData. One UI, drawn identically on every active screen. Comrade humour beats branding (Zach, 2026-10-16); only the app icon carries the N64 logo."
+accepted_departures: []
+domain_rules:
+  - "The screen mode prompt shows on every launch, with the last choice pre-selected (Zach, 2026-10-16)."
+  - "Each launch resumes the last game from its newest resume point; the game list comes in build step 6."
+  - "HOME leaves Our64 for the Wii U Menu through a last resume point until the pause menu exists (build step 5)."
+  - "Holding B while Our64 starts boots the game fresh, keeping the resume point until the next one is written, until the pause menu exists."
+  - "A hard power cut (unplug) may lose up to 60 s of play; players expect that (Zach, 2026-10-16). A power press loses nothing."
+  - "The system HOME Menu is off: HOME is Our64's own button."
+  - "Nothing is drawn over a running game: notices and the SD write icon show only at the launch prompt, the pause menu and the closing screen (Zach, 2026-10-16). The notices and write-icon screens below are to be redesigned to that rule."
+  - "One exception: controller notices (a player joined, a controller disconnected or came back, a low battery) show at the top over the running game (Zach, 2026-10-16: \"this one earns its keep\")."
+  - "TV only: the GamePad screen is off (Zach, 2026-10-16)."
+left_out:
+  - what: "Pause menu, save state slots, Reset"
+    why: "Build step 5"
+  - what: "Pro Controller, Wii Remote and HID pads as N64 controllers, ports, mapping"
+    why: "Build step 4. Until then they can answer the screen mode prompt, but the game reads the GamePad as controller 1"
+  - what: "Game list, box art, loading screen with cat2.jpg"
+    why: "Build step 6"
+  - what: "Settings screen (changing the screen mode without relaunching)"
+    why: "Build step 7; the prompt at the next launch is the way to change it until then"
+  - what: "docs/errors.md with every OUR-NNNN code"
+    why: "Build step 8; codes are assigned as each error is built"
+  - what: "Sounds"
+    why: "No documented way to use the Wii U Menu's sounds; original sounds are not designed yet"
+screens:
+  - id: mode-prompt
+    title: "How are you playing?"
+    entered_by: "Every launch, after the ROM and resume point are read, before the game's first frame"
+    spec:
+      shows:
+        - what: "Headline \"How are you playing?\" with cat1.jpg framed beside it"
+          why: "One question, asked in the app's voice"
+        - what: "Three large side-by-side cards, each a picture and a label: \"TV only\", \"TV + GamePad\", \"GamePad only\"; the selected card grows and gets a thick cream border"
+          why: "Recognition over recall: the picture shows which screens will light up"
+          story: 1
+        - what: "The last choice pre-selected; \"TV + GamePad\" on the first launch"
+          why: "Most launches are one press of A"
+          story: 1
+        - what: "A line under the cards saying what A will start: \"Super Mario 64: resumes from 21:40\" or \"Super Mario 64: starts from the beginning\""
+          why: "The player knows before pressing that their progress is coming back"
+          story: 4
+        - what: "Legend bar along the bottom: left/right Choose, (A) Play, (HOME) Wii U Menu, with glyphs for the controller last used"
+          why: "Every button that does something is named"
+        - what: "The prompt drawn identically on the TV and the GamePad"
+          why: "Whoever is holding whichever controller sees it on the screen they face"
+          story: 1
+      actions:
+        - do: "Left/right on the D-pad or either stick, on any controller (GamePad, Pro Controller, Wii Remote, Wii Remote + Classic)"
+          result: "Selection moves one card; it stops at the ends"
+          story: 1
+        - do: "A on any controller"
+          result: "The mode applies at once (TV only: the GamePad screen goes dark; GamePad only: the TV shows tv-card), the choice is written to config/settings.cfg (write-icon), and the game resumes or starts"
+          undo: "Next launch asks again"
+          story: 1
+        - do: "Tap a card on the GamePad screen"
+          result: "That card is selected on touch, and chosen on release inside the same card (same as A); a release outside it chooses nothing"
+          story: 2
+        - do: "HOME"
+          result: "Back to the Wii U Menu; nothing is written and the resume point is untouched"
+      states:
+        - "no GamePad connected or GamePad off: the prompt still shows on the TV and any other controller answers"
+        - "no other controller connected: the GamePad answers as usual"
+        - "config/settings.cfg missing: first-launch default; unreadable or damaged: first-launch default, and notice \"Settings file damaged, using defaults\" after the choice"
+        - "no resume point, or one not usable: the line says the game starts from the beginning, with the reason as a notice once the game runs (\"Resume point from another Our64 version, not used\")"
+        - "B held while Our64 started: the line says \"starts from the beginning (B held)\""
+  - id: tv-card
+    title: "Playing on GamePad (TV)"
+    entered_by: "GamePad only chosen on mode-prompt"
+    spec:
+      shows:
+        - what: "On the TV only: cat1.jpg framed, headline \"Playing on the GamePad\", and \"Super Mario 64\" under it"
+          why: "Anyone looking at the TV knows it is not frozen or broken"
+          story: 2
+        - what: "One line: \"To use the TV, relaunch Our64 and choose TV only or TV + GamePad.\""
+          why: "The way back is stated, since Settings does not exist yet"
+          story: 2
+        - what: "Notices and the write icon shown on the GamePad, not on the TV card"
+          why: "Status goes to the screen the player is looking at"
+          story: 3
+      actions:
+        - do: "Nothing: the card is passive; the game plays on the GamePad"
+          result: "The card stays until Our64 closes"
+          story: 2
+      states:
+        - "the GamePad disconnects or its battery dies: build step 4 pauses the game; until then the card stays and the game keeps running"
+  - id: notices
+    title: "Notices"
+    entered_by: "A result worth telling: an SD write finished or failed, a save or resume point loaded from a fallback, a resume point not used"
+    spec:
+      shows:
+        - what: "A small cream panel with one line of text, in the top-left corner of the game picture, on every active screen (only the GamePad in GamePad only mode)"
+          why: "Status is visible without covering the middle of the picture"
+          story: 3
+        - what: "Success notices for 3 s, then they fade: \"Game saved to SD card\" after each in-game save, \"Resumed from 21:40\" after a resume"
+          why: "The player sees each save of their progress land; a resume point every 60 s gets only the write icon, so notices do not nag"
+          story: 3
+        - what: "Fallback notices for 6 s, naming what happened and what it means: \"Save file damaged: loaded the backup from 14 Oct 21:40\""
+          why: "The player knows which copy of their progress they have"
+          story: 3
+        - what: "Failure notices in red with white text, cause and fix in plain words and an OUR-NNNN code: \"Couldn't save: the SD card is full. Free up space; Our64 tries again on the next save. (OUR-0201)\". They stay until a later write of the same kind succeeds, then that success notice replaces them"
+          why: "A failed save is never missed and never silently retried; the player is told when it is fixed"
+          story: 3
+        - what: "More than one notice: they stack downward, newest at the bottom, at most 3; older ones wait their turn"
+          why: "No result is lost and the corner never fills the picture"
+      actions:
+        - do: "Nothing: notices take no input, so the game keeps every button"
+          result: "Notices time out or clear as above"
+      states:
+        - "the game is starting (first frames black): notices wait for the first drawn frame"
+        - "two results of the same kind in a row: the newer replaces the older instead of stacking"
+  - id: write-icon
+    title: "SD write icon"
+    entered_by: "Any SD write starts (in-game save, resume point, settings)"
+    spec:
+      shows:
+        - what: "A small SD card icon with a moving bar in the top-right corner of the game picture, on every active screen, while any write runs; it stays at least 0.5 s so a quick write does not flicker"
+          why: "Every SD write is visible while it happens"
+          story: 3
+        - what: "The first time the icon ever shows, a notice: \"This icon means Our64 is writing to the SD card. Don't take out the card while it shows.\" Never shown again (remembered in config/settings.cfg)"
+          why: "An unexplained icon is not status; the one action that can damage a save is named"
+          story: 3
+      actions:
+        - do: "Nothing"
+          result: "The icon goes when the write ends; the result goes to notices"
+      states:
+        - "a write that fails: the icon goes, and a failure notice appears"
+        - "HOME or a power press during a write: Our64 waits for the write before it closes (already built in step 2)"

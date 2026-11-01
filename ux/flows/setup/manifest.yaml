@@ -1,0 +1,184 @@
+# Built 2026-10-17. This is the spec as written before the build; Zach's rulings since
+# (docs/ux/requirements/2026-10-16-setup.md, "Zach's rulings in brief" and "Changes ruled after the
+# console run") and section 1 of
+# docs/plans/2026-10-16-main-ui-design.md describe the screens as built and win where they
+# differ. Rewrite it from those, with screenshots from `make -C tests shots`, before a
+# stage: built review.
+flow: setup
+goal: "From any controller, the player sees which controller is which N64 player, puts them in the order they want, chooses each player's Pak, changes any button with full freedom and gets back to the defaults, saves a mapping for one game only when they ask to, and changes the screen mode and picture shape, without ever locking themselves out of the menus or losing an edit by surprise"
+stage: spec
+platform: wiiu
+stories: [1, 2, 3]
+app_style: "Same as launch-status and pause: Soviet poster parody, red and cream, bold condensed headlines in a poster voice, cat1.jpg framed in headers (1.5x or less), Wii U system font and its button glyphs, one UI drawn identically on every active screen (in GamePad only mode the TV keeps its card)."
+accepted_departures: []
+domain_rules:
+  - "HOME opens the pause menu on every controller and cannot be rebound, so a binding mistake can never lock the player out (design rule 7). In these screens HOME goes back to where they were opened from (the pause menu, or the game list), with unsaved edits asked about first."
+  - "Mappings are many-to-many with full freedom: one button can drive several N64 inputs, several buttons one input, and any input can be not mapped. Nothing swaps on its own (design 3)."
+  - "A mapping belongs to a controller type (GamePad, Pro Controller, Classic Controller, Wii Remote + Nunchuk, Wii Remote), not to a port; a raphnet N64 adapter shows as a Classic Controller, which is correct."
+  - "A per-game profile is secondary and only made by an explicit step; once made it loads automatically for that game (design 3)."
+  - "Nothing is drawn over a running game except controller notices at the top (Zach, 2026-10-16). Every screen here is outside play: opened from the pause menu (game frozen) or from the game list."
+  - "The files are plain editable text: config/controllers.cfg, config/profiles/<game-id>.cfg, config/settings.cfg (built in steps 3 and 4)."
+  - "Edits apply on + Save; B with unsaved edits asks \"Discard changes?\" (design 3)."
+left_out:
+  - what: "Speed display (frame rate on screen)"
+    why: "It would be drawn over the running game, which the no-overlay rule forbids; only Zach can make an exception"
+  - what: "Transfer Pak"
+    why: "Backlog, not v1"
+  - what: "Per-screen aspect for TV and GamePad separately (VC's Custom display)"
+    why: "One setting for both screens first: one UI, drawn identically"
+  - what: "Turbo buttons, macros"
+    why: "Not v1"
+  - what: "Sounds"
+    why: "No documented way to use the Wii U Menu's sounds; original sounds are not designed yet"
+screens:
+  - id: controllers
+    title: "Controllers"
+    entered_by: "Controllers in the pause menu (new item between Load state and Reset game), or X on the game list"
+    spec:
+      shows:
+        - what: "Headline CONTROLLERS with cat1.jpg framed beside it"
+          why: "Which screen, in the app's voice"
+        - what: "Four port cards in a row, Player 1-4. Each: the controller's type and picture (GamePad, Pro Controller, Classic Controller, Wii Remote + Nunchuk, Wii Remote) or \"Press A on a controller to join\", its battery as 4 bars (or \"Charging\"), its Pak (Controller Pak, Rumble Pak or No Pak) and Rumble on/off"
+          why: "Which controller is which player, and what each player has plugged in, at a glance (HOME Menu Controller Settings)"
+          story: 1
+        - what: "A card lights for a moment when its controller presses any button"
+          why: "Finding which card is the controller in your hand"
+          story: 1
+        - what: "Under the cards, a row of actions for the selected card: Pak, Rumble, Edit buttons; and for the screen: Change order (no Pair a controller: the Wii U Menu has it, Zach 2026-10-24)"
+          why: "Every setting is one row down, named"
+        - what: "Legend: choose, (A) OK, (B) Back, (HOME) Back; glyphs of the controller pressed last"
+          why: "Every button that acts is named"
+      actions:
+        - do: "Left/right, any controller"
+          result: "Selection moves between port cards; it stops at the ends"
+        - do: "Down/up"
+          result: "Moves between the cards and the action row"
+        - do: "A on Pak"
+          result: "Cycles Controller Pak, Rumble Pak, No Pak for that player; written to config/controllers.cfg at once; applies at once if the game is paused (the N64 sees the Pak change as a real swap)"
+          undo: "A again"
+        - do: "A on Rumble"
+          result: "On/off for that player's controller; a short buzz when turned on, so the player feels which controller it is; written at once"
+          undo: "A again"
+        - do: "A on Edit buttons"
+          result: "mapping opens for that card's controller type"
+        - do: "A on Change order"
+          result: "change-order opens"
+        - do: "B or HOME"
+          result: "Back to the pause menu (Controllers still selected) or the game list"
+        - do: "Tap a card or an action"
+          result: "Selects it; a tap on the selected one is A"
+          story: 2
+      states:
+        - "an empty port: the card says \"Press A on a controller to join\"; Pak still applies, Edit buttons is greyed with \"No controller\""
+        - "a controller disconnects while this screen is open: its card says \"Disconnected: turn it back on, or press A on another controller\" and keeps its port"
+        - "a write to the SD fails: a dialog with the cause, the fix and OUR-0203; the setting reverts on screen"
+        - "a Controller Pak swapped for a Rumble Pak: the line says \"Player 1's Controller Pak saves stay on the SD card\""
+  - id: change-order
+    title: "Change order"
+    entered_by: "A on Change order in controllers"
+    spec:
+      shows:
+        - what: "\"Press A on the controller for Player 1\", then Player 2..4, with the four cards showing who has been assigned so far"
+          why: "The Wii U Change Order pattern: press a button to claim a slot"
+          story: 1
+        - what: "Legend: (B) Done, (HOME) Cancel"
+          why: "Every button that acts is named"
+      actions:
+        - do: "A on a controller"
+          result: "That controller becomes the next player; after the last connected controller, the order is kept and the screen returns to controllers"
+        - do: "B on any controller"
+          result: "Done: players assigned so far keep their new numbers; the rest follow in their old order"
+        - do: "HOME"
+          result: "Cancel: the order as it was"
+          undo: "Change order again"
+  - id: mapping
+    title: "Edit buttons"
+    entered_by: "A on Edit buttons in controllers"
+    spec:
+      shows:
+        - what: "Headline naming what is edited: \"PRO CONTROLLER: DEFAULT\" or \"PRO CONTROLLER: SUPER MARIO 64 PROFILE\""
+          why: "Which mapping changes; a profile is never edited by mistake (design 3)"
+        - what: "A list of the 18 N64 inputs (A, B, Z, Start, D-pad 4, L, R, C 4, Stick 4), each with the buttons that drive it (\"ZL, ZR\") or \"Not mapped\"; edited rows marked"
+          why: "Every input's mapping in one list, nothing hidden"
+        - what: "An N64 controller picture beside the list: the input of the selected row is outlined (inputs do not light while pressed: Zach, 2026-10-18, the light flickered)"
+          why: "Which N64 button the row is"
+        - what: "A stick view: the stick's position live, the dead zone as a circle, and Dead zone and Range values the player can change"
+          why: "A worn stick that drifts can be fixed here"
+        - what: "The screen opens on a menu: Map buttons, Save as profile for <game> (Remove <game> profile when one is in use; greyed outside a game), Save, Undo, Reset to Our64's buttons; Save, Undo and Reset greyed when they would do nothing; a dot after Map buttons while edits are unsaved. Map buttons opens the list; B in the list goes back to the menu (Zach, 2026-10-18: the actions are not buttons, so they are not in the button list)"
+          why: "Profile steps are separate and explicit; each action says when there is nothing to do"
+        - what: "Legend: choose, (A) Replace, (Y) Add, (X) Clear, (+) Save, (B) Back; glyphs of the controller pressed last"
+          why: "Every row action is named (design 3)"
+      actions:
+        - do: "A on a row"
+          result: "capture opens: the next button pressed replaces the row's buttons"
+        - do: "Y on a row"
+          result: "capture opens: the next button pressed is added to the row's buttons"
+        - do: "X on a row"
+          result: "The row becomes Not mapped (staged)"
+          undo: "B, then Discard changes"
+        - do: "Left/right on Dead zone or Range"
+          result: "Changes it in steps (dead zone 0-40%, range 60-100); the stick view follows at once (staged)"
+        - do: "+"
+          result: "Saves the edits to the file shown in the headline; a line \"Saved\" shows; the edits apply to play at once"
+        - do: "B with no unsaved edits"
+          result: "Back to controllers"
+        - do: "B with unsaved edits"
+          result: "confirm: \"Discard changes?\" with Cancel focused and Discard on the right"
+        - do: "A on Reset to defaults"
+          result: "confirm: \"Reset Pro Controller buttons to the defaults?\" with Cancel focused; Reset stages the defaults"
+          undo: "B, then Discard changes"
+        - do: "A on Save as profile for <game>"
+          result: "The current edits are saved as that game's profile, the headline changes to the profile, the default is unchanged"
+          undo: "Remove game profile"
+        - do: "A on Remove game profile"
+          result: "confirm: \"Remove the Super Mario 64 profile?\" with Cancel focused; Remove deletes the file and the headline returns to the default"
+        - do: "Tap a row"
+          result: "Selects it; a tap on the selected row is A"
+          story: 2
+      states:
+        - "the controller type being edited is not connected: the list still edits; the picture says \"Connect a Pro Controller to try the buttons\""
+        - "HOME on any controller: as B (unsaved edits ask first); HOME itself is never shown as a button that can be mapped"
+        - "every input of the stick not mapped, or A and Start both not mapped: a warning line \"Start is not mapped: games may not get past their title screen\" (saving is still allowed)"
+  - id: capture
+    title: "Press a button"
+    entered_by: "A or Y on a row in mapping"
+    spec:
+      shows:
+        - what: "A dialog over the dimmed list: \"Press the button for N64 Z\" (Replace) or \"Press a button to add to N64 Z\" (Add), and a countdown from 5"
+          why: "The player knows what the next press does and that it will time out"
+      actions:
+        - do: "Any button on the controller being edited, B included, or a stick pushed past half way"
+          result: "That button is bound (staged) and the dialog closes; the row shows the new buttons"
+        - do: "Nothing for 5 seconds"
+          result: "The dialog closes; nothing changes; the line says \"Nothing pressed: unchanged\""
+        - do: "HOME"
+          result: "The dialog closes; nothing changes (HOME cannot be mapped)"
+      states:
+        - "a button pressed on another controller: ignored; the dialog says \"Use the Pro Controller\""
+  - id: settings
+    title: "Settings"
+    entered_by: "Settings in the pause menu (new item between Controllers and Reset game), or + on the game list"
+    spec:
+      shows:
+        - what: "Headline SETTINGS with cat1.jpg framed beside it"
+          why: "Which screen, in the app's voice"
+        - what: "Rows with their values: Screen mode (TV only / TV + GamePad / GamePad only), Picture (4:3 / 16:9 stretched), Reset all settings (greyed when everything is at its default)"
+          why: "Few settings, all visible, values shown (recognition over recall)"
+        - what: "Under the selected row, one line on what it does: \"Which screens show the game; the prompt at each start asks too\", \"16:9 fills a wide TV and stretches the picture\""
+          why: "The effect is known before it is changed"
+        - what: "Legend: choose, left/right Change, (B) Back, (HOME) Back"
+          why: "Every button that acts is named"
+      actions:
+        - do: "Left/right on Screen mode or Picture"
+          result: "The value changes and applies at once (the paused frame behind the menu redraws in the new shape); written to config/settings.cfg at once"
+          undo: "Left/right again"
+        - do: "A on Reset all settings"
+          result: "confirm: \"Reset all settings?\" naming what changes (\"Screen mode back to TV + GamePad, picture back to 4:3. Your button mappings and saves stay.\"), Cancel focused"
+        - do: "B or HOME"
+          result: "Back to the pause menu (Settings still selected) or the game list"
+        - do: "Tap a row; tap a value"
+          result: "Selects the row; a tap on a value chooses it"
+          story: 2
+      states:
+        - "GamePad only chosen with no GamePad connected: the value is greyed with \"GamePad not connected\", as on the prompt"
+        - "a write to the SD fails: a dialog with the cause, the fix and OUR-0203; the value on screen goes back"

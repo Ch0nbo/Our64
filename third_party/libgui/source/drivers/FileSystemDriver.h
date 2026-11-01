@@ -1,0 +1,167 @@
+/****************************************************************************
+ * Platform Abstraction Layer
+ * Daryl Borth 2026
+ * FileSystemDriver.h
+ ***************************************************************************/
+#pragma once
+#include <stddef.h>
+#include <stdio.h>
+
+#include "SmbDriver.h"
+#include "Mutex.h"
+
+#define MAX_STORAGE_DEVICES 16
+
+//!Storage device kind, shared by every platform's FileSystemDriver
+//!All platforms are limited to exactly one mount per device type
+//!\ingroup grp_storage
+enum Device
+{
+	DEVICE_AUTO = 0,
+	DEVICE_SD,
+	DEVICE_USB,
+	DEVICE_USB2,
+	DEVICE_USB3,
+	DEVICE_DVD,
+	DEVICE_SMB,
+	DEVICE_SD_SLOTA,     //!< GameCube memory card slot A
+	DEVICE_SD_SLOTB,     //!< GameCube memory card slot B
+	DEVICE_SD_PORT2,     //!< GameCube SD Gecko in memory card slot B
+	DEVICE_SD_GCLOADER,
+	DEVICE_LENGTH
+};
+
+//!Description of one storage device: id, display name, mount prefix, volume label and flags such as removable or always-listed.
+//!\ingroup grp_storage
+struct StorageDevice
+{
+	int  id;               //!< Device enum value (DEVICE_SD, DEVICE_USB, ...)
+	char prefix[32];       //!< devoptab mount prefix, eg. "sd:/"
+	char name[20];         //!< Short display name for device lists
+	char volumeLabel[16];  //!< Volume label of the mounted filesystem, or empty if unknown
+	bool removable;          //!< can this device disappear at runtime? (polled by the device-checking thread)
+	bool autoMountAtStartup; //!< silently attempted at boot
+	bool alwaysListed; //!< show in a device listing unconditionally, regardless of isDevicePresent()
+};
+
+//! Result of a single mount attempt. Deliberately has no retry/backoff behavior baked in
+//!\ingroup grp_storage
+enum class MountResult
+{
+	Success,
+	DeviceNotFound, //!< not physically present / not inserted
+	MountFailed     //!< present, but couldn't be mounted (eg. unrecognized format)
+};
+
+//!Storage device enumeration/mount/poll backend for the SD/USB/DVD file
+//!browser. Exactly one driver implements this and assigns the single
+//!global Platform instance.
+//!\ingroup grp_storage
+class FileSystemDriver
+{
+	public:
+		virtual ~FileSystemDriver() = default;
+
+		//!Initializes the driver and auto-mounts devices flagged autoMountAtStartup.
+		virtual void init() = 0;
+		//!Unmounts every device and releases the driver's resources.
+		virtual void shutdown() = 0;
+
+		//! Fills outDevices (size MAX_STORAGE_DEVICES) and returns the device count.
+		virtual int enumerateStorageDevices(StorageDevice outDevices[MAX_STORAGE_DEVICES]) = 0;
+
+		//! Attempts to mount deviceId exactly once. No retry, no prompts,
+		//! no-ops (returns Success) if already mounted.
+		virtual MountResult mountStorageDevice(int deviceId) = 0;
+
+		//! A short, user-displayable reason for a non-Success MountResult
+		//! (eg. "SD card not found!"). Never returns nullptr.
+		virtual const char * mountResultMessage(int deviceId, MountResult result) = 0;
+
+		//! Marks deviceId as needing a fresh mount next time
+		//! mountStorageDevice() is called, eg. after a read/write failure
+		//! suggests the underlying media went away. Does no I/O itself.
+		virtual void invalidateStorageDevice(int deviceId) = 0;
+
+		//! Called once per device-checking thread cycle.
+		//! removedIds/outRemovedCount: devices that were mounted and have
+		//! now disappeared (already invalidated internally - callers just
+		//! need to react, eg. abort an in-progress directory parse).
+		//! deviceListChanged: true if enumerateStorageDevices() should be
+		//! re-run because the device table itself changed shape.
+		virtual void pollStorageDevices(int removedIds[MAX_STORAGE_DEVICES], int & outRemovedCount, bool & deviceListChanged) = 0;
+
+		//! Whether the device-checking thread should run on this platform
+		virtual bool hasRemovableStorageDevices() const = 0;
+
+		//! Lightweight, cached hardware-presence check for a single
+		//! device - does NOT mount and does no invasive I/O. Backed by
+		//! whatever pollStorageDevices() last observed
+		virtual bool isDevicePresent(int deviceId) const = 0;
+
+		//! The devoptab prefix this device *would* use (eg. "usb:/"),
+		//! regardless of whether it is currently mounted.
+		virtual const char * getDevicePrefix(int device) const = 0;
+
+		//! devoptab-style mount path for device (eg. "sd:/"), or "" if
+		//! device isn't recognized or currently mounted on this platform.
+		//! Only for "is this usable already?" call sites - use
+		//! getDevicePrefix() to map a path back to a device id.
+		virtual const char * getMountPath(int device) const = 0;
+
+		//! Writes getMountPath(device) + suffix into out (bounds-checked to
+		//! sizeof(out) via the array-reference template parameter N).
+		template<size_t N>
+		void getPath(char (&out)[N], int device, const char * suffix) const
+		{
+			getPath(out, N, device, suffix);
+		}
+
+		//! Joins a folder and a filename with '/' after the mount path.
+		template<size_t N>
+		void getPath(char (&out)[N], int device, const char * folder, const char * file) const
+		{
+			getPath(out, N, device, folder, file);
+		}
+
+		//! Explicit-size equivalents of the two templates above, for call
+		//! sites where the destination buffer arrives as a `char *`
+		//! function parameter rather than a fixed array.
+		void getPath(char * out, size_t outSize, int device, const char * suffix) const
+		{
+		    const char * mp = getMountPath(device);
+		    snprintf(out, outSize, "%s%s", mp ? mp : "", suffix ? suffix : "");
+		}
+
+		//! Joins folder and file with '/' after the mount path, as in the template above.
+		void getPath(char * out, size_t outSize, int device, const char * folder, const char * file) const
+		{
+			snprintf(out, outSize, "%s%s/%s", getMountPath(device), folder ? folder : "", file ? file : "");
+		}
+
+		//! Devices (Device enum values, in priority order) that are offered when choosing where to load from on this platform.
+		//! \param outCount receives the number of entries in the returned array
+		//! \return a static array owned by the driver
+		virtual const int * getValidLoadDevices(int & outCount) const = 0;
+		//! Devices (Device enum values, in priority order) that are offered when choosing where to save to on this platform.
+		//! Differs from the load list in that read-only devices such as DVD are left out.
+		//! \param outCount receives the number of entries in the returned array
+		//! \return a static array owned by the driver
+		virtual const int * getValidSaveDevices(int & outCount) const = 0;
+
+		//! \return this platform's network-share driver (see SmbDriver)
+		virtual SmbDriver * getSmb() = 0;
+};
+
+//! Convenience for "try these devices in priority order, use whichever one
+//! is actually mounted" call sites.
+inline const char * FindFirstMountedPath(FileSystemDriver * fs, const int * candidates, int count)
+{
+	for(int i = 0; i < count; i++)
+	{
+		const char * path = fs->getMountPath(candidates[i]);
+		if(path && path[0] != '\0')
+			return path;
+	}
+	return "";
+}

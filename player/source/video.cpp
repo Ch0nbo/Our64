@@ -1,0 +1,1019 @@
+// Our64 player: GLideN64 (linked in, GX2 backend) as the graphics plugin, on
+// a core of its own: the graphics core. GX2 is set up on that core, so
+// drawing and presenting happen there too.
+//
+// The CPU thread posts commands into a ring: graphics tasks, VIs, VI register
+// changes and plain calls. The graphics core runs them in order.
+// - RDRAM is shared, not copied: GLideN64 reads display lists, vertices and
+//   textures from live RDRAM. That is safe because the CPU side holds the
+//   task's SP and DP interrupts until the task is decoded (plugins.c), so
+//   the game reuses the task's memory only when real hardware would let it.
+// - DMEM and IMEM are copied with each task (8 KB): audio tasks run on the
+//   CPU core meanwhile and overwrite them.
+// - GLideN64 gets private copies of the registers it reads or writes (MI
+//   interrupt, SP status, DP and VI registers), filled from each command's
+//   snapshot. What a task does to them goes back to the CPU side as a result.
+#include <cstdio>
+#include <cstring>
+#include <sys/stat.h>
+
+#define M64P_PLUGIN_PROTOTYPES 1
+#include "m64p_types.h"
+#include "m64p_common.h"
+#include "m64p_plugin.h"
+
+#include <Graphics/GX2Context/gx2_ContextImpl.h>
+#include <coreinit/alarm.h>
+#include <coreinit/context.h>
+#include <coreinit/event.h>
+#include <coreinit/thread.h>
+#include <coreinit/time.h>
+#include <gx2/display.h>
+#include <gx2/draw.h>
+#include <gx2/event.h>
+#include <gx2/state.h>
+#include <gx2/swap.h>
+#include <whb/gfx.h>
+
+#include <RSP.h>
+#include <GBI.h>
+
+#include "player.h"
+#include "video_ui.h"
+#include "our64_at.h"
+extern "C" {
+#include "report.h"
+extern "C" unsigned our64_vi_holds, our64_vi_from_rdram, our64_vi_found_start, our64_vi_found_width, our64_vi_found_valid; /* GLideN64's VI.cpp */
+extern "C" unsigned our64_vi_cfb, our64_vi_swaps, our64_cfb_calls, our64_cfb_nobuffer, our64_cfb_noheight, our64_cfb_zero,
+	our64_cfb_drawn, our64_cfb_alpha, our64_cfb_last_height, our64_cfb_last_width; /* VI.cpp, RDRAMtoColorBuffer.cpp */
+}
+
+extern "C" void our64_settle_rdram_copies(void); // GLideN64's FrameBuffer.cpp: GPU copies into RDRAM land before a task reads it
+extern "C" int our64_config_override(const char * list); // core_config.cpp
+extern "C" void our64_config_shared_dir(const char * dir);
+extern const char * our64_gx2_log_path;
+extern const char * our64_gx2_debug;
+extern "C" const char * our64_gx2_shader_dir; // gx2_ShaderCache.cpp
+extern "C" void our64_gx2_shader_bench(const char * dir); // gx2_GL.cpp
+
+namespace {
+
+enum Command : uint32_t { CMD_CALL, CMD_TASK, CMD_SCREEN, CMD_VI_STATUS, CMD_VI_WIDTH, CMD_RDP_LIST };
+
+struct Slot {
+	uint32_t cmd;
+	uint32_t task;             // CMD_TASK: graphics tasks posted before this one
+	void (*fn)(void *);        // CMD_CALL
+	void * arg;
+	uint32_t vi[14], dpc[8], sp_status;
+	uint8_t dmem[0x1000], imem[0x1000]; // CMD_TASK; dmem for CMD_RDP_LIST from DMEM too
+};
+
+// What a task did to the registers, for the CPU side to apply.
+struct Result {
+	uint32_t sp_set, sp_clear;
+	bool dp;                   // the task ended with a full sync: DP interrupt
+	bool running;              // it ended on a display list branching to itself: the RSP runs on
+};
+
+int g_trace_tasks; // tasks after a reset or load still to log
+
+// The last task's microcode talks with the game through SP signals mid-task
+// (ZSortBOSS: Stunt Racer 64, World Driver Championship), see plugins.c.
+volatile bool g_signal_ucode;
+
+constexpr uint32_t SLOTS = 8;
+constexpr uint32_t RESULTS = VIDEO_RESULTS;
+
+Slot g_slots[SLOTS] __attribute__((aligned(64)));
+Result g_results[RESULTS];
+volatile uint32_t g_posted, g_done;       // commands
+volatile uint32_t g_tasks_posted, g_tasks_done;
+volatile uint32_t g_screen_pending;       // a CMD_SCREEN posted and not run yet
+OSEvent g_cmd_event, g_done_event;
+
+// The graphics core's view of the N64 registers and RSP memory.
+struct Regs {
+	unsigned mi_intr, sp_status, dpc[8], vi[14];
+} g_regs;
+uint8_t g_dmem[0x1000] __attribute__((aligned(64))), g_imem[0x1000] __attribute__((aligned(64)));
+player_memory g_mem;                      // Not64's, read on the CPU core only
+
+OSThread g_thread __attribute__((aligned(16)));
+uint8_t g_stack[1024 * 1024] __attribute__((aligned(16)));
+volatile bool g_quit, g_ready, g_gfx_ok;
+
+// Statistics, written by the graphics core; times in microseconds.
+volatile double g_task_us, g_screen_us, g_worst_task_us, g_cpu_wait_us;
+// The CPU core's waits by cause: the ring full, a call or sync, a task while
+// ahead of time, a task it must have (Gauntlet Legends, 2026-10-20).
+volatile double g_cpu_wait_part_us[4];
+volatile long long g_busy_since;          // OSTime the current command started, 0 when idle
+volatile uint32_t g_busy_cmd;
+
+unsigned g_rdram_size = 0x800000;
+bool g_started = false;
+bool g_plugin_up = false; // PluginStartup ran: once a session; each game opens and closes its ROM
+const int g_aspect = 1;   // GLideN64's AspectRatio, force 4:3: its 640x480 window either way (Picture: ui_gfx_scan)
+
+double now_us() { return double(OSTicksToMicroseconds(OSGetSystemTime())); }
+
+volatile unsigned g_frames_shown, g_frames_late, g_frames_dropped, g_frames_trimmed;
+volatile double g_queue_wait_us; // time VIs waited in the queue, summed over the VIs taken
+volatile unsigned g_vis_taken;    // queued VIs the TV took (shown or repeated)
+bool g_present_waits;  // sd:/wiiu/our64/present-waits: show each frame at once, waiting for the flip
+GX2ColorBuffer * g_last_frame; // the last frame GLideN64 presented
+bool g_hold;              // Our64's own screens own the screens: game frames are not shown
+
+// GLideN64 presents once per emulated VI, and the TV flips once per vsync.
+// Each present goes into a queue and the TV takes one per vsync, so a game's
+// own rhythm (a new picture every second VI at 30 frames a second) reaches
+// the TV unchanged. VIs come in bursts (the CPU core runs ahead while audio
+// has room, the graphics core decodes in bursts), and showing the newest
+// frame at each flip dropped some and showed others twice: Mario Golf lost
+// 2-18 of its 30 frames a second (its swing meter jumped) and ran smoothly
+// only when a light scene kept up (Zach, 2026-10-21: the ball's flight
+// looked faster than everything else). A queued VI that repeats the picture
+// before it costs no copy. With more than kQueue waiting (the emulated VIs
+// run 60.0 a second, the TV 59.94), the oldest repeat goes, else the oldest.
+// A burst that fills the queue leaves it full for good (VIs come as fast as
+// the TV takes them): Star Wars Episode I Racer showed every frame late,
+// 33-50 ms after it was drawn (Zach, 2026-10-22: input lag). So when a VI
+// has waited behind the shown one at every vsync of a second, one queued VI
+// goes, the oldest repeat if there is one (a 30-frames-a-second picture then
+// shows for one vsync instead of two, once), else the oldest. Three queued
+// VIs still kept Mario Tennis's rallies 37-53 ms behind (bursts refilled the
+// queue faster than the trim emptied it; showing at once felt quicker, Zach,
+// 2026-10-25), so one waits at most: a burst drops a picture instead.
+constexpr int kQueue = 1;
+constexpr int kTrimWindow = 60;           // vsyncs
+constexpr int kPictures = kQueue + 1;     // one more for the present being queued
+GX2ColorBuffer g_pictures[kPictures];
+struct Queued {
+	int picture;          // index in g_pictures
+	bool fresh;           // a new picture, not a repeat of the VI before
+	OSTime at;            // when it was queued
+};
+Queued g_queue[kQueue];
+int g_queued;
+int g_queued_picture = -1;  // the picture the newest queued VI shows
+int g_shown_picture = -1;   // the picture on the TV, -1: something else is
+OSTime g_used_vsync;        // the vsync whose interval took the last queued VI
+uint32_t g_tasks_at_present = ~0u, g_origin_at_present;
+int g_spare_min = kQueue;   // fewest VIs left queued after taking one, this window
+int g_window;               // vsyncs counted in this window
+extern volatile uint32_t g_tasks_done;
+
+bool picture_queued(int picture)
+{
+	for (int i = 0; i < g_queued; i++)
+		if (g_queue[i].picture == picture)
+			return true;
+	return false;
+}
+
+void drop_queued(int i)
+{
+	if (g_queue[i].fresh && (i + 1 >= g_queued || g_queue[i + 1].fresh))
+		g_frames_dropped++; // a picture never shown
+	else if (g_queue[i].fresh)
+		g_queue[i + 1].fresh = true; // the repeat after it shows that picture first
+	for (int k = i; k + 1 < g_queued; k++)
+		g_queue[k] = g_queue[k + 1];
+	g_queued--;
+}
+
+// To the screens the screen mode uses (ui_wiiu.cpp).
+void show(GX2ColorBuffer * screen) { ui_gfx_scan(screen); }
+
+// Shows the next queued VI once the TV has flipped to the one before and a
+// vsync has passed since. outside_frame: not inside GLideN64's own present,
+// so its GPU state needs giving back.
+void show_queued(bool outside_frame)
+{
+	if (g_queued == 0 || g_hold)
+		return;
+	uint32_t swaps = 0, flips = 0;
+	OSTime last_flip, last_vsync;
+	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+	if (swaps > flips)
+		return;
+	// The vsync that began this interval, counted on from the last one known.
+	const OSTime period = OSNanosecondsToTicks(16683333), now = OSGetSystemTime();
+	const OSTime vsync = now > last_vsync ? last_vsync + (now - last_vsync) / period * period : last_vsync;
+	if (vsync < g_used_vsync + period / 2)
+		return;
+	const Queued q = g_queue[0];
+	for (int k = 0; k + 1 < g_queued; k++)
+		g_queue[k] = g_queue[k + 1];
+	g_queued--;
+	g_used_vsync = vsync;
+	g_queue_wait_us = g_queue_wait_us + OSTicksToMicroseconds(now - q.at);
+	g_vis_taken++;
+	if (g_queued < g_spare_min)
+		g_spare_min = g_queued;
+	if (++g_window == kTrimWindow) {
+		if (g_spare_min > 0 && g_queued > 0) {
+			int drop = 0; // the oldest repeat, else the oldest
+			for (int i = 0; i < g_queued; i++)
+				if (!g_queue[i].fresh) {
+					drop = i;
+					break;
+				}
+			drop_queued(drop);
+			g_frames_trimmed++;
+		}
+		g_window = 0;
+		g_spare_min = kQueue;
+	}
+	if (q.picture == g_shown_picture)
+		return; // the TV already shows it: this vsync is the repeat
+	if (vsync - q.at > period)
+		g_frames_late++; // waited past a vsync
+	show(&g_pictures[q.picture]);
+	g_shown_picture = q.picture;
+	g_frames_shown++;
+	if (outside_frame)
+		gx2::restoreState();
+}
+
+// Each VI GLideN64 presents: queued (see above). Controller notices go on a
+// copy of the frame (ui_gfx_overlay).
+void present(GX2ColorBuffer * screen)
+{
+	OUR64_AT();
+	g_last_frame = screen;
+	if (g_hold) // a pause or the closing screen is up: it keeps the screens
+		return;
+	OUR64_AT();
+	GX2ColorBuffer * frame = ui_gfx_overlay(screen);
+	OUR64_AT();
+	if (g_present_waits) {
+		g_frames_shown++;
+		g_shown_picture = -1;
+		show(frame);
+		return;
+	}
+	// A repeat: no task decoded since the last present, the same frame
+	// buffer at the VI origin, no notices drawn on.
+	const bool fresh = g_tasks_done != g_tasks_at_present || g_regs.vi[1] != g_origin_at_present ||
+	                   frame != screen || g_queued_picture < 0;
+	g_tasks_at_present = g_tasks_done;
+	g_origin_at_present = g_regs.vi[1];
+	if (!fresh && g_queued == kQueue) { // repeats the waiting picture: the TV holds it anyway
+		show_queued(false);
+		return;
+	}
+	if (g_queued == kQueue) {
+		int drop = 0; // the oldest repeat, else the oldest
+		for (int i = 0; i < g_queued; i++)
+			if (!g_queue[i].fresh) {
+				drop = i;
+				break;
+			}
+		drop_queued(drop);
+	}
+	int picture = g_queued_picture;
+	if (fresh) {
+		picture = -1;
+		for (int p = 0; p < kPictures && picture < 0; p++)
+			if (p != g_queued_picture && !picture_queued(p))
+				picture = p;
+		// The GPU copies in order: a picture whose copy to the scan buffers
+		// is still to run is copied out before this copy overwrites it.
+		if (picture < 0 || !ui_gfx_copy_frame(frame, &g_pictures[picture])) {
+			g_frames_shown++; // no memory for the queue: shown as before
+			g_shown_picture = -1;
+			show(frame);
+			return;
+		}
+		if (picture == g_shown_picture)
+			g_shown_picture = -1;
+		g_queued_picture = picture;
+	}
+	g_queue[g_queued++] = {picture, fresh, OSGetSystemTime()};
+	OUR64_AT();
+	show_queued(false);
+	OUR64_AT();
+}
+
+void debug(void *, int level, const char * message)
+{
+	if (level <= M64MSG_WARNING)
+		report_line("GLideN64: %s", message);
+	// With sd:/wiiu/our64/capture-unknown-gbi, the first unknown display list
+	// command starts a capture, so the frames can be replayed on the PC to see
+	// whether its GLideN64 reads them the same. Only then: the capture makes
+	// the CPU wait on every graphics task, and Smash Remix's character select
+	// crawled at 0.7 frames a second (2026-10-17).
+	static bool captured = false;
+	if (!captured && strstr(message, "UNKNOWN GBI") != nullptr) {
+		captured = true;
+		char path[256];
+		struct stat st;
+		const char * root = report_sd_root();
+		snprintf(path, sizeof(path), "%s/capture-unknown-gbi", root ? root : "");
+		if (root != nullptr && stat(path, &st) == 0)
+			player_capture_start();
+	}
+}
+
+void check_interrupts() {}
+
+// sd:/wiiu/our64/profile-gfx: the graphics core's PC and LR, sampled every
+// 250 us while it decodes a task (an alarm on its own core), for
+// tools/profile-report.py. The last 64K samples (about the last 20 s of
+// decoding) go to profile/player-gfx.prof when the game ends (Destruction
+// Derby's races, 2026-10-20).
+constexpr uint32_t kProfMax = 64 * 1024;
+uint32_t g_prof[kProfMax][2];
+volatile uint32_t g_prof_n;
+volatile bool g_prof_in_task;
+bool g_prof_on, g_prof_saved;
+OSAlarm g_prof_alarm;
+
+void prof_sample(OSAlarm *, OSContext * c)
+{
+	const uint32_t n = g_prof_n;
+	if (g_prof_in_task && c) {
+		g_prof[n % kProfMax][0] = c->srr0;
+		g_prof[n % kProfMax][1] = c->lr;
+		g_prof_n = n + 1;
+	}
+}
+
+void prof_save()
+{
+	if (!g_prof_on || g_prof_saved || g_prof_n == 0)
+		return;
+	g_prof_saved = true;
+	char path[256];
+	const char * root = report_sd_root();
+	snprintf(path, sizeof(path), "%s/profile", root ? root : "");
+	mkdir(path, 0777);
+	snprintf(path, sizeof(path), "%s/profile/player-gfx.prof", root ? root : "");
+	FILE * f = fopen(path, "wb");
+	if (!f)
+		return;
+	const uint32_t n = g_prof_n, kept = n < kProfMax ? n : kProfMax, first = n - kept;
+	const uint32_t header[4] = {0x4F363450, kept, (uint32_t)(uintptr_t)&ProcessDList, 0}; // "O64P"
+	fwrite(header, sizeof(header), 1, f);
+	for (uint32_t i = first; i < n; i++)
+		fwrite(g_prof[i % kProfMax], sizeof(g_prof[0]), 1, f);
+	fclose(f);
+	report_line("PROFILE: the last %u of %u samples of the graphics core's tasks written to %s", (unsigned)kept,
+	            (unsigned)n, path);
+}
+
+// Test switches for Stunt Racer's live-only misplaced triangles (2026-10-28):
+// sd:/wiiu/our64/gx2-drain waits for the GPU after every graphics task, as
+// the GX2 Replay does (it reads back every image), so the GPU never runs
+// behind the decoder. sd:/wiiu/our64/frame-dump makes GamePad minus save the
+// next FRAME_DUMP screens as shown, to sd:/wiiu/our64/framedump/ (each read
+// back waits for the GPU too).
+#define FRAME_DUMP 60
+static bool g_gx2_drain, g_frame_dump;
+static volatile int g_dump_left;
+static unsigned g_dump_index;
+
+static void dump_screen()
+{
+	const char * root = report_sd_root();
+	if (root == nullptr)
+		return;
+	int w = 0, h = 0;
+	ReadScreen2(nullptr, &w, &h, 0);
+	if (w <= 0 || h <= 0)
+		return;
+	static uint8_t * rgb;
+	if (rgb == nullptr)
+		rgb = static_cast<uint8_t *>(malloc(640 * 480 * 3));
+	if (rgb == nullptr || w > 640 || h > 480)
+		return;
+	ReadScreen2(rgb, &w, &h, 0);
+	char path[256];
+	snprintf(path, sizeof(path), "%s/framedump/%05u.ppm", root, g_dump_index++);
+	if (FILE * f = fopen(path, "wb")) {
+		fprintf(f, "P6\n%d %d\n255\n", w, h);
+		for (int y = h - 1; y >= 0; y--) // rows come bottom-up, as from glReadPixels
+			fwrite(rgb + size_t(y) * w * 3, 3, w, f);
+		fclose(f);
+	}
+	if (--g_dump_left == 0)
+		report_line("FRAME DUMP: done, %u screens in framedump/", g_dump_index);
+}
+
+extern "C" int video_frame_dump_on(void) { return g_frame_dump; }
+extern "C" void video_frame_dump_start(void)
+{
+	if (g_dump_left)
+		return;
+	if (const char * root = report_sd_root()) {
+		char path[256];
+		snprintf(path, sizeof(path), "%s/framedump", root);
+		mkdir(path, 0777);
+	}
+	report_line("FRAME DUMP: the next %d screens from VI %u", FRAME_DUMP, player_vis());
+	g_dump_left = FRAME_DUMP;
+}
+
+void snapshot_vi(Slot & s)
+{
+	for (int k = 0; k < 14; k++) s.vi[k] = *g_mem.vi[k];
+}
+
+void run(Slot & s)
+{
+	switch (s.cmd) {
+	case CMD_CALL:
+		s.fn(s.arg);
+		break;
+	case CMD_TASK: {
+		const double t = now_us();
+		memcpy(g_dmem, s.dmem, sizeof(g_dmem));
+		memcpy(g_imem, s.imem, sizeof(g_imem));
+		memcpy(g_regs.vi, s.vi, sizeof(g_regs.vi));
+		memcpy(g_regs.dpc, s.dpc, sizeof(g_regs.dpc));
+		g_regs.sp_status = s.sp_status;
+		g_regs.mi_intr = 0;
+		g_prof_in_task = g_prof_on;
+		/* The task's GPU copies into RDRAM land before its end is told: a copy
+		 * landing later wrote into memory the game had already given to
+		 * something else. Without the CPU's wait Perfect Dark hung as its intro
+		 * changed scenes (2026-10-30). The settle before covers copies made
+		 * outside a task (screens). */
+		if (g_started) {
+			our64_settle_rdram_copies();
+			ProcessDList();
+			our64_settle_rdram_copies();
+		}
+		if (g_gx2_drain)
+			GX2DrawDone();
+		g_prof_in_task = false;
+		Result & r = g_results[s.task % RESULTS];
+		r.sp_set = g_regs.sp_status & ~s.sp_status;
+		r.sp_clear = s.sp_status & ~g_regs.sp_status;
+		r.dp = (g_regs.mi_intr & 0x20) != 0;
+		r.running = RSP.infloop;
+		g_signal_ucode = GBI.getMicrocodeType() == ZSortBOSS;
+		if (g_trace_tasks > 0) {
+			g_trace_tasks--;
+			report_line("GRAPHICS: task %u after a reset or load: %s, display list 0x%08X, microcode 0x%08X", s.task,
+			            r.dp ? "frame done (DP)" : r.running ? "waits on a branch to itself" : "no DP interrupt",
+			            *(uint32_t *)(g_dmem + 0xFF0),
+			            *(uint32_t *)(g_dmem + 0xFD0));
+		}
+		const double d = now_us() - t;
+		g_task_us += d;
+		if (d > g_worst_task_us)
+			g_worst_task_us = d;
+		break;
+	}
+	case CMD_RDP_LIST:
+		/* RDP commands the CPU sent itself (DPC_END written), no RSP task: Rat
+		 * Attack!, NASCAR 2000 and Toy Story 2 draw their screens this way and
+		 * showed black (2026-10-29). */
+		memcpy(g_regs.dpc, s.dpc, sizeof(g_regs.dpc));
+		if (s.dpc[3] & 0x1) // xbus: the commands are in DMEM
+			memcpy(g_dmem, s.dmem, sizeof(g_dmem));
+		if (g_started) {
+			const double t = now_us();
+			our64_settle_rdram_copies();
+			ProcessRDPList();
+			our64_settle_rdram_copies();
+			g_task_us += now_us() - t;
+		}
+		break;
+		case CMD_SCREEN: {
+		const double t = now_us();
+		memcpy(g_regs.vi, s.vi, sizeof(g_regs.vi));
+		g_screen_pending = 0;
+		{
+			/* A screen width change, then what GLideN64 found at the origin for the
+			 * next 10 screens, and screens shown from RDRAM, for Resident Evil 2's
+			 * green and blue wall on a room's first frames (2026-10-26). Menus
+			 * (width 0) are left out. */
+			static u32 lastWidth, logged, follow;
+			static unsigned lastFromRdram;
+			const unsigned fromRdram = our64_vi_from_rdram;
+			if (g_regs.vi[2] != 0 && g_regs.vi[2] != lastWidth)
+				follow = 10;
+			if (g_regs.vi[2] != 0 && (follow || fromRdram != lastFromRdram) && logged < 400) {
+				logged++;
+				report_line("VI: origin 0x%06X width %u status 0x%X; last screen found buffer 0x%06X w %u valid %u; "
+				            "%u kept the last frame, %u from RDRAM", (unsigned)(g_regs.vi[1] & 0xFFFFFF), (unsigned)g_regs.vi[2],
+				            (unsigned)g_regs.vi[0], our64_vi_found_start, our64_vi_found_width, our64_vi_found_valid,
+				            our64_vi_holds, fromRdram);
+			}
+			/* Screens the CPU drew (Rat Attack: black on the Wii U, 2026-10-29): every 600 screens
+			 * while there are any. */
+			static unsigned screens, lastCfb;
+			if (++screens % 600 == 0 && our64_vi_cfb != lastCfb && (lastCfb = our64_vi_cfb, true))
+				report_line("SCREEN: %u CPU-written of %u swaps; copies from RDRAM %u: no buffer %u, no height %u, "
+				            "all zero %u, drawn %u (%u with alpha), last %ux%u", our64_vi_cfb, our64_vi_swaps, our64_cfb_calls,
+				            our64_cfb_nobuffer, our64_cfb_noheight, our64_cfb_zero, our64_cfb_drawn, our64_cfb_alpha,
+				            our64_cfb_last_width, our64_cfb_last_height);
+			if (follow)
+				follow--;
+			if (g_regs.vi[2] != 0)
+				lastWidth = g_regs.vi[2];
+			lastFromRdram = fromRdram;
+		}
+		if (g_started)
+			UpdateScreen();
+		if (g_started && g_dump_left > 0)
+			dump_screen();
+		g_screen_us += now_us() - t;
+		break;
+	}
+	case CMD_VI_STATUS:
+	case CMD_VI_WIDTH:
+		memcpy(g_regs.vi, s.vi, sizeof(g_regs.vi));
+		if (g_started)
+			s.cmd == CMD_VI_STATUS ? ViStatusChanged() : ViWidthChanged();
+		break;
+	}
+}
+
+int graphics_main(int, const char **)
+{
+	g_gfx_ok = WHBGfxInit();
+	{
+		struct stat st;
+		char path[256];
+		const char * root = report_sd_root();
+		snprintf(path, sizeof(path), "%s/profile-gfx", root ? root : "");
+		g_prof_on = root != nullptr && stat(path, &st) == 0;
+		if (g_prof_on) { // the alarm fires on the core that set it: this one
+			OSCreateAlarm(&g_prof_alarm);
+			const OSTime period = OSMicrosecondsToTicks(250);
+			OSSetPeriodicAlarm(&g_prof_alarm, OSGetTime() + period, period, prof_sample);
+			report_line("PROFILE: sampling the graphics core's tasks every 250 us (profile-gfx)");
+		}
+	}
+	g_ready = true;
+	OSSignalEvent(&g_done_event);
+	if (!g_gfx_ok)
+		return 0;
+	while (!g_quit) {
+		while (g_done == g_posted) {
+			if (g_queued == 0) {
+				OSWaitEvent(&g_cmd_event);
+				continue;
+			}
+			OSWaitEventWithTimeout(&g_cmd_event, 1000000); // nanoseconds
+			show_queued(true);
+		}
+		Slot & s = g_slots[g_done % SLOTS];
+		g_busy_cmd = s.cmd;
+		g_busy_since = OSGetSystemTime();
+		run(s);
+		if (s.cmd == CMD_TASK)
+			g_tasks_done = s.task + 1;
+		g_busy_since = 0;
+		__sync_synchronize();
+		g_done = g_done + 1;
+		OSSignalEvent(&g_done_event);
+		show_queued(true); // between commands too: a busy ring kept the TV waiting
+	}
+	if (g_prof_on)
+		OSCancelAlarm(&g_prof_alarm); // a periodic alarm left behind hung the next launches (replay app)
+	WHBGfxShutdown();
+	return 0;
+}
+
+// The next free slot. Waits while the ring is full.
+Slot & claim()
+{
+	if (g_posted - g_done >= SLOTS) {
+		const double t = now_us();
+		while (g_posted - g_done >= SLOTS)
+			OSWaitEvent(&g_done_event);
+		g_cpu_wait_us += now_us() - t;
+		g_cpu_wait_part_us[0] += now_us() - t;
+	}
+	return g_slots[g_posted % SLOTS];
+}
+
+void post()
+{
+	__sync_synchronize();
+	g_posted = g_posted + 1;
+	OSSignalEvent(&g_cmd_event);
+}
+
+// Waits until the graphics core has run every command posted so far.
+void drain()
+{
+	if (g_done == g_posted)
+		return;
+	const double t = now_us();
+	const uint32_t want = g_posted;
+	while (int32_t(g_done - want) < 0)
+		OSWaitEvent(&g_done_event);
+	g_cpu_wait_us += now_us() - t;
+	g_cpu_wait_part_us[1] += now_us() - t;
+}
+
+void call(void (*fn)(void *), void * arg)
+{
+	Slot & s = claim();
+	s.cmd = CMD_CALL;
+	s.fn = fn;
+	s.arg = arg;
+	post();
+	drain();
+}
+
+void start_on_graphics_core(void * result)
+{
+	static char log_path[256], shader_dir[256];
+	if (const char * root = report_sd_root()) {
+		// The previous run's log stays as gx2-log-prev.txt (once a session: later games add to this one).
+		char prev[256];
+		snprintf(log_path, sizeof(log_path), "%s/gx2-log.txt", root);
+		snprintf(prev, sizeof(prev), "%s/gx2-log-prev.txt", root);
+		if (!g_plugin_up) {
+			remove(prev);
+			rename(log_path, prev);
+		}
+		our64_gx2_log_path = log_path;
+		// sd:/wiiu/our64/player-gx2-debug.txt: GLideN64's GX2 debug switches
+		// ("trace": each GPU operation logged, then waited for, so a GPU hang
+		// shows as the last line without "ok"). Lines starting with # are notes.
+		// Not the GX2 Replay's gx2-debug.txt, whose variants (one a line) ran
+		// all at once in live play and changed every game (2026-10-26).
+		static char debug[128];
+		snprintf(prev, sizeof(prev), "%s/player-gx2-debug.txt", root);
+		if (FILE * f = fopen(prev, "r")) {
+			char line[128];
+			debug[0] = 0;
+			while (fgets(line, sizeof(line), f))
+				if (line[0] != '#')
+					strncat(debug, line, sizeof(debug) - strlen(debug) - 1);
+			fclose(f);
+			for (char * c = debug; *c; c++)
+				if (*c == '\n' || *c == '\r')
+					*c = ' ';
+			if (strspn(debug, " ") != strlen(debug)) {
+				our64_gx2_debug = debug;
+				report_line("GX2 debug: %s (sd:/wiiu/our64/player-gx2-debug.txt)", debug);
+			}
+		}
+		// Compiled shaders, kept between runs: compiling takes up to a second each.
+		snprintf(shader_dir, sizeof(shader_dir), "%s/shaders", root);
+		mkdir(shader_dir, 0777);
+		our64_gx2_shader_dir = shader_dir;
+		// GLideN64's per-game settings: sd:/wiiu/our64/GLideN64.custom.ini.
+		our64_config_shared_dir(root);
+		// .frag files in sd:/wiiu/our64/shader-bench: time a compile on each
+		// core before the game starts (gx2-log.txt).
+		char bench[256];
+		struct stat st;
+		snprintf(bench, sizeof(bench), "%s/shader-bench", root);
+		if (stat(bench, &st) == 0 && S_ISDIR(st.st_mode))
+			our64_gx2_shader_bench(bench);
+	}
+	our64_gx2_present = present;
+	// The color copy to RDRAM costs a GPU readback each frame, so it is off
+	// unless sd:/wiiu/our64/copy-color holds a mode (1 sync, 2 double buffer).
+	// GLideN64.custom.ini entries (frameBufferEmulation\copyToRDRAM) win over both.
+	// New shaders compile on a worker thread while GLideN64 draws on with the
+	// previous combiner, unless sd:/wiiu/our64/sync-shaders exists.
+	// Texture coordinates use GLideN64's simpler shaders: the exact texel
+	// ones take CafeGLSL 3-7 s to compile instead of 0.2 s, and drop pixels
+	// on the Wii U GPU. sd:/wiiu/our64/exact-texcoords switches them back.
+	int copy = 0, async = 1, inexact = 1;
+	if (const char * root = report_sd_root()) {
+		char path[256];
+		snprintf(path, sizeof(path), "%s/copy-color", root);
+		if (FILE * f = fopen(path, "r")) {
+			int mode = 0;
+			if (fscanf(f, "%d", &mode) == 1 && mode >= 0 && mode <= 3)
+				copy = mode;
+			fclose(f);
+		}
+		struct stat st;
+		snprintf(path, sizeof(path), "%s/sync-shaders", root);
+		async = stat(path, &st) != 0;
+		snprintf(path, sizeof(path), "%s/gx2-drain", root);
+		g_gx2_drain = stat(path, &st) == 0;
+		snprintf(path, sizeof(path), "%s/frame-dump", root);
+		g_frame_dump = stat(path, &st) == 0;
+		if (g_gx2_drain || g_frame_dump)
+			report_line("TEST:%s%s", g_gx2_drain ? " the graphics core waits for the GPU after every task (gx2-drain)" : "",
+			            g_frame_dump ? " GamePad minus saves screens (frame-dump)" : "");
+		snprintf(path, sizeof(path), "%s/exact-texcoords", root);
+		inexact = stat(path, &st) != 0;
+		snprintf(path, sizeof(path), "%s/present-waits", root);
+		g_present_waits = stat(path, &st) == 0;
+	}
+	static char settings[160];
+	snprintf(settings, sizeof(settings),
+	         "EnableCopyColorToRDRAM=%d,AsyncShaderCompilation=%d,EnableInaccurateTextureCoordinates=%d,AspectRatio=%d",
+	         copy, async, inexact, g_aspect);
+	our64_config_override(settings);
+	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s.", copy,
+	            async ? "in the background" : "before drawing");
+
+	GFX_INFO gi = {};
+	gi.HEADER = g_mem.header;
+	gi.RDRAM = g_mem.rdram;
+	gi.DMEM = g_dmem;
+	gi.IMEM = g_imem;
+	gi.MI_INTR_REG = &g_regs.mi_intr;
+	unsigned ** dpc[8] = {&gi.DPC_START_REG, &gi.DPC_END_REG, &gi.DPC_CURRENT_REG, &gi.DPC_STATUS_REG,
+	                      &gi.DPC_CLOCK_REG, &gi.DPC_BUFBUSY_REG, &gi.DPC_PIPEBUSY_REG, &gi.DPC_TMEM_REG};
+	for (int k = 0; k < 8; k++) *dpc[k] = &g_regs.dpc[k];
+	unsigned ** vi[14] = {&gi.VI_STATUS_REG, &gi.VI_ORIGIN_REG, &gi.VI_WIDTH_REG, &gi.VI_INTR_REG,
+	                      &gi.VI_V_CURRENT_LINE_REG, &gi.VI_TIMING_REG, &gi.VI_V_SYNC_REG, &gi.VI_H_SYNC_REG,
+	                      &gi.VI_LEAP_REG, &gi.VI_H_START_REG, &gi.VI_V_START_REG, &gi.VI_V_BURST_REG,
+	                      &gi.VI_X_SCALE_REG, &gi.VI_Y_SCALE_REG};
+	for (int k = 0; k < 14; k++) *vi[k] = &g_regs.vi[k];
+	gi.CheckInterrupts = check_interrupts;
+	gi.version = 2;
+	gi.SP_STATUS_REG = &g_regs.sp_status;
+	gi.RDRAM_SIZE = &g_rdram_size;
+
+	int & ok = *static_cast<int *>(result);
+	ok = -1;
+	if (!g_plugin_up && PluginStartup(nullptr, nullptr, debug) != M64ERR_SUCCESS) {
+		report_line("GLideN64: PluginStartup failed");
+		return;
+	}
+	g_plugin_up = true;
+	our64_gx2_shader_progress = ui_gfx_loading_progress;
+	if (!InitiateGFX(gi)) {
+		report_line("GLideN64: InitiateGFX failed");
+		return;
+	}
+	if (!RomOpen()) {
+		report_line("GLideN64: RomOpen failed");
+		return;
+	}
+	ViStatusChanged();
+	ViWidthChanged();
+	g_started = true;
+	ok = 0;
+}
+
+void stop_on_graphics_core(void *)
+{
+	prof_save(); // this game's samples, then a fresh start for the next
+	g_prof_n = 0;
+	g_prof_saved = false;
+	if (!g_started)
+		return;
+	RomClosed(); // the plugin stays up for the next game
+	our64_gx2_present = nullptr;
+	g_started = false;
+	g_last_frame = nullptr;
+	g_queued = 0; // nothing of this game reaches the screens after it
+	g_queued_picture = g_shown_picture = -1;
+	g_tasks_at_present = ~0u;
+}
+
+void quit_on_graphics_core(void *) { g_quit = true; }
+
+// The screen after the game stops: dark red, see player-log.txt.
+void idle_frame_on_graphics_core(void *)
+{
+	WHBGfxBeginRender();
+	WHBGfxBeginRenderTV();
+	WHBGfxClearColor(0.3f, 0.0f, 0.0f, 1.0f);
+	WHBGfxFinishRenderTV();
+	WHBGfxBeginRenderDRC();
+	WHBGfxClearColor(0.3f, 0.0f, 0.0f, 1.0f);
+	WHBGfxFinishRenderDRC();
+	WHBGfxFinishRender();
+}
+
+void post_vi(Command cmd)
+{
+	Slot & s = claim();
+	s.cmd = cmd;
+	snapshot_vi(s);
+	post();
+}
+
+} // namespace
+
+void video_call(void (*fn)(void *), void * arg)
+{
+	if (g_gfx_ok)
+		call(fn, arg);
+}
+
+GX2ColorBuffer * video_last_frame() { return g_last_frame; }
+bool video_game_started() { return g_started; }
+
+void video_set_hold(bool hold)
+{
+	g_hold = hold;
+	if (hold) {
+		g_queued = 0;
+		g_queued_picture = g_shown_picture = -1;
+	}
+}
+
+// Where the graphics core is: its thread stopped a moment, its PC, LR and
+// the return addresses up its stack (addr2line -e player/build/our64.elf).
+extern "C" void video_backtrace(char * out, unsigned size)
+{
+	int n = snprintf(out, size, "graphics core:");
+	if (!g_ready) {
+		snprintf(out + n, size - n, " not running");
+		return;
+	}
+	OSSuspendThread(&g_thread);
+	for (int i = 0; i < 1000 && !OSIsThreadSuspended(&g_thread); i++)
+		OSSleepTicks(OSMicrosecondsToTicks(100));
+	if (!OSIsThreadSuspended(&g_thread)) {
+		OSResumeThread(&g_thread);
+		snprintf(out + n, size - n, " would not stop");
+		return;
+	}
+	const OSContext & c = g_thread.context;
+	n += snprintf(out + n, n < (int)size ? size - n : 0, " pc %08X lr %08X stack", (unsigned)c.srr0, (unsigned)c.lr);
+	const uintptr_t lo = (uintptr_t)g_stack, hi = lo + sizeof(g_stack);
+	uintptr_t sp = c.gpr[1];
+	for (int depth = 0; depth < 24 && sp >= lo && sp + 8 <= hi && n < (int)size; depth++) {
+		const uintptr_t up = *(const uint32_t *)sp; // the back chain
+		if (up <= sp || up + 8 > hi)
+			break;
+		n += snprintf(out + n, size - n, " %08X", (unsigned)*(const uint32_t *)(up + 4));
+		sp = up;
+	}
+	OSResumeThread(&g_thread);
+}
+
+extern "C" int video_thread_start(unsigned core)
+{
+	player_get_memory(&g_mem);
+	OSInitEvent(&g_cmd_event, FALSE, OS_EVENT_MODE_AUTO);
+	OSInitEvent(&g_done_event, FALSE, OS_EVENT_MODE_AUTO);
+	if (!OSCreateThread(&g_thread, graphics_main, 0, nullptr, g_stack + sizeof(g_stack), sizeof(g_stack), 16,
+	                    OSThreadAttributes(1u << core)))
+		return -1;
+	OSSetThreadName(&g_thread, "Our64 graphics");
+	OSResumeThread(&g_thread);
+	while (!g_ready)
+		OSWaitEvent(&g_done_event);
+	return g_gfx_ok ? 0 : -1;
+}
+
+extern "C" void video_thread_stop(void)
+{
+	if (!g_gfx_ok)
+		return;
+	call(quit_on_graphics_core, nullptr);
+	int ret;
+	OSJoinThread(&g_thread, &ret);
+	g_gfx_ok = false;
+}
+
+extern "C" void video_idle_frame(void) { if (g_gfx_ok) call(idle_frame_on_graphics_core, nullptr); }
+
+extern "C" int video_start(void)
+{
+	int ok = -1;
+	call(start_on_graphics_core, &ok);
+	return ok;
+}
+
+extern "C" void video_stop(void) { call(stop_on_graphics_core, nullptr); }
+
+namespace {
+void picture_43_on_graphics_core(void *) { ui_gfx_set_picture_43(true); }
+void picture_wide_on_graphics_core(void *) { ui_gfx_set_picture_43(false); }
+} // namespace
+
+// The shape is set where frames go to the screens (ui_gfx_scan): GLideN64's
+// own aspect setting only resized its 4:3 window to the same 640x480, after
+// rebuilding its frame buffers (0.8 s).
+extern "C" void video_set_picture(int wide)
+{
+	if (g_gfx_ok)
+		call(wide ? picture_wide_on_graphics_core : picture_43_on_graphics_core, nullptr);
+	else
+		ui_gfx_set_picture_43(!wide);
+}
+
+extern "C" unsigned video_submit_task(void)
+{
+	const uint32_t task = g_tasks_posted;
+	Slot & s = claim();
+	s.cmd = CMD_TASK;
+	s.task = task;
+	snapshot_vi(s);
+	for (int k = 0; k < 8; k++) s.dpc[k] = *g_mem.dpc[k];
+	s.sp_status = *g_mem.sp_status;
+	memcpy(s.dmem, g_mem.dmem, sizeof(s.dmem));
+	memcpy(s.imem, g_mem.imem, sizeof(s.imem));
+	g_tasks_posted = task + 1;
+	post();
+	return task;
+}
+
+extern "C" void video_submit_rdp_list(void)
+{
+	Slot & s = claim();
+	s.cmd = CMD_RDP_LIST;
+	for (int k = 0; k < 8; k++) s.dpc[k] = *g_mem.dpc[k];
+	if (s.dpc[3] & 0x1)
+		memcpy(s.dmem, g_mem.dmem, sizeof(s.dmem));
+	post();
+}
+
+extern "C" unsigned video_tasks_done(void) { return g_tasks_done; }
+
+extern "C" int video_signal_ucode(void) { return g_signal_ucode; }
+extern "C" void video_set_signal_ucode(int on) { g_signal_ucode = on != 0; }
+
+extern "C" void video_task_result(unsigned task, uint32_t * sp_set, uint32_t * sp_clear, int * dp, int * running)
+{
+	const Result & r = g_results[task % RESULTS];
+	*sp_set = r.sp_set;
+	*sp_clear = r.sp_clear;
+	*dp = r.dp;
+	*running = r.running;
+}
+
+extern "C" int video_wait_task(unsigned task, double timeout_us)
+{
+	if (int32_t(g_tasks_done - task) > 0)
+		return 1;
+	const double t = now_us();
+	if (timeout_us < 0) {
+		while (int32_t(g_tasks_done - task) <= 0)
+			OSWaitEvent(&g_done_event);
+	} else {
+		const double until = t + timeout_us;
+		for (double n = t; int32_t(g_tasks_done - task) <= 0 && n < until; n = now_us())
+			OSWaitEventWithTimeout(&g_done_event, OSTime((until - n) * 1000)); // nanoseconds
+	}
+	g_cpu_wait_us += now_us() - t;
+	g_cpu_wait_part_us[timeout_us < 0 ? 3 : 2] += now_us() - t;
+	return int32_t(g_tasks_done - task) > 0;
+}
+
+extern "C" void video_sync(void) { drain(); }
+
+namespace {
+// GLideN64 keeps the display list it was in across tasks when one branched to
+// itself (RSP.infloop: the next task carries on from there), and skips
+// microcode detection while the microcode addresses stay the same. After a
+// reset or a load neither holds: the next task starts its own display list.
+void reset_rsp_on_graphics_core(void *)
+{
+	if (RSP.infloop || RSP.busy)
+		report_line("GRAPHICS: reset with GLideN64 still in a display list (%s), at 0x%08X",
+		            RSP.infloop ? "a branch to itself" : "busy", RSP.PC[RSP.PCi]);
+	RSP.infloop = false;
+	RSP.busy = false;
+	RSP.halt = false;
+	RSP.uc_start = RSP.uc_dstart = 0;
+	g_trace_tasks = 3;
+}
+} // namespace
+
+extern "C" void video_reset_rsp(void) { if (g_gfx_ok) call(reset_rsp_on_graphics_core, nullptr); }
+
+// A VI. While the graphics core still has one to show, this one is dropped:
+// a graphics core that falls behind skips VIs instead of stalling the CPU.
+extern "C" void video_update_screen(void)
+{
+	if (g_screen_pending)
+		return;
+	g_screen_pending = 1;
+	post_vi(CMD_SCREEN);
+}
+
+extern "C" void video_vi_status_changed(void) { post_vi(CMD_VI_STATUS); }
+extern "C" void video_vi_width_changed(void) { post_vi(CMD_VI_WIDTH); }
+
+extern "C" void video_stats(video_stats_t * s)
+{
+	s->task_us = g_task_us;
+	s->screen_us = g_screen_us;
+	s->cpu_wait_us = g_cpu_wait_us;
+	for (int i = 0; i < 4; i++)
+		s->cpu_wait_part_us[i] = g_cpu_wait_part_us[i];
+	s->worst_task_us = g_worst_task_us;
+	g_worst_task_us = 0;
+	extern volatile double our64_gx2_frame_wait_us; // gx2_ContextImpl.cpp
+	s->gpu_wait_us = our64_gx2_frame_wait_us;
+	s->frames_shown = g_frames_shown;
+	s->frames_dropped = g_frames_dropped;
+	s->frames_late = g_frames_late;
+	s->frames_trimmed = g_frames_trimmed;
+	s->queue_wait_us = g_queue_wait_us;
+	s->vis_taken = g_vis_taken;
+}
+
+extern "C" double video_busy_s(unsigned * cmd)
+{
+	const long long since = g_busy_since;
+	*cmd = g_busy_cmd;
+	return since ? double(OSTicksToMicroseconds(OSGetSystemTime() - OSTime(since))) / 1e6 : 0.0;
+}

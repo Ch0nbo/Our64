@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Known issues
+    url: https://github.com/Ch0nbo/Our64/issues?q=is%3Aissue+label%3A%22known+issue%22
+    about: Check here first. A game listed there needs no new issue unless you found something new about it.
+  - name: Error codes
+    url: https://github.com/Ch0nbo/Our64/blob/main/docs/errors.md
+    about: An error screen with a code such as OUR-0104 says what to do; this list has every one.

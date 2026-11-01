@@ -1,0 +1,144 @@
+# Built 2026-10-17. This is the spec as written before the build; Zach's rulings since
+# (docs/ux/requirements/2026-10-16-library.md, "Changes ruled after the build") and section 1 of
+# docs/plans/2026-10-16-main-ui-design.md describe the screens as built and win where they
+# differ. Rewrite it from those, with screenshots from `make -C tests shots`, before a
+# stage: built review.
+flow: library
+goal: "From any controller, the player finds and starts any game on the SD card in a few presses, sees which games have progress waiting, comes back to the game list from a game without losing anything, and is never left looking at a blank or frozen screen while a game loads"
+stage: spec
+platform: wiiu
+stories: [1, 2, 3, 4]
+app_style: "Same as launch-status and pause: Soviet poster parody, red and cream, bold condensed headlines in a poster voice, cat1.jpg framed in headers (1.5x or less), cat2.jpg (194x259) on the loading screen, Wii U system font and its button glyphs, one UI drawn identically on every active screen (in GamePad only mode the TV keeps its card)."
+accepted_departures: []
+domain_rules:
+  - "The screen mode prompt shows on every launch, with the last choice pre-selected (built in step 4)."
+  - "Nothing is drawn over a running game except controller notices at the top (Zach, 2026-10-16)."
+  - "HOME opens the pause menu during play and cannot be rebound (built in step 5). Outside play, HOME leaves for the Wii U Menu."
+  - "Three kinds of save are kept apart: in-game saves, save states and the autosave (Zach, 2026-10-16). Removing a ROM from the SD card never deletes any of them; they follow the ROM's contents (game id = header name + CRC1), not its file name."
+  - "Box art comes from tools/fetch-art.sh on a computer; the console only reads files: no network code, no network failures on the console."
+  - "Words: \"save state\" for a slot's copy, \"in-game saves\" for the game's own, \"autosave\" for the resume point (pause flow, gap 29)."
+left_out:
+  - what: "Sorting other than A-Z, grid view (Favorites and Recent are tabs on the letter bar now)"
+    why: "Backlog; one alphabetical column first"
+  - what: "Deleting or renaming ROMs from the console"
+    why: "ROMs are copied with a computer; a delete on the console would be the only way to lose a ROM"
+  - what: "Controllers and Settings screens"
+    why: "The setup flow (build step 7); the game list only opens them"
+  - what: "Sounds"
+    why: "No documented way to use the Wii U Menu's sounds; original sounds are not designed yet"
+screens:
+  - id: launch-route
+    title: "After the screen mode prompt"
+    entered_by: "A on the screen mode prompt (launch-status flow)"
+    spec:
+      shows:
+        - what: "The prompt's line under the cards says where A leads: \"Super Mario 64: resumes from today 9:40 PM\" when the last game played has an autosave, else \"Opens the game list\""
+          why: "The player knows before pressing whether their game is coming back"
+          story: 4
+        - what: "When the last game has an autosave: the loading screen, then that game frozen on its autosave with the pause menu up, Resume selected"
+          why: "One press of A picks up where they were; the menu shows it is paused, not running away (design 1.2)"
+          story: 4
+        - what: "When there is none (first launch, or the last game's autosave is missing or unusable): the game list, the last game played selected"
+          why: "No dead end: the list is the home screen"
+        - what: "After Our64 stopped unexpectedly last time (a crash): the line reads \"Our64 stopped unexpectedly. Your autosave from 9:40 PM is ready.\""
+          why: "The player is told what happened and that nothing is lost (design 1.4)"
+          story: 4
+      actions:
+        - do: "A on the prompt"
+          result: "The last game resumes paused (pause menu up), or the game list opens"
+          story: 4
+        - do: "B on the pause menu shown at launch"
+          result: "Resume: the game runs on, as from any pause"
+      states:
+        - "the last game's ROM is no longer on the SD card: the game list opens with a notice line \"Super Mario 64 is no longer on the SD card\""
+        - "the last game's autosave is from another Our64 version or damaged: the game list opens, that game selected, with the reason on its line"
+  - id: game-list
+    title: "Our ROMs (game list)"
+    entered_by: "launch-route without an autosave, or Quit to game list in the pause menu"
+    spec:
+      shows:
+        - what: "Header: headline OUR ROMS with cat1.jpg framed beside it, and the count (\"23 games\")"
+          why: "Which screen, in the app's voice; the count says the scan found them all"
+        - what: "A letter bar right under the header: All, #, A to Z. All is the default and shows every game; a letter shows only its games. Letters with no games are dimmed. Titles starting with a digit or symbol go under #, which comes first (Zach, 2026-10-17). Before All: a star tab for Favorites, first, then Recent (Zach, 2026-10-25); the list opens on Recent when the last game played is in it, never on Favorites"
+          why: "A long list is crossed in a few moves without a second list to read"
+        - what: "The covers stacked like a drawer on the left: the selected one pulled up and out to the right, whole; two or three on each side overlapping behind it, smaller and darker further away; they glide when the selection moves. Games without art get a poster card (the title on red and cream)"
+          why: "Recognition: covers are found faster than names; 5-6 covers in view with one in full focus (Zach, 2026-10-17)"
+        - what: "Up on the first game goes to the last, down on the last to the first; holding up or down stops at the end (Zach, 2026-10-27)"
+          why: "The far end of a long tab is one press away; a held repeat cannot overshoot past it"
+          story: 1
+        - what: "Beside the drawer: the selected game's name large, with \"Autosave: today 9:40 PM\" and how many save states it has (\"2 save states\"); the names before and after it small, beside their covers"
+          why: "Three names readable at once, one in focus; which games have progress waiting"
+          story: 3
+        - what: "A favorite's cover has a gold star badge; any other game's badge counts its save states (none without)"
+          why: "Which games the player starred, at a glance (Zach, 2026-10-25)"
+        - what: "Legend bar: (D-pad) Choose, (+) Settings, (HOME) Wii U Menu, (A) Start or Resume, (Y) Favorite or Unfavorite (minus on a Wii Remote or Nunchuk), (X) Delete (not on a Wii Remote or Nunchuk: no button to spare); glyphs of the controller pressed last"
+          why: "Every button that acts is named"
+      actions:
+        - do: "Up/down on the D-pad or left stick, any controller"
+          result: "Selection moves one game; holding scrolls faster after half a second; it stops at the ends"
+          story: 1
+        - do: "Left / right on the D-pad or stick"
+          result: "The previous / next letter on the bar that has games; its games show, the first selected. Back on All, the game you were on stays selected"
+        - do: "A on a game"
+          result: "loading, then the game: from its autosave when it has one (the pause menu up, Resume selected, as at launch), else from the title screen"
+          undo: "HOME, then Quit to game list (its autosave is written first)"
+          story: 4
+        - do: "Y on a game (minus on a Wii Remote or Nunchuk)"
+          result: "Stars or unstars it; config/favorites.txt is written at once (a failed write says OUR-0203). Unstarred in the Favorites tab, it stays listed until the player leaves the tab"
+          undo: "Y again"
+        - do: "X on a game (GamePad, Pro or Classic Controller)"
+          result: "\"Delete <title>?\" in the HOME question's box, \"Its saves and save states stay.\", Cancel focused. Delete moves the ROM to trash/N64 (a rename), adds \"N64/<file>\" to trash/deleted.txt so tools/rom-upload.py never sends it again, unstars it, and the game leaves every list; the game after it is selected (Zach, 2026-10-25: the bulk import left junk). A failed move says OUR-0204 and the game stays"
+          undo: "On a computer: move the file from trash/N64 back to roms and drop its line from deleted.txt"
+        - do: "+"
+          result: "Settings (setup flow); B there returns here with the same game selected"
+        - do: "HOME"
+          result: "Back to the Wii U Menu; nothing needs saving"
+        - do: "Tap a cover on the GamePad"
+          result: "Selects it; a tap on the selected cover is A"
+          story: 2
+        - do: "Drag on the drawer"
+          result: "The covers scroll with the finger; a release ends the drag without choosing anything"
+          story: 2
+        - do: "Tap a letter on the bar"
+          result: "That letter's games, as left / right would show them"
+          story: 2
+      states:
+        - "no ROMs: not an error; the column is replaced by \"Copy your .z64, .n64 or .v64 games to wiiu/our64/roms on the SD card with a computer, then start Our64 again\", and A does nothing"
+        - "a ROM that cannot be read (too small, not an N64 header): it still shows, its cover dimmed, with \"Can't read this file\"; A shows the CAN'T READ THE GAME message (OUR-0104)"
+        - "two files with the same game id (the same ROM twice): both show; their saves are shared, and the line says \"Shares its saves with <other file>\""
+        - "search with no matches: \"No games match \\\"zelda\\\". Press B to clear the search.\""
+        - "the SD card is read for many seconds (hundreds of ROMs): the header shows \"Reading the SD card... 120 games so far\" and the list fills in as it goes"
+  - id: loading
+    title: "Loading"
+    entered_by: "A on a game in game-list, or launch-route with an autosave"
+    spec:
+      shows:
+        - what: "cat2.jpg framed in the middle, the game's title under it, and a progress bar with a line naming the step: \"Reading the game\", \"Loading the autosave\", then \"Preparing graphics 12/17\" while the game's saved shaders are built"
+          why: "The player sees it working and how far along it is; shader building took seconds and was invisible before"
+          story: 3
+        - what: "On the TV in GamePad only mode: the TV card"
+          why: "As every other screen"
+          story: 2
+      actions:
+        - do: "Any button"
+          result: "Nothing: loading cannot be cancelled once the game is being read (HOME is held until the game is paused or running)"
+      states:
+        - "the ROM cannot be read: the CAN'T READ THE GAME message (OUR-0104) with (B) Back to the game list"
+        - "the autosave cannot be used (damaged, another version): the game starts from its title screen, and once it runs the first pause shows why"
+  - id: quit-to-list
+    title: "Quit to game list (pause menu item)"
+    entered_by: "The pause menu, new item between Reset game and Exit to Wii U Menu"
+    spec:
+      shows:
+        - what: "Pause menu item \"Quit to game list\" with the description \"Keep your place and choose another game\""
+          why: "Changing games without going through the Wii U Menu (design 1, pause menu item 7)"
+        - what: "\"SAVING...\" over the frozen frame while the autosave and in-game saves are written, then the game list with this game selected"
+          why: "Every SD write is visible; the player lands where they left"
+          story: 3
+      actions:
+        - do: "A on Quit to game list"
+          result: "Writes as Exit does, then the game list; this game's line shows the new autosave time"
+          undo: "A on the game resumes it from that autosave"
+          story: 4
+      states:
+        - "a write failed: as Exit, the menu stays up once with the red line; Quit again leaves anyway"

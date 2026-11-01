@@ -1,0 +1,24 @@
+name: Our64 itself has a problem
+description: 'The menus, controllers, saves, save states or settings: anything that is not one game.'
+title: "<what goes wrong>"
+labels: ["app"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Our64 version
+      description: Shown at the top right of Our Settings, for example 1.0.0.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What you did and what happened
+      description: Step by step. Include any error code (such as OUR-0201) and which controller you used.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: player-log.txt
+      description: Copy sd:/wiiu/our64/player-log.txt from the SD card and drag it here.

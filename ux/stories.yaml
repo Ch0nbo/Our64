@@ -1,0 +1,17 @@
+# Who Our64 is for. Accepted with the main UI design (Zach, 2026-10-16).
+- id: 1
+  name: "Couch player at the TV"
+  need: "Play with a Pro Controller or Wii Remote from the sofa and never have to find, charge or look at the GamePad"
+- id: 2
+  name: "GamePad-only player"
+  need: "Play on the GamePad while someone else uses the TV, without the game taking over the TV"
+- id: 3
+  name: "Player afraid of losing progress"
+  need: "Know that progress is saved, see when the SD card is being written, and be told plainly when something went wrong and what to do"
+- id: 4
+  name: "Player coming back after a power cut or a crash"
+  need: "Pick up exactly where they were, with no menu digging"
+- id: 5
+  name: "Player who saves before a hard part"
+  need: "Keep a copy of the game before a boss or a risky jump, go back to it as often as they like, and never lose a copy by pressing the wrong button"
+  # Accepted by Zach with the pause flow (2026-10-16).
