@@ -21,6 +21,9 @@ void writer_drain(void);              /* waits until every job has run */
 void writer_stop(void);               /* drain, then end the thread */
 void writer_lock(void);               /* guards data a job shares with the CPU core */
 void writer_unlock(void);
+/* A job's write that took over 2 s goes in the log, the public one too: a
+ * player's report then shows a slow or nearly full card. */
+void writer_slow(const char *what, double ms);
 
 #ifdef __cplusplus
 }

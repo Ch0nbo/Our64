@@ -498,9 +498,10 @@ static void write_job(void)
 	int r = statefile_pack(&info, src, size, 0, g_work, g_work_size, &bytes);
 	OSTime t1 = OSGetSystemTime();
 	if (r == STATEFILE_OK)
-		r = statefile_store(path, g_work, bytes, NULL);
+		r = statefile_store_over(path, g_work, bytes);
+	OSTime t2 = OSGetSystemTime();
+	writer_slow(strrchr(path, '/') + 1, OSTicksToMicroseconds(t2 - t1) / 1e3);
 	if (r == STATEFILE_OK) {
-		OSTime t2 = OSGetSystemTime();
 		report_line("RESUME: point %u written to %s: %u KB in %.0f ms (compress %.0f, write %.0f; core 2)",
 		            (unsigned)info.counter, strrchr(path, '/') + 1, bytes / 1024,
 		            OSTicksToMicroseconds(t2 - t0) / 1e3, OSTicksToMicroseconds(t1 - t0) / 1e3,
@@ -816,6 +817,7 @@ static void card_job(void)
 	info.slot = card < CARD_SLOTS ? card + 1 : 0;
 	info.before = (uint8_t)g_card_job.undo;
 	int r = card_save(g_dir, card, &info, g_card_job.keep_old, g_now, g_now_size, g_thumb, g_work, g_work_size);
+	writer_slow(card_file(card), OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3);
 	report_line("STATES: %s %s in %.0f ms%s", card_file(card), r == STATEFILE_OK ? "written" : "NOT written",
 	            OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3,
 	            r == STATEFILE_BACKUP_FAILED ? " (the old copy could not become the Undo card)" : "");

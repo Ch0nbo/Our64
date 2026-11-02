@@ -20,6 +20,7 @@
 #include "report.h"
 #include "pause_wiiu.h"
 
+#include <coreinit/time.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -74,7 +75,9 @@ static void write_type(int t)
 	writer_lock();
 	memcpy(g_work, g_pending[t], g_type[t].size);
 	writer_unlock();
+	OSTime t0 = OSGetSystemTime();
 	int failed = savefile_write(g_path[t], g_work, g_type[t].size);
+	writer_slow(strrchr(g_path[t], '/') + 1, OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3);
 	if (failed)
 		report_line("SAVE FAILED: %s not written to %s (SD full, locked or removed?)", g_type[t].what, g_path[t]);
 	states_write_done(WRITE_INGAME, !failed);

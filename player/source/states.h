@@ -57,10 +57,14 @@ int statefile_write(const char *path, const state_info *info, const void *raw, u
 int statefile_pack(const state_info *info, const void *raw, unsigned raw_size, int thumb, void *work,
                    unsigned work_size, unsigned *bytes);
 int statefile_store(const char *path, const void *work, unsigned bytes, const void *thumb);
+/* store for resume points, with no thumbnail: over the file in place, which
+ * keeps room after the state (see states.c). A torn write fails the CRC, and
+ * resume_load takes the other file. */
+int statefile_store_over(const char *path, const void *work, unsigned bytes);
 int statefile_read(const char *path, uint32_t crc1, uint32_t crc2, state_info *info,
                    void *raw, unsigned raw_cap, unsigned *raw_size);
 /* The header and thumbnail alone (thumb: THUMB_BYTES, filled when the file
- * has one; NULL skips it), for a card. The file's size must match its header; the state's
+ * has one; NULL skips it), for a card. The file must be at least the size its header gives; the state's
  * CRC is checked only by a full read. */
 int statefile_peek(const char *path, uint32_t crc1, uint32_t crc2, state_info *info, void *thumb);
 

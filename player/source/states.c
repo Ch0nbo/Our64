@@ -61,6 +61,38 @@ int statefile_store(const char *path, const void *work, unsigned bytes, const vo
 	return STATEFILE_OK;
 }
 
+/* Over the file's own clusters, so the card's free space is never searched:
+ * on a nearly full card that search made each write take seconds. A file
+ * too small for bytes is written anew with a quarter to spare, zeros after
+ * the state (the header says where it ends). */
+int statefile_store_over(const char *path, const void *work, unsigned bytes)
+{
+	static const unsigned char zeros[4096];
+	FILE *f = fopen(path, "r+b");
+	unsigned room = 0;
+	if (f && (fseek(f, 0, SEEK_END) || ftell(f) < (long)bytes || fseek(f, 0, SEEK_SET))) {
+		fclose(f);
+		f = NULL;
+	}
+	if (!f) {
+		f = fopen(path, "wb");
+		if (!f)
+			return STATEFILE_WRITE_FAILED;
+		room = (bytes + bytes / 4 + 0xFFFF) & ~0xFFFFu;
+	}
+	size_t n = fwrite(work, 1, bytes, f);
+	for (unsigned at = bytes; n == bytes && at < room; at += sizeof(zeros)) {
+		unsigned k = room - at < sizeof(zeros) ? room - at : sizeof(zeros);
+		if (fwrite(zeros, 1, k, f) != k)
+			n = 0;
+	}
+	if (fclose(f) != 0 || n != bytes) {
+		remove(path);
+		return STATEFILE_WRITE_FAILED;
+	}
+	return STATEFILE_OK;
+}
+
 int statefile_write(const char *path, const state_info *info, const void *raw, unsigned raw_size,
                     const void *thumb, void *work, unsigned work_size)
 {
@@ -119,7 +151,7 @@ int statefile_peek(const char *path, uint32_t crc1, uint32_t crc2, state_info *i
 		r = STATEFILE_DAMAGED;
 	if (r == STATEFILE_OK || r == STATEFILE_OTHER_GAME) {
 		long want = header_size(info) + (long)thumb_bytes + (long)packed;
-		if (fseek(f, 0, SEEK_END) || ftell(f) != want)
+		if (fseek(f, 0, SEEK_END) || ftell(f) < want) /* resume points keep room after the state */
 			r = STATEFILE_DAMAGED;
 	}
 	fclose(f);
@@ -143,7 +175,7 @@ int statefile_read(const char *path, uint32_t crc1, uint32_t crc2, state_info *i
 	unsigned char *p = NULL;
 	if (r == STATEFILE_OK) {
 		p = malloc(packed ? packed : 1);
-		r = !p || fread(p, 1, packed, f) != packed || fgetc(f) != EOF ? STATEFILE_DAMAGED : STATEFILE_OK;
+		r = !p || fread(p, 1, packed, f) != packed ? STATEFILE_DAMAGED : STATEFILE_OK;
 	}
 	fclose(f);
 	if (r == STATEFILE_OK && (uint32_t)crc32(0, p, packed) != crc)

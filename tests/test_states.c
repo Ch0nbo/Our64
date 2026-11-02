@@ -559,6 +559,89 @@ static void the_first_capture_assumes_ten_ms(void)
 	CHECK(resume_fits(&t, 12000));
 }
 
+/* ---- resume points written over in place ---- */
+
+static unsigned pack(uint32_t counter, unsigned seed, unsigned raw_size)
+{
+	fill(seed);
+	state_info info = { .crc1 = 1, .crc2 = 0x22222222, .counter = counter };
+	unsigned bytes = 0;
+	statefile_pack(&info, g_raw, raw_size, 0, g_work, sizeof(g_work), &bytes);
+	return bytes;
+}
+
+static int store_over(const char *name, uint32_t counter, unsigned seed, unsigned raw_size)
+{
+	char p[256];
+	path(p, name);
+	unsigned bytes = pack(counter, seed, raw_size);
+	return statefile_store_over(p, g_work, bytes);
+}
+
+static void a_new_file_gets_room_after_the_state(void)
+{
+	char p[256];
+	path(p, "resume-a.o64s");
+	unsigned bytes = pack(1, 3, RAW);
+	CHECK(statefile_store_over(p, g_work, bytes) == STATEFILE_OK);
+	long size = file_size("resume-a.o64s");
+	CHECK(size >= (long)(bytes + bytes / 4) && size % 0x10000 == 0);
+	state_info info;
+	unsigned got = 0;
+	CHECK(statefile_peek(p, 1, 0x22222222, &info, NULL) == STATEFILE_OK);
+	CHECK(statefile_read(p, 1, 0x22222222, &info, g_out, RAW, &got) == STATEFILE_OK);
+	fill(3);
+	CHECK(got == RAW && !memcmp(g_out, g_raw, RAW));
+}
+
+static void a_smaller_state_keeps_the_file_and_reads_back(void)
+{
+	char p[256];
+	path(p, "resume-a.o64s");
+	CHECK(store_over("resume-a.o64s", 1, 3, RAW) == STATEFILE_OK);
+	long size = file_size("resume-a.o64s");
+	CHECK(store_over("resume-a.o64s", 2, 4, RAW / 2) == STATEFILE_OK);
+	CHECK(file_size("resume-a.o64s") == size);
+	state_info info;
+	unsigned got = 0;
+	CHECK(statefile_read(p, 1, 0x22222222, &info, g_out, RAW, &got) == STATEFILE_OK);
+	fill(4);
+	CHECK(got == RAW / 2 && info.counter == 2 && !memcmp(g_out, g_raw, RAW / 2));
+}
+
+static void a_state_bigger_than_the_file_writes_it_anew(void)
+{
+	char p[256];
+	path(p, "resume-a.o64s");
+	FILE *f = fopen(p, "wb");
+	CHECK(f && fwrite(g_work, 1, 100, f) == 100);
+	fclose(f);
+	unsigned bytes = pack(1, 5, RAW);
+	CHECK(statefile_store_over(p, g_work, bytes) == STATEFILE_OK);
+	CHECK(file_size("resume-a.o64s") >= (long)bytes);
+	state_info info;
+	unsigned got = 0;
+	CHECK(statefile_read(p, 1, 0x22222222, &info, g_out, RAW, &got) == STATEFILE_OK && got == RAW);
+}
+
+/* A power cut in an in-place write: the new header over the old state. */
+static void a_torn_write_falls_back_to_the_other_file(void)
+{
+	resume_plan plan;
+	unsigned size;
+	CHECK(store_over("resume-a.o64s", 1, 6, RAW) == STATEFILE_OK);
+	CHECK(store_over("resume-b.o64s", 2, 7, RAW) == STATEFILE_OK);
+	char p[256];
+	path(p, "resume-a.o64s");
+	pack(3, 8, RAW);
+	FILE *f = fopen(p, "r+b");
+	CHECK(f && fwrite(g_work, 1, 64 + 1000, f) == 64 + 1000);
+	fclose(f);
+	CHECK(resume(&plan, &size) == STATEFILE_OK);
+	fill(7);
+	CHECK(plan.loaded_file == 1 && !memcmp(g_out, g_raw, RAW) && plan.next_counter == 4);
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fresh_dir(); fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 int main(void)
@@ -597,6 +680,10 @@ int main(void)
 	RUN(another_games_resume_point_is_ignored);
 	RUN(both_damaged_reports_damage);
 	RUN(forget_deletes_both);
+	RUN(a_new_file_gets_room_after_the_state);
+	RUN(a_smaller_state_keeps_the_file_and_reads_back);
+	RUN(a_state_bigger_than_the_file_writes_it_anew);
+	RUN(a_torn_write_falls_back_to_the_other_file);
 	RUN(nothing_is_due_before_a_minute);
 	RUN(a_waiting_save_is_due_at_once);
 	RUN(a_save_with_no_chance_gives_up_after_five_seconds);

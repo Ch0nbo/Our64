@@ -33,7 +33,7 @@ static struct { uint32_t hash; uint32_t count; } seen[128];
  * 2026-10-31). The indented lines under a kept line are kept with it. */
 static const char *const g_keep_prefix[] = {
 	"Our64 ", "OUR ROMS: play ", "Playing ", "GAME: ", "ERROR ", "CRASH", "FAILED", "SAVE FAILED",
-	"RESUME FAILED", "WATCHDOG", "STALL", "SYSTEM:", "MEMORY:", "GLideN64:", "TPAK: SAVE NOT WRITTEN",
+	"RESUME FAILED", "SLOW SD", "WATCHDOG", "STALL", "SYSTEM:", "MEMORY:", "GLideN64:", "TPAK: SAVE NOT WRITTEN",
 	"Closing after", "No sound", "No JIT area", "Graphics did not start", "Core variables",
 };
 static bool g_keep_indented;

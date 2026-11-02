@@ -104,3 +104,9 @@ void writer_stop(void)
 
 void writer_lock(void) { OSLockMutex(&g_lock); }
 void writer_unlock(void) { OSUnlockMutex(&g_lock); }
+
+void writer_slow(const char *what, double ms)
+{
+	if (ms > 2000)
+		report_line("SLOW SD: %s took %.1f s to write", what, ms / 1e3);
+}
