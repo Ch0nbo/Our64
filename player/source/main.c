@@ -1216,6 +1216,13 @@ static int play_game(int index)
 	 * factor 1 drew 27.4 (86.5% and 9%), at 60 VIs a second (2026-11-02). */
 	if (!strncmp((const char *)ROM_HEADER.Name, "CONKER BFD", 10))
 		cpo = 1;
+	/* V-Rally Edition 99: at factor 2 its menus wrote audio every other VI in
+	 * places (11,000 frames a second of 21,617), and the VIs ran on at 65-77 a
+	 * second with the sound breaking up (GitHub issue 17); at factor 1 those
+	 * stretches lack at most 3,600 frames a second and the underruns fell from
+	 * up to 15 to 0-3 in 10 s, at 60 VIs a second (2026-11-02). */
+	if (!strncmp((const char *)ROM_HEADER.Name, "V-RALLY", 7))
+		cpo = 1;
 	/* Castlevania and Legacy of Darkness ("CASTLEVANIA2") swap code overlays
 	 * at 0x0F000000 that begin with the same instructions: the recompiler
 	 * checks whole functions there (Wrappers.c), or the main thread runs an old
