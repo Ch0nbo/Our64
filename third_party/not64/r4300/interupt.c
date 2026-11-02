@@ -312,16 +312,33 @@ int save_eventqueue_infos_max(char *buf, int size)
   return len+4;
 }
 
+#ifdef __WIIU__
+/* How far behind Count a saved event may be and still be one the state was
+ * captured just before running: a block's worth of counts, with room. */
+#define LATE_EVENT_COUNTS 0x4000
+#endif
+
 // load the queue (for save states)
 void load_eventqueue_infos(char *buf)
 {
   unsigned int len = 0, type = 0, count = 0;
   int vi = 0;
   clear_queue();
+#ifdef __WIIU__
+  /* Our64: a state captured after Count passed an event but before the
+   * check that runs it holds that event a few counts behind Count, which the
+   * queue reads as nearly a counter wrap ahead (about 90 s). Banjo-Tooie's
+   * resume point had its VI 4 counts behind and never showed a frame
+   * (2026-11-02). Such an event is due now. */
+  if ((unsigned long)(Count - next_vi) - 1 < LATE_EVENT_COUNTS)
+    next_vi = Count;
+#endif
   while (*((unsigned long*)&buf[len]) != 0xFFFFFFFF) {
     type  = *((unsigned long*)&buf[len]);
     count = *((unsigned long*)&buf[len+4]);
 #ifdef __WIIU__
+    if ((unsigned long)(Count - count) - 1 < LATE_EVENT_COUNTS)
+      count = Count;
     /* Our64: states saved before the VI fix above can hold many VIs, the
      * stale ones long past (read as nearly a counter wrap ahead): one VI
      * only, at next_vi, which the state restored first */

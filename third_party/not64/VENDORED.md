@@ -15,7 +15,7 @@ Changes made for Our64, built only with `__WIIU__` where they touch the Wii and 
 - Recompiler: jr/jalr target table, loads and stores at TLB addresses looked up in generated code,
   code at TLB addresses kept correct after DMA and remaps, DIV/DIVU with r0, idle-loop skips.
 - Interrupts and timing: VI events no longer duplicated, Count writes keep the queue in step, the
-  RDP clock counts.
+  RDP clock counts, events a state saved just behind Count run at once when it loads.
 - HLE: the mupen64plus JPEG decoder (Pokemon Stadium 1 and 2, Ocarina of Time), a second audio state,
   Resident Evil 2 on a big-endian host, 4 MB at boot for games that need it.
 
