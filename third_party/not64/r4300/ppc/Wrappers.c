@@ -131,6 +131,7 @@ int our64_at_boundary;
 unsigned int our64_dyna_fallbacks, our64_dyna_fallback_first;
 /* Funcs at TLB addresses found changed in memory and compiled again (dynarec). */
 unsigned int our64_tlb_stale_funcs;
+int our64_full_code_check; /* Our64: compare whole functions at TLB addresses (see the dispatcher) */
 /* Our64 stops go() to load a save state or reset, then starts it again:
  * the block that ran last must not be linked to whatever runs first. */
 void our64_dynarec_unlink(void)
@@ -181,13 +182,23 @@ void dynarec(unsigned int address){
 		 * sees the page after the new overlay is in already, and Not64's stores
 		 * check no code): its main thread ran an old overlay's code and died on
 		 * a store to 0 in a rally (2026-10-21). The words at the address entered
-		 * and the 3 after it are compared each time the dispatcher enters. */
+		 * and the 3 after it are compared each time the dispatcher enters; with
+		 * our64_full_code_check (the player sets it per game), every word from
+		 * there to the function's end within the page. Castlevania's overlays at
+		 * 0x0F000000 begin with the same four words and differ further in: an old
+		 * overlay's code ran, loaded through a table address the new one has not
+		 * mapped, and its main thread died at the start of play (GitHub issue
+		 * 15, 2026-11-02). Not for every game: Conker enters code at TLB
+		 * addresses so often that comparing whole functions took it from 60 to
+		 * 49-53 VIs a second. */
 		if(func && func->our64_mips){
+			extern int our64_full_code_check;
 			const unsigned int at = (address - func->start_addr) >> 2;
+			const unsigned int last = our64_full_code_check ? func->our64_count : at + 4;
 			const MIPS_instr* now = (const MIPS_instr*)fast_mem_access(paddr);
 			int same = 1;
-			for(unsigned int k = at; k < func->our64_count && k < at + 4 && ((paddr + (k - at) * 4) & 0xFFF) >= (paddr & 0xFFF); k++)
-				same &= now[k - at] == func->our64_mips[k];
+			for(unsigned int k = at; same && k < func->our64_count && k < last && ((paddr + (k - at) * 4) & 0xFFF) >= (paddr & 0xFFF); k++)
+				same = now[k - at] == func->our64_mips[k];
 			if(!same){
 				our64_tlb_stale_funcs++;
 				if(our64_tlb_stale_funcs <= 8){

@@ -1216,6 +1216,14 @@ static int play_game(int index)
 	 * factor 1 drew 27.4 (86.5% and 9%), at 60 VIs a second (2026-11-02). */
 	if (!strncmp((const char *)ROM_HEADER.Name, "CONKER BFD", 10))
 		cpo = 1;
+	/* Castlevania and Legacy of Darkness ("CASTLEVANIA2") swap code overlays
+	 * at 0x0F000000 that begin with the same instructions: the recompiler
+	 * checks whole functions there (Wrappers.c), or the main thread runs an old
+	 * overlay's code and dies at the start of play (GitHub issue 15). */
+	{
+		extern int our64_full_code_check;
+		our64_full_code_check = !strncmp((const char *)ROM_HEADER.Name, "CASTLEVANIA", 11);
+	}
 	if (g_count_switch)
 		cpo = g_count_switch;
 	count_per_op = cpo ? cpo : 2;
