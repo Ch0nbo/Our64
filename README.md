@@ -37,7 +37,8 @@ Used as they are:
   Up to 4 players. Pair controllers in the Wii U Menu before starting Our64.
 - **Resume:** Our64 keeps an autosave of where you stopped and offers it the next time you start the game.
 - **Paks:** Controller Pak, Rumble Pak and Transfer Pak. The Transfer Pak reads Game Boy saves from
-  RetroArch's save folders and from Game Boy Virtual Console games installed on the Wii U.
+  RetroArch's save folders, VBA GX's save folder and Game Boy Virtual Console games installed on the
+  Wii U.
 
 Files Our64 writes, all under `sd:/wiiu/our64`:
 

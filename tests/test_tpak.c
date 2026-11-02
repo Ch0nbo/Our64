@@ -1,11 +1,15 @@
 /* PC tests for tpak.c: the Transfer Pak as libultra's osGbpak calls drive
- * it, a Game Boy cartridge's mapper, and Goomba Color's save memory. */
+ * it, a Game Boy cartridge's mapper, Goomba Color's save memory, and where
+ * RetroArch, VBA GX and OurGB keep Game Boy saves. */
 #include "tpak.h"
 #include "minilzo.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <utime.h>
 
 static int g_fail;
 #define CHECK(c) do { if (!(c)) { printf("  FAIL line %d: %s\n", __LINE__, #c); g_fail = 1; } } while (0)
@@ -191,6 +195,101 @@ static void test_retroarch(void)
 	CHECK(at && !lpl_next_path(at, out, sizeof(out)));
 }
 
+/* A file of size bytes, each byte v; its last change set to when. */
+static void put_file(const char *path, uint32_t size, uint8_t v, time_t when)
+{
+	FILE *f = fopen(path, "wb");
+	for (uint32_t i = 0; f && i < size; i++)
+		fputc(v, f);
+	if (f)
+		fclose(f);
+	struct utimbuf t = { when, when };
+	utime(path, &t);
+}
+
+/* VBA GX's settings.xml as mxml writes it, its folders, and its saves: found
+ * by the ROM's name, and written back with the clock after the RAM kept. */
+static void test_vbagx(void)
+{
+	const char *xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+	                  "<file app=\"Visual Boy Advance GX\" version=\"3.0.4\">\n\n"
+	                  "<section name=\"File\" description=\"File Settings\">\n"
+	                  "\t<setting name=\"saveMode\" value=\"0\" description=\"Save Mode\" />\n"
+	                  "\t<setting name=\"saveDevice\" value=\"1\" description=\"Save Device\" />\n"
+	                  "\t<setting name=\"loadFolder\" value=\"roms/Game Boy &amp; Color/\"\n"
+	                  "\t\tdescription=\"Load Folder\" />\n"
+	                  "\t<setting name=\"lastFileLoaded\" value=\"\" description=\"Last File Loaded\" />\n"
+	                  "\t<setting name=\"saveFolder\" value=\"saves/GB\" description=\"Save Folder\" />\n"
+	                  "</section>\n</file>\n";
+	char v[256];
+	CHECK(vba_setting(xml, "saveFolder", v, sizeof(v)) && !strcmp(v, "saves/GB"));
+	CHECK(vba_setting(xml, "loadFolder", v, sizeof(v)) && !strcmp(v, "roms/Game Boy & Color/")); /* &amp; undone */
+	CHECK(vba_setting(xml, "saveDevice", v, sizeof(v)) && !strcmp(v, "1"));
+	CHECK(!vba_setting(xml, "lastFileLoaded", v, sizeof(v))); /* empty */
+	CHECK(!vba_setting(xml, "Folder", v, sizeof(v)));         /* a name is the whole name */
+	CHECK(!vba_setting(xml, "cheatFolder", v, sizeof(v)));
+	CHECK(!vba_setting(xml, "saveFolder", v, 4));             /* too long for out */
+
+	char out[512];
+	CHECK(vba_path("vbagx/saves", "/vol/external01", out, sizeof(out)) && !strcmp(out, "/vol/external01/vbagx/saves"));
+	CHECK(vba_path("roms/gb/", "/vol/external01", out, sizeof(out)) && !strcmp(out, "/vol/external01/roms/gb"));
+	CHECK(vba_path("sd:/x/", "/vol/external01", out, sizeof(out)) && !strcmp(out, "/vol/external01/x"));
+	CHECK(vba_path("/vol/external01/y", "/vol/external01", out, sizeof(out)) && !strcmp(out, "/vol/external01/y"));
+	CHECK(!vba_path("usb1:/vbagx/saves", "/vol/external01", out, sizeof(out)));
+
+	/* a card of its own: settings.xml moves the saves to saves/GB */
+	char card[] = "/tmp/our64-tpak-XXXXXX";
+	CHECK(mkdtemp(card) != NULL);
+	char saves[256], plain[512], autoed[512];
+	CHECK(vba_setting(xml, "saveFolder", v, sizeof(v)) && vba_path(v, card, saves, sizeof(saves)));
+	snprintf(out, sizeof(out), "%s/saves", card);
+	mkdir(out, 0777);
+	mkdir(saves, 0777);
+	const char *base = "Pokemon - Crystal Version (USA, Europe) (Rev 1)";
+	snprintf(plain, sizeof(plain), "%s/%s.sav", saves, base);
+	snprintf(autoed, sizeof(autoed), "%s/%s Auto.sav", saves, base);
+	CHECK(!vba_save_path(saves, base, out, sizeof(out)));
+	/* VBA GX 3.0.4 and older: <name> Auto.sav */
+	put_file(autoed, 0x8030, 0x11, 1000000);
+	CHECK(vba_save_path(saves, base, out, sizeof(out)) && !strcmp(out, autoed));
+	CHECK(!vba_save_path(saves, "Pokemon - Gold Version (USA, Europe)", out, sizeof(out)));
+	/* both: the newer, as VBA GX keeps it when it renames them */
+	put_file(plain, 0x8030, 0x22, 900000);
+	CHECK(vba_save_path(saves, base, out, sizeof(out)) && !strcmp(out, autoed));
+	put_file(plain, 0x8030, 0x22, 1100000);
+	CHECK(vba_save_path(saves, base, out, sizeof(out)) && !strcmp(out, plain));
+
+	/* MBC3 with a clock (Gold, Silver, Crystal): 32 KB of RAM, then VBA GX's
+	 * 48 bytes of clock; the N64 game's RAM goes over the first, the clock stays */
+	FILE *f = fopen(plain, "r+b");
+	for (int i = 0; f && i < 48; i++)
+		fseek(f, 0x8000 + i, SEEK_SET), fputc(0xC0 + i, f);
+	if (f)
+		fclose(f);
+	uint8_t *ram = malloc(0x8000);
+	for (int i = 0; i < 0x8000; i++)
+		ram[i] = (uint8_t)(i * 5);
+	CHECK(gb_save_put(plain, ram, 0x8000) == 0);
+	uint8_t *back = calloc(1, 0x8100);
+	f = fopen(plain, "rb");
+	const size_t got = f ? fread(back, 1, 0x8100, f) : 0;
+	if (f)
+		fclose(f);
+	CHECK(got == 0x8030);
+	CHECK(!memcmp(back, ram, 0x8000));
+	int clock_kept = 1;
+	for (int i = 0; i < 48; i++)
+		clock_kept &= back[0x8000 + i] == 0xC0 + i;
+	CHECK(clock_kept);
+	snprintf(out, sizeof(out), "%s/missing.sav", saves);
+	CHECK(gb_save_put(out, ram, 0x8000) == -1); /* only an existing save is written */
+	CHECK(access(out, F_OK) != 0);
+	free(ram), free(back);
+	remove(plain), remove(autoed), rmdir(saves);
+	snprintf(out, sizeof(out), "%s/saves", card);
+	rmdir(out), rmdir(card);
+}
+
 /* OurGB's game id: its saves are saves/GB/<id>.srm. */
 static void test_ourconsoles(void)
 {
@@ -268,6 +367,7 @@ int main(void)
 	test_tpak();
 	test_goomba();
 	test_retroarch();
+	test_vbagx();
 	test_ourconsoles();
 	test_pairs();
 	puts(g_fail ? "  FAILED" : "  ok");

@@ -1,6 +1,6 @@
 /* Our64 player: the Transfer Pak, the Game Boy cartridge in it, and Game Boy
  * saves kept by Goomba Color (the Game Boy emulator inside a Wii U Virtual
- * Console inject of a Game Boy game), RetroArch and OurGB. Plain C, so
+ * Console inject of a Game Boy game), RetroArch, VBA GX and OurGB. Plain C, so
  * tests/ runs it on the PC.
  *
  * The Transfer Pak follows mupen64plus (transferpak.c, gb_cart.c). */
@@ -81,6 +81,31 @@ int ra_path(const char *in, const char *card, char *out, unsigned n);
 /* The next "path" entry of a playlist (.lpl, JSON) at or after text, JSON
  * escapes undone; returns where to look for the one after, NULL at the end. */
 const char *lpl_next_path(const char *text, char *out, unsigned n);
+
+/* ---- VBA GX's files: a Game Boy game played in VBA GX (Visual Boy Advance
+ * GX, the Wii U app) keeps its cartridge RAM (and, for a cartridge with a
+ * clock, the clock after it) in <save folder>/<ROM name>.sav; the save folder
+ * is vbagx/saves unless settings.xml says otherwise ---- */
+
+/* The value of the setting called name in VBA GX's settings.xml text
+ * (<setting name="name" value="..." .../>), XML escapes undone; 0 when
+ * missing or empty. */
+int vba_setting(const char *xml, const char *name, char *out, unsigned n);
+/* A folder as VBA GX keeps it (from its device's root: "vbagx/saves") as the
+ * player opens it on the SD card (card: its root, "/vol/external01"), the
+ * slash at the end dropped; also takes RetroArch's forms (ra_path). 0 for a
+ * folder on another device (usb1:/, a network share). */
+int vba_path(const char *folder, const char *card, char *out, unsigned n);
+/* The Cartridge Save of the ROM named base (its file name without the
+ * extension) in the save folder dir: <base>.sav, or <base> Auto.sav as VBA
+ * GX 3.0.4 and older name it, the newer when both are there (VBA GX keeps
+ * the newer when it renames them). 0 when neither is there. */
+int vba_save_path(const char *dir, const char *base, char *out, unsigned n);
+
+/* Writes data (size bytes) over the start of the existing save file at path,
+ * what follows kept (the clock after the RAM in a RetroArch, OurGB or VBA GX
+ * save). 0, or -1. */
+int gb_save_put(const char *path, const uint8_t *data, uint32_t size);
 
 /* ---- which Game Boy games each Transfer Pak game takes (tpak.c's g_pairs) ---- */
 

@@ -1,5 +1,5 @@
-/* Our64 player: the Transfer Pak, its Game Boy cartridge, and Goomba Color's
- * saves (tpak.h). */
+/* Our64 player: the Transfer Pak, its Game Boy cartridge, Goomba Color's
+ * saves, and RetroArch's, VBA GX's and OurGB's files (tpak.h). */
 #include "tpak.h"
 #include "minilzo.h"
 
@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* ---- the Game Boy cartridge (mupen64plus's gb_cart.c, without the clock,
  * camera and rumble cartridges) ---- */
@@ -480,6 +481,88 @@ const char *lpl_next_path(const char *text, char *out, unsigned n)
 		return *v ? v + 1 : v;
 	}
 	return NULL;
+}
+
+/* ---- VBA GX's settings and saves ---- */
+
+/* The attribute attr="..." of the element in [at, end), XML escapes undone
+ * (mxml, which writes settings.xml, escapes & < > and "); 0 when missing. */
+static int xml_attr(const char *at, const char *end, const char *attr, char *out, unsigned n)
+{
+	const size_t k = strlen(attr);
+	for (const char *p = at; p + k + 2 <= end; p++) {
+		if ((p[-1] != ' ' && p[-1] != '\t' && p[-1] != '\n' && p[-1] != '\r') || strncmp(p, attr, k) ||
+		    p[k] != '=' || p[k + 1] != '"')
+			continue;
+		static const char *const escapes[] = { "&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", "\"", "&apos;", "'" };
+		unsigned len = 0;
+		for (const char *v = p + k + 2; v < end && *v != '"'; v++) {
+			char c = *v;
+			for (unsigned e = 0; c == '&' && e < 10; e += 2)
+				if (!strncmp(v, escapes[e], strlen(escapes[e]))) {
+					c = escapes[e + 1][0];
+					v += strlen(escapes[e]) - 1;
+					break;
+				}
+			if (len + 1 >= n)
+				return 0;
+			out[len++] = c;
+		}
+		out[len] = '\0';
+		return 1;
+	}
+	return 0;
+}
+
+int vba_setting(const char *xml, const char *name, char *out, unsigned n)
+{
+	char got[64];
+	for (const char *at = strstr(xml, "<setting"); at; at = strstr(at + 8, "<setting")) {
+		const char *end = strchr(at, '>');
+		if (!end)
+			return 0;
+		if (xml_attr(at + 8, end, "name", got, sizeof(got)) && !strcmp(got, name))
+			return xml_attr(at + 8, end, "value", out, n) && out[0];
+	}
+	return 0;
+}
+
+int vba_path(const char *folder, const char *card, char *out, unsigned n)
+{
+	int len;
+	if (!strncmp(folder, "sd:/", 4) || !strncmp(folder, "fs:/", 4) || folder[0] == '/') {
+		if (!ra_path(folder, card, out, n))
+			return 0;
+		len = (int)strlen(out);
+	} else if (strchr(folder, ':'))
+		return 0; /* usb1:/, smb:/: a device the player does not open */
+	else
+		len = snprintf(out, n, "%s/%s", card, folder);
+	if (len <= 0 || (unsigned)len >= n)
+		return 0;
+	while (len > 1 && out[len - 1] == '/')
+		out[--len] = '\0';
+	return 1;
+}
+
+int vba_save_path(const char *dir, const char *base, char *out, unsigned n)
+{
+	char plain[512], autoed[512];
+	struct stat a, b;
+	snprintf(plain, sizeof(plain), "%s/%s.sav", dir, base);
+	snprintf(autoed, sizeof(autoed), "%s/%s Auto.sav", dir, base);
+	const int has_plain = !stat(plain, &a) && a.st_size > 0, has_auto = !stat(autoed, &b) && b.st_size > 0;
+	const char *pick = has_plain && (!has_auto || a.st_mtime >= b.st_mtime) ? plain : has_auto ? autoed : NULL;
+	return pick && snprintf(out, n, "%s", pick) < (int)n;
+}
+
+int gb_save_put(const char *path, const uint8_t *data, uint32_t size)
+{
+	FILE *f = fopen(path, "r+b"); /* not "wb": that would cut off the clock after the RAM */
+	int ok = f && fwrite(data, 1, size, f) == size;
+	if (f)
+		ok &= !fclose(f);
+	return ok ? 0 : -1;
 }
 
 /* ---- OurGB's game id ---- */

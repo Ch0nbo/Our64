@@ -9,24 +9,29 @@
  *
  * A Game Boy game played in RetroArch keeps its cartridge RAM as
  * <savefile_directory>[/<core>]/<ROM name>.srm (or beside the ROM), the RAM
- * first and, for a cartridge with a clock, the clock after it. OurGB
- * (OurConsoles) keeps the same in <card>/wiiu/ourconsoles/saves/GB/<game
+ * first and, for a cartridge with a clock, the clock after it. VBA GX
+ * (Visual Boy Advance GX, the Wii U app) keeps the same in <save
+ * folder>/<ROM name>.sav (<ROM name> Auto.sav in 3.0.4 and older), the save
+ * folder vbagx/saves unless its settings.xml names another; a .sav that is a
+ * Goomba save (VBA GX reads and writes those as they are) is read as one.
+ * OurGB (OurConsoles) keeps the same in <card>/wiiu/ourconsoles/saves/GB/<game
  * id>.srm, the id from the ROM's header (oc_game_id).
  *
  * The ROM comes from <sd root>/gb (*.gb, *.gbc), RetroArch's playlists (the
- * games it played) and folders, or OurConsoles' roms/GB and roms/GBC (only
- * files whose name has the made-for game's word, "pokemon", so as not to open
- * every ROM): for a VC save, the ROM whose header title names a Goomba save;
- * for a RetroArch save, the ROM of the same name; for an OurGB save, the ROM
- * of its id.
+ * games it played) and folders, VBA GX's ROM folders, or OurConsoles' roms/GB
+ * and roms/GBC (only files whose name has the made-for game's word,
+ * "pokemon", so as not to open every ROM): for a VC save, the ROM whose
+ * header title names a Goomba save; for a RetroArch or VBA GX save, the ROM
+ * of the same name; for an OurGB save, the ROM of its id.
  *
- * Saves are looked for in RetroArch first, then the Virtual Console saves,
- * then OurConsoles (Zach, 2026-10-25: most players come from RetroArch), and
- * the looking stops at the first place with the player's save of a Game Boy
- * game the N64 game was made for. Only a made-for game's save goes in the
- * Pak (g_pairs; any game's in the three that take any); of those, the
- * player's own account wins (another account's VC save comes last), then the
- * place looked in first, then the newest. */
+ * Saves are looked for in RetroArch first, then VBA GX (the other standalone
+ * emulator), then the Virtual Console saves, then OurConsoles (Zach,
+ * 2026-10-25: most players come from RetroArch), and the looking stops at the
+ * first place with the player's save of a Game Boy game the N64 game was made
+ * for. Only a made-for game's save goes in the Pak (g_pairs; any game's in
+ * the three that take any); of those, the player's own account wins (another
+ * account's VC save comes last), then the place looked in first, then the
+ * newest. */
 #include "tpak_wiiu.h"
 #include "tpak.h"
 #include "report.h"
@@ -51,18 +56,19 @@ extern int32_t act_finalize(void) __asm__("Finalize__Q2_2nn3actFv");
 #define VC_FILE_MAX 0x80000
 #define FSTIME_1980 315532800LL /* FSTime counts microseconds from 1980, stat's times seconds from 1970 */
 
-enum { FROM_RETROARCH, FROM_VC, FROM_OURCONSOLES }; /* in the order they are looked in */
+enum { FROM_RETROARCH, FROM_VBAGX, FROM_VC, FROM_OURCONSOLES }; /* in the order they are looked in */
 
 static FSAClientHandle g_fsa = -1;
 static gb_cart g_cart;
 static uint8_t *g_rom, *g_ram;
 static uint8_t *g_file;      /* the save file as read */
 static uint32_t g_file_size, g_sram_at;
+static int g_goomba;          /* a VBA GX .sav that is a Goomba save */
 static int g_from;           /* FROM_ */
 static char g_title[16];     /* the Game Boy game's header title */
 static char g_path[256];     /* the save file */
 static char g_quota[128];     /* its title's save directory (flushed after a write) */
-static char g_tid[20];       /* "00050002XXXXXXXX"; for RetroArch or OurGB, the save's file name */
+static char g_tid[20];       /* "00050002XXXXXXXX"; for RetroArch, VBA GX or OurGB, the save's file name */
 static char g_root[256];     /* the SD's our64 folder */
 static char g_card[64];      /* the SD card's root */
 
@@ -196,6 +202,32 @@ static void add_playlist_roms(gb_rom *roms, int *n, const char *lpl)
 	free(text);
 }
 
+/* The Game Boy ROMs in dir and in its folders (one per system: roms/GAMEBOY). */
+static void add_folder_roms(gb_rom *roms, int *n, const char *dir)
+{
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	while (d && (e = readdir(d))) {
+		if (e->d_name[0] == '.')
+			continue;
+		char sub[512];
+		snprintf(sub, sizeof(sub), "%s/%s", dir, e->d_name);
+		DIR *s = is_gb_file(e->d_name) ? NULL : opendir(sub);
+		struct dirent *f;
+		while (s && (f = readdir(s))) {
+			char path[768];
+			snprintf(path, sizeof(path), "%s/%s", sub, f->d_name);
+			add_rom(roms, n, path);
+		}
+		if (s)
+			closedir(s);
+		else
+			add_rom(roms, n, sub);
+	}
+	if (d)
+		closedir(d);
+}
+
 /* RetroArch's settings as the Wii U build keeps them. */
 typedef struct {
 	char saves[256];       /* savefile_directory */
@@ -230,31 +262,12 @@ static void list_roms(gb_rom *roms, int *n, ra_config *ra)
 		snprintf(path, sizeof(path), "%s/retroarch/content_history.lpl", g_card);
 		add_playlist_roms(roms, n, path);
 	}
-	/* RetroArch's ROM folder and its folders (one per system: roms/GAMEBOY),
-	 * so a ROM there counts before RetroArch has played it */
+	/* RetroArch's ROM folder and its folders, so a ROM there counts before
+	 * RetroArch has played it */
 	char browse[256];
 	if (!ra_cfg_value(c, "rgui_browser_directory", v, sizeof(v)) || !ra_path(v, g_card, browse, sizeof(browse)))
 		snprintf(browse, sizeof(browse), "%s/retroarch/roms", g_card);
-	if ((d = opendir(browse))) {
-		while ((e = readdir(d))) {
-			if (e->d_name[0] == '.')
-				continue;
-			char sub[512];
-			snprintf(sub, sizeof(sub), "%s/%s", browse, e->d_name);
-			DIR *s = is_gb_file(e->d_name) ? NULL : opendir(sub);
-			struct dirent *f;
-			while (s && (f = readdir(s))) {
-				char path[768];
-				snprintf(path, sizeof(path), "%s/%s", sub, f->d_name);
-				add_rom(roms, n, path);
-			}
-			if (s)
-				closedir(s);
-			else
-				add_rom(roms, n, sub);
-		}
-		closedir(d);
-	}
+	add_folder_roms(roms, n, browse);
 	char lists[256];
 	if (!ra_cfg_value(c, "playlist_directory", v, sizeof(v)) || !ra_path(v, g_card, lists, sizeof(lists)))
 		snprintf(lists, sizeof(lists), "%s/retroarch/cores/playlists", g_card);
@@ -270,6 +283,46 @@ static void list_roms(gb_rom *roms, int *n, ra_config *ra)
 		}
 		closedir(d);
 	}
+}
+
+/* VBA GX's settings as its Wii U build keeps them in settings.xml. */
+typedef struct {
+	char saves[256];       /* saveFolder on the SD; "" when the saves are on a device the player does not open */
+} vba_config;
+
+/* VBA GX's settings.xml, looked for where VBA GX looks on the SD
+ * (wiiu/apps/vbagx, then vbagx), and its ROM folders and their folders: the
+ * one it showed last (loadFolder) and vbagx/roms. Its folders are kept from
+ * their device's root; saveDevice and loadDevice say which device (0: the
+ * first with a vbagx/saves, the SD on a Wii U without USB saves; 1: the SD;
+ * more: USB drives and network shares, which the player does not open). */
+static void list_vbagx_roms(gb_rom *roms, int *n, vba_config *vba)
+{
+	static const char *const homes[] = { "wiiu/apps/vbagx", "vbagx" };
+	char *xml = NULL;
+	for (unsigned i = 0; !xml && i < 2; i++) {
+		char path[128];
+		snprintf(path, sizeof(path), "%s/%s/settings.xml", g_card, homes[i]);
+		xml = read_text(path, 1 << 20);
+	}
+	const char *x = xml ? xml : "";
+	char v[256], dir[256];
+	const int save_sd = !vba_setting(x, "saveDevice", v, sizeof(v)) || atoi(v) <= 1;
+	const int load_sd = !vba_setting(x, "loadDevice", v, sizeof(v)) || atoi(v) <= 1;
+	if (!save_sd)
+		vba->saves[0] = '\0';
+	else if (vba_setting(x, "saveFolder", v, sizeof(v))) {
+		if (!vba_path(v, g_card, vba->saves, sizeof(vba->saves)))
+			vba->saves[0] = '\0';
+	} else
+		snprintf(vba->saves, sizeof(vba->saves), "%s/vbagx/saves", g_card);
+	if (!vba->saves[0])
+		report_line("TPAK: VBA GX keeps its saves on a USB drive or a network share: they are not looked at");
+	if (load_sd && vba_setting(x, "loadFolder", v, sizeof(v)) && vba_path(v, g_card, dir, sizeof(dir)))
+		add_folder_roms(roms, n, dir);
+	snprintf(dir, sizeof(dir), "%s/vbagx/roms", g_card);
+	add_folder_roms(roms, n, dir);
+	free(xml);
 }
 
 static const tpak_pair *g_pair; /* this N64 game's; NULL: not a game Our64 knows the Game Boy games of */
@@ -449,6 +502,25 @@ static void scan_retroarch(const ra_config *ra, const gb_rom *roms, int nroms, c
 	}
 }
 
+/* VBA GX's saves of the ROMs in the list: <save folder>/<ROM name>.sav. */
+static void scan_vbagx(const vba_config *vba, const gb_rom *roms, int nroms, candidate *best, int *found, int *files)
+{
+	for (int r = 0; vba->saves[0] && r < nroms; r++) {
+		int seen = 0; /* a ROM of the same name in another folder: the same save */
+		for (int k = 0; k < r && !seen; k++)
+			seen = !strcasecmp(roms[k].base, roms[r].base);
+		candidate c = { .rom = r, .from = FROM_VBAGX, .mine = 1, .made_for = made_for(&roms[r]) };
+		struct stat st;
+		if (seen || !vba_save_path(vba->saves, roms[r].base, c.path, sizeof(c.path)) || stat(c.path, &st))
+			continue;
+		(*files)++;
+		c.when = st.st_mtime;
+		snprintf(c.tid, sizeof(c.tid), "%.19s", strrchr(c.path, '/') + 1);
+		report_line("TPAK: %s's save in VBA GX's %s", roms[r].title, c.path);
+		consider(&c, best, found);
+	}
+}
+
 /* OurGB's saves of the ROMs in the list: saves/GB/<game id>.srm. */
 static void scan_ourconsoles(const gb_rom *roms, int nroms, const unsigned char *n64_name, candidate *best, int *found,
                              int *files)
@@ -473,6 +545,7 @@ static void release(void)
 {
 	free(g_rom), free(g_ram), free(g_file);
 	g_rom = g_ram = g_file = NULL;
+	g_goomba = 0;
 	if (g_fsa >= 0)
 		FSADelClient(g_fsa);
 	g_fsa = -1;
@@ -494,15 +567,19 @@ int tpak_wiiu_start(const char *sd_root, const unsigned char *n64_name, uint32_t
 	int nroms = 0;
 	ra_config ra;
 	list_roms(roms, &nroms, &ra);
+	vba_config vba;
+	list_vbagx_roms(roms, &nroms, &vba);
 	candidate best;
-	int found = 0, vc_files = 0, ra_files = 0, oc_files = 0;
+	int found = 0, vc_files = 0, ra_files = 0, vba_files = 0, oc_files = 0;
 	scan_retroarch(&ra, roms, nroms, n64_name, &best, &found, &ra_files);
+	if (go_on(&best, found))
+		scan_vbagx(&vba, roms, nroms, &best, &found, &vba_files);
 	const int ra_roms = nroms;
 	if (go_on(&best, found))
 		add_ourconsoles_roms(roms, &nroms); /* a Virtual Console or OurGB save may be of one of these */
 	if (!nroms) {
-		report_line("TPAK: no Game Boy ROMs in %s/gb, RetroArch's playlists and folders or OurConsoles' roms: "
-		            "the Transfer Pak stays empty", g_root);
+		report_line("TPAK: no Game Boy ROMs in %s/gb, RetroArch's playlists and folders, VBA GX's roms or "
+		            "OurConsoles' roms: the Transfer Pak stays empty", g_root);
 		return 0;
 	}
 	if (go_on(&best, found)) {
@@ -521,8 +598,9 @@ int tpak_wiiu_start(const char *sd_root, const unsigned char *n64_name, uint32_t
 	if (go_on(&best, found))
 		scan_ourconsoles(roms, nroms, n64_name, &best, &found, &oc_files);
 	report_line("TPAK: %d Game Boy ROMs (%d from OurConsoles), %d saves of them in %d RetroArch saves (%s), "
-	            "%d Virtual Console save files and %d OurConsoles saves, %.0f ms", nroms, nroms - ra_roms, found,
-	            ra_files, ra.saves, vc_files, oc_files, OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3);
+	            "%d VBA GX saves (%s), %d Virtual Console save files and %d OurConsoles saves, %.0f ms", nroms,
+	            nroms - ra_roms, found, ra_files, ra.saves, vba_files, vba.saves[0] ? vba.saves : "not on the SD",
+	            vc_files, oc_files, OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3);
 	if (!g_pair)
 		report_line("TPAK: %.20s (CRC1 %08X) is not in the list of Transfer Pak games and their Game Boy games",
 		            (const char *)n64_name, (unsigned)crc1);
@@ -560,7 +638,11 @@ int tpak_wiiu_start(const char *sd_root, const unsigned char *n64_name, uint32_t
 			struct stat st;
 			n = stat(best.path, &st) ? 0 : st.st_size;
 		}
-		if (g_file && n >= (long)ram_size) {
+		if (g_file && best.from == FROM_VBAGX && n >= GOOMBA_SRAM_SIZE && goomba_is_sram(g_file)) {
+			g_file_size = (uint32_t)n; /* a Goomba save VBA GX was given: the game's save is inside */
+			g_goomba = 1;
+			at = goomba_read(g_file, rom->title, g_ram, ram_size, &why) ? -1 : 0;
+		} else if (g_file && n >= (long)ram_size) {
 			g_file_size = (uint32_t)n;
 			memcpy(g_ram, g_file, ram_size);
 			at = 0;
@@ -579,13 +661,24 @@ int tpak_wiiu_start(const char *sd_root, const unsigned char *n64_name, uint32_t
 	snprintf(g_quota, sizeof(g_quota), "%s", best.quota);
 	snprintf(g_tid, sizeof(g_tid), "%s", best.tid);
 	player_tpak_insert(&g_cart);
-	static const char *const from[] = { "RetroArch's ", "", "OurConsoles' " };
+	static const char *const from[] = { "RetroArch's ", "VBA GX's ", "", "OurConsoles' " };
 	report_line("TPAK: %s (%s, %u KB save from %s%s) is in port 1's Transfer Pak", rom->path, g_title, ram_size / 1024,
 	            from[g_from], g_from == FROM_VC ? g_tid : g_path);
+	/* VBA GX's default Save Mode, Snapshot, opens the game from its Auto
+	 * Snapshot and writes only that: the save the N64 game changes is then
+	 * not what VBA GX plays */
+	if (g_from == FROM_VBAGX) {
+		char sgm[320];
+		struct stat a, b;
+		snprintf(sgm, sizeof(sgm), "%.*s/%s Auto.sgm", (int)(strrchr(g_path, '/') - g_path), g_path, rom->base);
+		if (!stat(sgm, &a) && !stat(g_path, &b) && a.st_mtime > b.st_mtime)
+			report_line("TPAK: VBA GX's Auto Snapshot of %s is newer than this save: in VBA GX's Snapshot Save Mode "
+			            "the game opens from the Snapshot, not from this save", rom->base);
+	}
 	return 1;
 }
 
-/* The save file as it was, to <sd root>/gb/backup/<title id or save name>-<date>.<bin or srm>. */
+/* The save file as it was, to <sd root>/gb/backup/<title id or save name>-<date>.<bin, sav or srm>. */
 static int backup(void)
 {
 	char path[400];
@@ -595,11 +688,12 @@ static int backup(void)
 	OSTicksToCalendarTime(OSGetTime(), &t);
 	char name[20];
 	snprintf(name, sizeof(name), "%s", g_tid);
-	char *dot = g_from == FROM_RETROARCH ? strrchr(name, '.') : NULL;
+	char *dot = g_from == FROM_RETROARCH || g_from == FROM_VBAGX ? strrchr(name, '.') : NULL;
 	if (dot)
 		*dot = '\0';
 	snprintf(path, sizeof(path), "%s/gb/backup/%s-%04d%02d%02d-%02d%02d%02d.%s", g_root, name, t.tm_year,
-	         t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec, g_from == FROM_VC ? "bin" : "srm");
+	         t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
+	         g_from == FROM_VC ? "bin" : g_from == FROM_VBAGX ? "sav" : "srm");
 	FILE *f = fopen(path, "wb");
 	int ok = f && fwrite(g_file, 1, g_file_size, f) == g_file_size;
 	if (f)
@@ -609,14 +703,17 @@ static int backup(void)
 	return ok;
 }
 
-/* RetroArch's or OurGB's .srm: the cartridge RAM at its start, whatever follows (a clock) kept. */
+/* RetroArch's or OurGB's .srm, or VBA GX's .sav: the cartridge RAM at its
+ * start, whatever follows (a clock) kept. A VBA GX .sav that is a Goomba save
+ * gets the game's save put back in it, and is written whole. */
 static void write_back_srm(void)
 {
-	FILE *f = fopen(g_path, "r+b");
-	int ok = f && fwrite(g_ram, 1, g_cart.ram_size, f) == g_cart.ram_size;
-	if (f)
-		ok &= !fclose(f);
-	if (ok)
+	const char *why = NULL;
+	if (g_goomba && goomba_write(g_file, g_title, g_ram, g_cart.ram_size, &why)) {
+		report_line("TPAK: SAVE NOT WRITTEN BACK: %s", why);
+		return;
+	}
+	if (!(g_goomba ? gb_save_put(g_path, g_file, g_file_size) : gb_save_put(g_path, g_ram, g_cart.ram_size)))
 		report_line("TPAK: %s's save written back to %s", g_title, g_path);
 	else
 		report_line("TPAK: SAVE NOT WRITTEN BACK: %s could not be written", g_path);
