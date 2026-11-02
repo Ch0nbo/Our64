@@ -1210,6 +1210,12 @@ static int play_game(int index)
 	 * a second (2026-10-22). */
 	if (!strncmp((const char *)ROM_HEADER.Name, "STAR WARS EP1 RACER", 19))
 		cpo = 1;
+	/* Conker's Bad Fur Day: not in mupen64plus.ini, so 2, and in play it drew
+	 * 25.4 frames a second, 70% of them held 2 VIs and 27% 3. ares, timed
+	 * closer to the hardware, drew 28.1 at the same spot (88% and 11%);
+	 * factor 1 drew 27.4 (86.5% and 9%), at 60 VIs a second (2026-11-02). */
+	if (!strncmp((const char *)ROM_HEADER.Name, "CONKER BFD", 10))
+		cpo = 1;
 	if (g_count_switch)
 		cpo = g_count_switch;
 	count_per_op = cpo ? cpo : 2;
