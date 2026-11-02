@@ -287,12 +287,14 @@ inline bool keepDiscardsInPlace(const char * _romName)
 // Not for every game: with every lowp value highp, Diddy Kong Racing's track
 // fills with blue speckles and Mario Golf and Banjo-Kazooie move away from
 // the PC (results/gx2-lowpscreen, 32 captures, 2026-10-29).
-// NASCAR 2000 needs it too (Zach on the console, 2026-10-29).
+// NASCAR 2000 needs it too (Zach on the console, 2026-10-29), and so do
+// Castlevania and Legacy of Darkness ("CASTLEVANIA2"), whose torches showed
+// the same wrong texels (Zach on the console, 2026-11-02).
 inline bool allHighp(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "Battle for Naboo") != nullptr ||
 		strstr(_romName, "Army Men Sarge") != nullptr || strstr(_romName, "ARMYMEN SARGE 2") != nullptr ||
-		strstr(_romName, "NASCAR 2000") != nullptr);
+		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr);
 }
 
 inline std::string highpEverywhere(std::string _ps)
