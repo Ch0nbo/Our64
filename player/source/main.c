@@ -1225,16 +1225,19 @@ static int play_game(int index)
 		cpo = 1;
 	/* Banjo-Tooie: at factor 2 it drew 24-28 graphics tasks a second in play,
 	 * at factor 1 29-30, at 60 VIs a second, and it played clearly smoother
-	 * (Zach on the console, 2026-11-02). */
-	if (!strncmp((const char *)ROM_HEADER.Name, "BANJO TOOIE", 11))
+	 * (Zach on the console, 2026-11-02). Japan's is "BANJO KAZOOIE 2". */
+	if (!strncmp((const char *)ROM_HEADER.Name, "BANJO TOOIE", 11) ||
+	    !strncmp((const char *)ROM_HEADER.Name, "BANJO KAZOOIE 2", 15))
 		cpo = 1;
 	/* Castlevania and Legacy of Darkness ("CASTLEVANIA2") swap code overlays
 	 * at 0x0F000000 that begin with the same instructions: the recompiler
 	 * checks whole functions there (Wrappers.c), or the main thread runs an old
-	 * overlay's code and dies at the start of play (GitHub issue 15). */
+	 * overlay's code and dies at the start of play (GitHub issue 15). Japan's
+	 * are "DRACULA MOKUSHIROKU" and "DRACULA MOKUSHIROKU2". */
 	{
 		extern int our64_full_code_check;
-		our64_full_code_check = !strncmp((const char *)ROM_HEADER.Name, "CASTLEVANIA", 11);
+		our64_full_code_check = !strncmp((const char *)ROM_HEADER.Name, "CASTLEVANIA", 11) ||
+		                        !strncmp((const char *)ROM_HEADER.Name, "DRACULA MOKUSHIROKU", 19);
 	}
 	if (g_count_switch)
 		cpo = g_count_switch;
@@ -1279,11 +1282,11 @@ static int play_game(int index)
 		 * addresses too: unlinked, Indy ran at 34 VI/s, linked at 60 (Zach,
 		 * 2026-10-26). Perfect Dark: 46-52 VI/s unlinked (a third of the CPU
 		 * core's emulation in the dispatcher), 59-60 linked, resume included
-		 * (2026-10-27). */
+		 * (2026-10-27). Japan's Perfect Dark names itself in capitals. */
 		our64_tlb_links = g_tlb_links_switch || !strncmp((const char *)ROM_HEADER.Name, "GAUNTLET LEGENDS", 16) ||
 		                  !strncmp((const char *)ROM_HEADER.Name, "Indiana Jones", 13) ||
 		                  !strncmp((const char *)ROM_HEADER.Name, "Battle for Naboo", 16) ||
-		                  !strncmp((const char *)ROM_HEADER.Name, "Perfect Dark", 12);
+		                  !strncasecmp((const char *)ROM_HEADER.Name, "Perfect Dark", 12);
 		if (our64_tlb_links)
 			report_line("CPU: code at TLB addresses is linked; a TLB write cuts the links into its pages (tlb-links)");
 	}

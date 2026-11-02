@@ -266,9 +266,12 @@ inline std::string fetchTexelFilter(const std::string & _ps, bool _all = false, 
 // the same holes live (2026-10-26). Deferred stays for every other game: in
 // place, Mario Party 3's translucent board arrows got holes (results/gx2-early,
 // mp3-v15802).
+// "ZELDA MASTER QUEST" is the name of Master Quest hacks of Ocarina of Time
+// (retail Master Quest keeps "THE LEGEND OF ZELDA").
 inline bool keepDiscardsInPlace(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "THE LEGEND OF ZELDA") != nullptr ||
+		strstr(_romName, "ZELDA MASTER QUEST") != nullptr ||
 		strstr(_romName, "Indiana Jones") != nullptr || strstr(_romName, "Battle for Naboo") != nullptr);
 }
 
@@ -294,7 +297,8 @@ inline bool allHighp(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "Battle for Naboo") != nullptr ||
 		strstr(_romName, "Army Men Sarge") != nullptr || strstr(_romName, "ARMYMEN SARGE 2") != nullptr ||
-		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr);
+		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr ||
+		strstr(_romName, "DRACULA MOKUSHIROKU") != nullptr); // the Castlevanias in Japan
 }
 
 inline std::string highpEverywhere(std::string _ps)
