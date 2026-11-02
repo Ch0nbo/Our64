@@ -1223,6 +1223,11 @@ static int play_game(int index)
 	 * up to 15 to 0-3 in 10 s, at 60 VIs a second (2026-11-02). */
 	if (!strncmp((const char *)ROM_HEADER.Name, "V-RALLY", 7))
 		cpo = 1;
+	/* Banjo-Tooie: at factor 2 it drew 24-28 graphics tasks a second in play,
+	 * at factor 1 29-30, at 60 VIs a second, and it played clearly smoother
+	 * (Zach on the console, 2026-11-02). */
+	if (!strncmp((const char *)ROM_HEADER.Name, "BANJO TOOIE", 11))
+		cpo = 1;
 	/* Castlevania and Legacy of Darkness ("CASTLEVANIA2") swap code overlays
 	 * at 0x0F000000 that begin with the same instructions: the recompiler
 	 * checks whole functions there (Wrappers.c), or the main thread runs an old
