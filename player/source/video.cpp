@@ -14,6 +14,7 @@
 //   interrupt, SP status, DP and VI registers), filled from each command's
 //   snapshot. What a task does to them goes back to the CPU side as a result.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sys/stat.h>
 
@@ -119,6 +120,8 @@ const int g_aspect = 1;   // GLideN64's AspectRatio, force 4:3: its 640x480 wind
 double now_us() { return double(OSTicksToMicroseconds(OSGetSystemTime())); }
 
 volatile unsigned g_frames_shown, g_frames_late, g_frames_dropped, g_frames_trimmed;
+volatile unsigned g_frames_new, g_frames_short, g_frames_long; // game frames measured; held fewer, more vsyncs than VIs
+
 volatile double g_queue_wait_us; // time VIs waited in the queue, summed over the VIs taken
 volatile unsigned g_vis_taken;    // queued VIs the TV took (shown or repeated)
 bool g_present_waits;  // sd:/wiiu/our64/present-waits: show each frame at once, waiting for the flip
@@ -153,7 +156,31 @@ struct Queued {
 	int picture;          // index in g_pictures
 	bool fresh;           // a new picture, not a repeat of the VI before
 	OSTime at;            // when it was queued
+	unsigned vi;          // g_presents at its present
+	uint32_t origin;      // the VI origin then: a new value is a new game frame
 };
+// Holds: each new game frame (a new VI origin) should stay on the TV for as
+// many vsyncs as the game kept it for VIs. Counted at the TV's real flips
+// (GX2GetSwapStatus), from what each swap showed (Conker judders at a steady
+// 30 frames a second, 2026-11-02).
+unsigned g_presents;        // VIs presented, this core's count
+struct SwapInfo { unsigned vi; uint32_t origin; };
+SwapInfo g_swap_info[16];   // by swap count: what each swap showed
+OSTime g_tv_flip;           // the flip that showed the current game frame, 0: none to measure from
+unsigned g_tv_vi;
+uint32_t g_tv_origin;
+uint32_t g_flips_counted;
+// GPU flip queue (GamePad: hold L and R, press minus; dev build): each VI's
+// picture is copied and swapped as soon as GLideN64 presents it, repeats too,
+// so the swap sits in the GPU's command stream right after that frame's own
+// drawing and the GPU flips one swap per vsync. A swap shown later, from the
+// software queue, waited behind the next frame's drawing: 24% of Conker's
+// flips came a vsync late (pace.bin, 2026-11-02). At most kAhead swaps wait:
+// past that a repeat is skipped, or a new picture waits for a flip.
+constexpr uint32_t kAhead = 2;
+volatile bool g_flipq;
+bool g_flipq_was;
+volatile unsigned g_flipq_skipped, g_flipq_waited;
 Queued g_queue[kQueue];
 int g_queued;
 int g_queued_picture = -1;  // the picture the newest queued VI shows
@@ -184,13 +211,72 @@ void drop_queued(int i)
 }
 
 // To the screens the screen mode uses (ui_wiiu.cpp).
-void show(GX2ColorBuffer * screen) { ui_gfx_scan(screen); }
+void pace_note(char kind, OSTime t, OSTime x, uint32_t a, uint32_t b, uint32_t c);
+void show(GX2ColorBuffer * screen, unsigned vi, uint32_t origin, OSTime vsync)
+{
+	ui_gfx_scan(screen);
+	uint32_t swaps = 0, flips = 0;
+	OSTime last_flip, last_vsync;
+	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+	g_swap_info[swaps & 15] = {vi, origin};
+	pace_note('S', OSGetSystemTime(), vsync, vi, origin, swaps);
+}
+
+// A record of every present, show and flip seen, from the first time the
+// flip queue is switched on (dev: L + R + minus), for tools/pace-report.py;
+// written to sd:/wiiu/our64/pace.bin at HOME (video_pace_write). P: present
+// (VI, origin, fresh), S: show (vsync, the VI shown, its origin, swaps
+// after), F: a flip seen (its time, flips, swaps). This core writes; the file
+// is written while a pause holds it.
+struct PaceEntry { uint64_t t, x; uint32_t kind, a, b, c; };
+constexpr unsigned kPaceN = 32768;
+PaceEntry * g_pace_log;
+volatile unsigned g_pace_n;
+uint32_t g_flips_seen;
+
+void pace_note(char kind, OSTime t, OSTime x, uint32_t a, uint32_t b, uint32_t c)
+{
+	if (g_pace_log == nullptr || g_pace_n >= kPaceN)
+		return;
+	g_pace_log[g_pace_n] = {uint64_t(t), uint64_t(x), uint32_t(kind), a, b, c};
+	g_pace_n = g_pace_n + 1;
+}
+
+// Each flip seen: recorded, and a new game frame's hold counted. Two flips
+// between looks leave the first one's time unknown: no hold counted across it.
+void pace_flips()
+{
+	uint32_t swaps = 0, flips = 0;
+	OSTime last_flip, last_vsync;
+	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+	if (flips == g_flips_seen)
+		return;
+	const bool exact = flips - g_flips_seen == 1;
+	g_flips_seen = flips;
+	pace_note('F', last_flip, 0, flips, swaps, 0);
+	const SwapInfo info = g_swap_info[flips & 15];
+	if (info.origin == g_tv_origin)
+		return;
+	const OSTime period = OSNanosecondsToTicks(16683333);
+	if (g_tv_flip != 0 && exact) {
+		const unsigned held = unsigned((last_flip - g_tv_flip + period / 2) / period), vis = info.vi - g_tv_vi;
+		g_frames_new++;
+		if (held < vis)
+			g_frames_short++;
+		else if (held > vis)
+			g_frames_long++;
+	}
+	g_tv_flip = exact ? last_flip : 0;
+	g_tv_vi = info.vi;
+	g_tv_origin = info.origin;
+}
 
 // Shows the next queued VI once the TV has flipped to the one before and a
 // vsync has passed since. outside_frame: not inside GLideN64's own present,
 // so its GPU state needs giving back.
 void show_queued(bool outside_frame)
 {
+	pace_flips();
 	if (g_queued == 0 || g_hold)
 		return;
 	uint32_t swaps = 0, flips = 0;
@@ -230,7 +316,7 @@ void show_queued(bool outside_frame)
 		return; // the TV already shows it: this vsync is the repeat
 	if (vsync - q.at > period)
 		g_frames_late++; // waited past a vsync
-	show(&g_pictures[q.picture]);
+	show(&g_pictures[q.picture], q.vi, q.origin, vsync);
 	g_shown_picture = q.picture;
 	g_frames_shown++;
 	if (outside_frame)
@@ -243,15 +329,18 @@ void present(GX2ColorBuffer * screen)
 {
 	OUR64_AT();
 	g_last_frame = screen;
-	if (g_hold) // a pause or the closing screen is up: it keeps the screens
+	g_presents++;
+	if (g_hold) { // a pause or the closing screen is up: it keeps the screens
+		g_tv_flip = 0;
 		return;
+	}
 	OUR64_AT();
 	GX2ColorBuffer * frame = ui_gfx_overlay(screen);
 	OUR64_AT();
 	if (g_present_waits) {
 		g_frames_shown++;
 		g_shown_picture = -1;
-		show(frame);
+		show(frame, g_presents, g_regs.vi[1], 0);
 		return;
 	}
 	// A repeat: no task decoded since the last present, the same frame
@@ -260,6 +349,34 @@ void present(GX2ColorBuffer * screen)
 	                   frame != screen || g_queued_picture < 0;
 	g_tasks_at_present = g_tasks_done;
 	g_origin_at_present = g_regs.vi[1];
+	if (g_flipq != g_flipq_was) { // switched: the software queue empties, its pictures unshown
+		g_flipq_was = g_flipq;
+		g_queued = 0;
+		g_queued_picture = -1;
+		g_shown_picture = -1;
+		report_line("VIDEO: GPU flip queue %s at VI %u", g_flipq_was ? "on" : "off", g_presents);
+	}
+	if (g_flipq) {
+		uint32_t swaps = 0, flips = 0;
+		OSTime last_flip, last_vsync;
+		GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+		if (swaps - flips >= kAhead) {
+			if (!fresh) { // a repeat: the TV holds the picture anyway, one vsync fewer
+				g_flipq_skipped++;
+				pace_flips();
+				return;
+			}
+			g_flipq_waited++;
+			while (swaps - flips >= kAhead && !g_quit) {
+				GX2WaitForFlip();
+				GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+			}
+		}
+		show(frame, g_presents, g_regs.vi[1], 0);
+		g_frames_shown++;
+		pace_flips();
+		return;
+	}
 	if (!fresh && g_queued == kQueue) { // repeats the waiting picture: the TV holds it anyway
 		show_queued(false);
 		return;
@@ -284,14 +401,15 @@ void present(GX2ColorBuffer * screen)
 		if (picture < 0 || !ui_gfx_copy_frame(frame, &g_pictures[picture])) {
 			g_frames_shown++; // no memory for the queue: shown as before
 			g_shown_picture = -1;
-			show(frame);
+			show(frame, g_presents, g_regs.vi[1], 0);
 			return;
 		}
 		if (picture == g_shown_picture)
 			g_shown_picture = -1;
 		g_queued_picture = picture;
 	}
-	g_queue[g_queued++] = {picture, fresh, OSGetSystemTime()};
+	g_queue[g_queued++] = {picture, fresh, OSGetSystemTime(), g_presents, g_regs.vi[1]};
+	pace_note('P', g_queue[g_queued - 1].at, 0, g_presents, g_regs.vi[1], fresh);
 	OUR64_AT();
 	show_queued(false);
 	OUR64_AT();
@@ -557,7 +675,9 @@ int graphics_main(int, const char **)
 		return 0;
 	while (!g_quit) {
 		while (g_done == g_posted) {
-			if (g_queued == 0) {
+			// Every millisecond while a game runs: queued VIs go up, and each
+			// flip is seen for the hold counts.
+			if (!g_started) {
 				OSWaitEvent(&g_cmd_event);
 				continue;
 			}
@@ -1007,8 +1127,36 @@ extern "C" void video_stats(video_stats_t * s)
 	s->frames_dropped = g_frames_dropped;
 	s->frames_late = g_frames_late;
 	s->frames_trimmed = g_frames_trimmed;
+	s->frames_new = g_frames_new;
+	s->frames_short = g_frames_short;
+	s->frames_long = g_frames_long;
 	s->queue_wait_us = g_queue_wait_us;
 	s->vis_taken = g_vis_taken;
+}
+
+// The GPU flip queue on or off (dev build: GamePad L + R + minus). The
+// recorder starts with it, so pace.bin covers both ways.
+extern "C" int video_flipq_toggle(void)
+{
+	if (g_pace_log == nullptr)
+		g_pace_log = static_cast<PaceEntry *>(calloc(kPaceN, sizeof(PaceEntry)));
+	g_flipq = !g_flipq;
+	return g_flipq;
+}
+
+// The record so far to sd:/wiiu/our64/pace.bin (at HOME; see pace_note).
+extern "C" void video_pace_write(void)
+{
+	if (g_pace_log == nullptr || g_pace_n == 0)
+		return;
+	char path[256];
+	snprintf(path, sizeof(path), "%s/pace.bin", report_sd_root());
+	if (FILE * f = fopen(path, "wb")) {
+		const unsigned n = g_pace_n;
+		fwrite(g_pace_log, sizeof(PaceEntry), n, f);
+		fclose(f);
+		report_line("PACE: %u events written to pace.bin", n);
+	}
 }
 
 extern "C" double video_busy_s(unsigned * cmd)

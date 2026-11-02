@@ -280,6 +280,10 @@ static uint32_t g_pause_at_vi;
 static void pad_read(void)
 {
 	input_read();
+	if (input_take_flipq()) {
+		const int on = video_flipq_toggle();
+		ui_notice(UI_KEY_DEV, NOTICE_INFO, 3, on ? "GPU flip queue: on" : "GPU flip queue: off", "");
+	}
 	if (input_take_capture()) {
 		if (video_frame_dump_on())
 			video_frame_dump_start();
@@ -379,7 +383,7 @@ static void stats(double t)
 {
 	static uint32_t vis, gfx_calls, underruns, links, yields;
 	static double sect[16], audio_wait, link_us, gfx_wait, task_us, screen_us, cpu_wait, gpu_wait, wait_part[4];
-	static unsigned shown, late, dropped, trimmed, taken;
+	static unsigned shown, late, dropped, trimmed, taken, fnew, fshort, flong;
 	static double queue_wait;
 	extern unsigned our64_gx2_links;
 	extern double our64_gx2_link_us;
@@ -413,12 +417,14 @@ static void stats(double t)
 	const unsigned long long copy_now = our64_color_copy_ticks;
 	const unsigned copies_now = our64_color_copies;
 	report_line("  graphics core: tasks %.0f (worst %.0f, %u shaders compiled in %.0f), screen %.0f, idle %.0f; "
-	            "GPU wait %.0f; frames shown %u (late %u), replaced unshown %u, trimmed %u; queue wait %.1f ms a VI; "
+	            "GPU wait %.0f; frames shown %u (late %u), replaced unshown %u, trimmed %u; "
+	            "game frames %u (held short %u, long %u); queue wait %.1f ms a VI; "
 	            "color copies %u in %.0f",
 	            (v.task_us - task_us) * ms, v.worst_task_us / 1e3, our64_gx2_links - links, compile / 1e3,
 	            (v.screen_us - screen_us) * ms, 1e3 - (v.task_us - task_us + v.screen_us - screen_us) * ms,
 	            (v.gpu_wait_us - gpu_wait) * ms, v.frames_shown - shown, v.frames_late - late,
 	            v.frames_dropped - dropped, v.frames_trimmed - trimmed,
+	            v.frames_new - fnew, v.frames_short - fshort, v.frames_long - flong,
 	            v.vis_taken != taken ? (v.queue_wait_us - queue_wait) / 1e3 / (v.vis_taken - taken) : 0.0,
 	            copies_now - copies, OSTicksToMicroseconds(copy_now - copy_ticks) * ms);
 	copy_ticks = copy_now;
@@ -489,6 +495,9 @@ static void stats(double t)
 	shown = v.frames_shown;
 	dropped = v.frames_dropped;
 	trimmed = v.frames_trimmed;
+	fnew = v.frames_new;
+	fshort = v.frames_short;
+	flong = v.frames_long;
 	taken = v.vis_taken;
 	queue_wait = v.queue_wait_us;
 	late = v.frames_late;
@@ -535,6 +544,7 @@ void new_vi(void)
 		g_pause_wanted = 0;
 		report_line("PAUSE: HOME at VI %u", g_bench.vis);
 		timeline_write(); /* a frozen game is left with HOME, and the power button loses it */
+		video_pace_write();
 		states_pause();
 	}
 	/* Leaving: once the last resume point is captured, or after a second without the moment for it. */

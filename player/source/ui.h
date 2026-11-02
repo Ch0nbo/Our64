@@ -19,6 +19,7 @@ extern "C" {
 /* Notice keys: one per N64 port, so a port's newest news replaces its older. */
 #define UI_KEY_PORT(port) (port)
 #define UI_KEY_BATTERY(id) (16 + (id))
+#define UI_KEY_DEV 32 /* the developer's own switches */
 
 enum {
 	UI_LOADING,  /* headline and portrait while the ROM is read */

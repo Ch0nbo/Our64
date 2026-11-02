@@ -36,7 +36,7 @@ static uint32_t g_keys[INPUT_PORTS];
 static uint32_t g_last[INPUT_CONTROLLERS]; /* buttons at the last read, for presses */
 static int g_type[INPUT_CONTROLLERS];      /* INPUT_ type, -1 when not connected */
 static int g_last_type[INPUT_CONTROLLERS]; /* the type it had before it disconnected */
-static int g_home, g_capture;
+static int g_home, g_capture, g_flipq_press;
 static int g_home_held[INPUT_CONTROLLERS]; /* HOME was down at the last read */
 static int g_joining;                      /* presses put controllers in ports */
 static uint32_t g_withheld[INPUT_CONTROLLERS]; /* buttons kept from the game until released */
@@ -498,6 +498,8 @@ void input_read(void)
 #ifndef OUR64_RELEASE
 		if (id == 0 && (pressed & BIT(SRC_MINUS)) && (raw[0].buttons & BIT(SRC_ZL)) && (raw[0].buttons & BIT(SRC_ZR)))
 			g_capture = 1; /* debug frame capture: - with ZL and ZR held */
+		if (id == 0 && (pressed & BIT(SRC_MINUS)) && (raw[0].buttons & BIT(SRC_L)) && (raw[0].buttons & BIT(SRC_R)))
+			g_flipq_press = 1; /* the GPU flip queue on or off: - with L and R held */
 #endif
 		if (pressed && g_joining && input_port_of(&g_ports, id) < 0)
 			join(id, type);
@@ -618,6 +620,13 @@ int input_take_home(void)
 	int h = g_home;
 	g_home = 0;
 	return h;
+}
+
+int input_take_flipq(void)
+{
+	int c = g_flipq_press;
+	g_flipq_press = 0;
+	return c;
 }
 
 int input_take_capture(void)

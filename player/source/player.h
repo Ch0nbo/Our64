@@ -55,10 +55,12 @@ typedef struct {
 	double gpu_wait_us;           /* graphics core waiting for the GPU at frame ends (total) */
 	unsigned frames_shown, frames_late, frames_dropped; /* shown (late: held for a flip first), replaced unshown */
 	unsigned frames_trimmed; /* queued VIs dropped because the queue never emptied for a second (video.cpp) */
+	unsigned frames_new, frames_short, frames_long; /* game frames on the TV; of them, held fewer or more vsyncs than the game's VIs */
 	double queue_wait_us;    /* time VIs waited in the queue before the TV took them, summed */
 	unsigned vis_taken;      /* queued VIs the TV took */
 } video_stats_t;
 void video_stats(video_stats_t *s);
+void video_pace_write(void); /* the flip record, once the flip queue was switched on: pace.bin (video.cpp) */
 double video_busy_s(unsigned *cmd); /* how long the current command has run; 0 when idle */
 void video_backtrace(char *out, unsigned size); /* the graphics core's PC and return addresses, for the log */
 
@@ -121,6 +123,8 @@ typedef struct {
 } input_menu;
 void input_menu_state(input_menu *m);
 int  input_take_capture(void);    /* the debug capture combination was pressed */
+int  input_take_flipq(void);      /* dev: GamePad L + R + minus, the GPU flip queue on or off */
+int  video_flipq_toggle(void);    /* video.cpp: switches it, returns 1 when now on */
 void player_port_present(int port, int present); /* plugins.c */
 
 void player_plugins_init(void);
