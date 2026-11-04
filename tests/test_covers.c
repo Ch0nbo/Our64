@@ -1,5 +1,6 @@
 /* PC tests for player/source/covertitles_find.c (the No-Intro names by
- * header CRCs) and covers.c (cover file names, URLs and HTTP replies). */
+ * header CRCs) and covers.c (cover file names, URLs, HTTP replies and the
+ * fetch's rules). */
 #include "covertitles.h"
 #include "covers.h"
 #include "version.h"
@@ -187,6 +188,81 @@ static void test_small_buffers(void)
 	CHECK(path[0] == 0);
 }
 
+static void test_outcomes(void)
+{
+	CHECK(covers_status_outcome(200) == COVERS_GOT_PNG);
+	CHECK(covers_status_outcome(404) == COVERS_NOT_FOUND);
+	CHECK(covers_status_outcome(403) == COVERS_NOT_FOUND);
+	CHECK(covers_status_outcome(-1) == COVERS_NET_FAILED); /* garbled or cut off */
+	CHECK(covers_status_outcome(503) == COVERS_NET_FAILED);
+	CHECK(covers_status_outcome(301) == COVERS_NET_FAILED); /* a redirect is not followed */
+	CHECK(covers_is_png((const unsigned char *)"\x89PNG\r\n\x1a\nIHDR", 12));
+	CHECK(!covers_is_png((const unsigned char *)"\x89PNG\r\n\x1a", 7));
+	CHECK(!covers_is_png((const unsigned char *)"<html><body>", 12));
+}
+
+/* Three network failures in a row stop the fetch; a 404 or a bad PNG between
+ * them starts the count again. */
+static void test_server_gone(void)
+{
+	int streak = 0;
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(!covers_server_gone(&streak, COVERS_NOT_FOUND));
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(!covers_server_gone(&streak, COVERS_GOT_PNG));
+	CHECK(!covers_server_gone(&streak, COVERS_NOT_PNG));
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(covers_server_gone(&streak, COVERS_NET_FAILED));
+}
+
+static void test_second_title(void)
+{
+	char out[64];
+	/* the table's name 404'd: the file's name, when it differs */
+	CHECK(covers_second_title("Banjo-Kazooie (USA) (Rev 1)", "Banjo-Kazooie (USA).z64", out, sizeof out));
+	CHECK(!strcmp(out, "Banjo-Kazooie (USA)"));
+	CHECK(!covers_second_title("Banjo-Kazooie (USA)", "Banjo-Kazooie (USA).z64", out, sizeof out));
+	CHECK(out[0] == 0);
+	/* no table name: the first try was the file's, so none */
+	CHECK(!covers_second_title(NULL, "My Hack (USA).z64", out, sizeof out));
+	CHECK(out[0] == 0);
+	/* a file name too long for out */
+	CHECK(!covers_second_title("A", "A very long file name.z64", out, 8));
+	CHECK(out[0] == 0);
+}
+
+static void summary(int result, int stopped, int saved, int not_found, const char *want)
+{
+	char out[128];
+	covers_summary(result, stopped, saved, not_found, out, sizeof out);
+	if (strcmp(out, want))
+		printf("  got \"%s\", want \"%s\"\n", out, want);
+	CHECK(!strcmp(out, want));
+}
+
+static void test_summary(void)
+{
+	summary(COVERS_OK, 0, 9, 3, "Fetched 9 covers. 3 not found.");
+	summary(COVERS_OK, 0, 1, 0, "Fetched 1 cover.");
+	summary(COVERS_OK, 0, 2, 1, "Fetched 2 covers. 1 not found.");
+	summary(COVERS_OK, 0, 0, 4, "No covers found.");
+	summary(COVERS_OK, 0, 0, 0, "No covers found.");
+	summary(COVERS_OK, 1, 2, 0, "Stopped: fetched 2 covers.");
+	summary(COVERS_OK, 1, 1, 1, "Stopped: fetched 1 cover. 1 not found.");
+	summary(COVERS_OK, 1, 0, 0, "Stopped.");
+	/* a failure's line, whatever was saved before it */
+	summary(COVERS_NO_NETWORK, 0, 0, 0, "Not connected to the internet. Check the Wii U's Internet settings. OUR-0401");
+	summary(COVERS_NO_SERVER, 0, 4, 1, "Couldn't reach the cover server. Try again later. OUR-0402");
+	summary(COVERS_CARD_FULL, 1, 4, 0, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
+	/* the line fits Settings' (setup_view.line: 128 bytes) */
+	char tiny[8];
+	covers_summary(COVERS_OK, 0, 9, 3, tiny, sizeof tiny);
+	CHECK(strlen(tiny) == 7);
+}
+
 int main(void)
 {
 	test_title_by_header_crcs();
@@ -198,6 +274,10 @@ int main(void)
 	test_reply();
 	test_file_title();
 	test_small_buffers();
+	test_outcomes();
+	test_server_gone();
+	test_second_title();
+	test_summary();
 	if (!g_failed)
 		printf("  all passed\n");
 	return g_failed;

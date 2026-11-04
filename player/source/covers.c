@@ -175,3 +175,68 @@ void covers_file_title(const char *file, char *out, unsigned size)
 	memcpy(out, base, n);
 	out[n] = 0;
 }
+
+int covers_status_outcome(int status)
+{
+	if (status == 200)
+		return COVERS_GOT_PNG;
+	return status >= 400 && status <= 499 ? COVERS_NOT_FOUND : COVERS_NET_FAILED;
+}
+
+int covers_is_png(const unsigned char *body, unsigned n)
+{
+	return n >= 8 && !memcmp(body, "\x89PNG\r\n\x1a\n", 8);
+}
+
+int covers_server_gone(int *streak, int outcome)
+{
+	if (outcome != COVERS_NET_FAILED) {
+		*streak = 0;
+		return 0;
+	}
+	return ++*streak >= COVERS_NET_TRIES;
+}
+
+int covers_second_title(const char *table_title, const char *file, char *out, unsigned size)
+{
+	if (size == 0)
+		return 0;
+	out[0] = 0;
+	if (!table_title)
+		return 0; /* the first try was the file's title already */
+	covers_file_title(file, out, size);
+	if (out[0] && strcmp(out, table_title))
+		return 1;
+	out[0] = 0;
+	return 0;
+}
+
+void covers_summary(int result, int stopped, int saved, int not_found, char *out, unsigned size)
+{
+	char missed[32] = "";
+	if (size == 0)
+		return;
+	switch (result) {
+	case COVERS_NO_NETWORK:
+		snprintf(out, size, "Not connected to the internet. Check the Wii U's Internet settings. OUR-0401");
+		return;
+	case COVERS_NO_SERVER:
+		snprintf(out, size, "Couldn't reach the cover server. Try again later. OUR-0402");
+		return;
+	case COVERS_CARD_FULL:
+		snprintf(out, size, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
+		return;
+	}
+	if (not_found > 0)
+		snprintf(missed, sizeof missed, " %d not found.", not_found);
+	if (stopped) {
+		if (saved > 0)
+			snprintf(out, size, "Stopped: fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", missed);
+		else
+			snprintf(out, size, "Stopped.%s", missed);
+	} else if (saved > 0) {
+		snprintf(out, size, "Fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", missed);
+	} else {
+		snprintf(out, size, "No covers found.");
+	}
+}
