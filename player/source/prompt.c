@@ -41,9 +41,10 @@ int settings_parse(const char *text, our_settings *s)
 	for (int i = 0; i < 4; i++)
 		s->rumble[i] = 1;
 	memset(s->recent, 0, sizeof(s->recent));
+	s->rom_folder[0] = 0;
 	int recent_line = 0;
 	int result = SETTINGS_MISSING;
-	char line[256];
+	char line[1024]; /* a full Recent games line is up to 5 x 131 bytes */
 	while (*text) {
 		size_t n = strcspn(text, "\n");
 		snprintf(line, sizeof(line), "%.*s", (int)(n < sizeof(line) ? n : sizeof(line) - 1), text);
@@ -99,6 +100,9 @@ int settings_parse(const char *text, our_settings *s)
 				memcpy(s->rumble, r, sizeof(r));
 			else
 				found = -1;
+		} else if (!strcasecmp(k, "ROM folder")) {
+			snprintf(s->rom_folder, sizeof(s->rom_folder), "%s", v);
+			found = 1;
 		} else {
 			continue; /* a setting this Our64 does not know: kept by nobody, harmless */
 		}
@@ -128,7 +132,7 @@ void settings_played(our_settings *s, const char *file)
 int settings_read(const char *path, our_settings *s)
 {
 	FILE *f = fopen(path, "rb");
-	char text[2048];
+	char text[4096];
 	size_t n = 0;
 	if (f) {
 		n = fread(text, 1, sizeof(text) - 1, f);
@@ -151,9 +155,9 @@ int settings_format_all(char *out, unsigned size, const our_settings *s)
 	}
 	return snprintf(out, size, "# Our64 settings. Screen mode: TV only, TV + GamePad or GamePad only. "
 	                           "Picture: 4:3 or 16:9 stretched. Theme: Standard or Comrade. Our ROMs: Covers or List.\n"
-	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nLast game = %s\nRecent games = %s\n"
+	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nROM folder = %s\nLast game = %s\nRecent games = %s\n"
 	                           "Rumble = %s, %s, %s, %s\n",
-	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), s->last_game,
+	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), s->rom_folder, s->last_game,
 	                recent, s->rumble[0] ? "on" : "off", s->rumble[1] ? "on" : "off", s->rumble[2] ? "on" : "off",
 	                s->rumble[3] ? "on" : "off");
 }

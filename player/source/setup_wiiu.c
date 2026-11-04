@@ -46,7 +46,7 @@ const our_settings *setup_settings(void) { return &g_settings; }
 
 int setup_save_settings(void)
 {
-	char text[1024];
+	char text[2048];
 	int n = settings_format_all(text, sizeof(text), &g_settings);
 	int r = savefile_write(g_settings_path, text, (unsigned)n);
 	report_line("SETTINGS: %s", r ? "NOT written" : "written");

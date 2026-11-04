@@ -49,6 +49,7 @@ typedef struct {
 	char last_game[128]; /* the ROM file played last, "" none */
 	int rumble[4];       /* players 1-4: rumble on (the default) or off */
 	char recent[RECENT_GAMES][128]; /* the ROM files played last, newest first, "" ends */
+	char rom_folder[256]; /* "ROM folder = ...": "" is sd:/wiiu/our64/roms; "sd:/path" or "usb:<serial>/path" (usbfs.h) */
 } our_settings;
 int settings_parse(const char *text, our_settings *s);
 /* A game started: it becomes the last game and the newest recent one. */

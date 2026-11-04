@@ -151,6 +151,41 @@ static void recent_games_keep_the_last_five_played_newest_first(void)
 	CHECK(settings_parse("Recent games = \nLast game = X.z64\n", &r) == 0 && !r.recent[0][0]); /* none played since */
 }
 
+static void rom_folder_round_trip(void)
+{
+	our_settings s;
+	CHECK(settings_parse("ROM folder = usb:1A2B-3C4D/Games/N64\n", &s) == 0);
+	CHECK(!strcmp(s.rom_folder, "usb:1A2B-3C4D/Games/N64"));
+	char text[2048];
+	settings_format_all(text, sizeof(text), &s);
+	our_settings back;
+	CHECK(settings_parse(text, &back) == 0);
+	CHECK(!strcmp(back.rom_folder, s.rom_folder));
+}
+
+static void rom_folder_default(void)
+{
+	our_settings s;
+	settings_parse("Screen mode = TV only\n", &s);
+	CHECK(s.rom_folder[0] == 0); /* "": sd:/wiiu/our64/roms */
+}
+
+static void a_long_recent_list_and_folder_still_fit(void)
+{
+	our_settings s;
+	settings_parse("", &s);
+	for (int i = 0; i < RECENT_GAMES; i++)
+		memset(s.recent[i], 'a' + i, sizeof(s.recent[i]) - 1), s.recent[i][sizeof(s.recent[i]) - 1] = 0;
+	memset(s.rom_folder, 'f', sizeof(s.rom_folder) - 1);
+	s.rom_folder[sizeof(s.rom_folder) - 1] = 0;
+	char text[2048];
+	int n = settings_format_all(text, sizeof(text), &s);
+	CHECK(n > 0 && n < (int)sizeof(text));
+	our_settings back;
+	settings_parse(text, &back);
+	CHECK(!strcmp(back.recent[4], s.recent[4]) && !strcmp(back.rom_folder, s.rom_folder));
+}
+
 /* 2026-10-16 21:40 and friends, as UTC. */
 #define DAY 86400
 #define T(d, h, m) ((time_t)1760572800 + (d) * DAY + (h) * 3600 + (m) * 60) /* 2025-10-16 00:00 + days */
@@ -242,6 +277,9 @@ int main(void)
 	test_settings();
 	test_settings_file();
 	recent_games_keep_the_last_five_played_newest_first();
+	rom_folder_round_trip();
+	rom_folder_default();
+	a_long_recent_list_and_folder_still_fit();
 	test_when();
 	test_title();
 	test_line();
