@@ -41,6 +41,10 @@ MINILZO		:=	$(CURDIR)/../third_party/minilzo
 # cxd4's RSP interpreter (CC0), vendored: the GB Tower's RSP program (rsp_lle.c).
 CXD4		:=	$(CURDIR)/../third_party/cxd4
 CXD4_SRC	:=	su.c vu/vu.c vu/multiply.c vu/add.c vu/select.c vu/logical.c vu/divide.c
+# FatFs R0.16 (BSD-style), vendored read-only: FAT32 and exFAT on USB drives. An
+# archive, so its objects link only once something calls them.
+FATFS		:=	$(CURDIR)/../third_party/fatfs
+FATFS_A		=	$(BUILD)/fatfs.a
 # make RELEASE=1: the public build, into release/our64.wuhb. It leaves out what
 # only the developer's own card uses: Delete in Our ROMs and the graphics
 # capture (minus with ZL and ZR, and the capture switches), and has its own
@@ -77,7 +81,7 @@ NOT64_DEFINES	:=	-D__WIIU__ -D__WUT__ -DHW_RVL -DNOASM -DUSE_EXPANSION \
 # Diagnostic builds: send instruction groups to the interpreter, for example
 # make clean-core && make NOT64_EXTRA=-DINTERPRET_FP (see Not64's ppc/Interpreter.h).
 NOT64_DEFINES	+=	$(NOT64_EXTRA)
-NOT64_INCLUDE	:=	-I$(BENCH)/shim -I$(BENCH)/source -I$(NOT64) -I$(MINILZO) \
+NOT64_INCLUDE	:=	-I$(BENCH)/shim -I$(BENCH)/source -I$(NOT64) -I$(MINILZO) -I$(FATFS) \
 			$(foreach dir,$(PORTLIBS) $(WUT_ROOT),-I$(dir)/include)
 CFLAGS		:=	-g -O2 -std=gnu11 -fgnu89-inline -ffunction-sections -fno-strict-aliasing \
 			-Wall -Wno-unused-variable -Wno-unused-but-set-variable \
@@ -114,10 +118,10 @@ $(TARGET).rpx: $(BUILD)/$(TARGET).elf
 	@elf2rpl $< $@
 	@echo built ... $@
 
-$(BUILD)/$(TARGET).elf: $(OFILES) $(LIBGUI_A)
+$(BUILD)/$(TARGET).elf: $(OFILES) $(LIBGUI_A) $(FATFS_A)
 	@mkdir -p $(dir $@)
 	@echo linking ... $(notdir $@)
-	@$(LD) $(LDFLAGS) $(OFILES) $(LIBGUI_A) $(LIBPATHS) $(LIBS) -o $@
+	@$(LD) $(LDFLAGS) $(OFILES) $(LIBGUI_A) $(FATFS_A) $(LIBPATHS) $(LIBS) -o $@
 
 $(LIBGUI_A): $(addprefix $(BUILD)/libgui/,$(LIBGUI_SRC:.cpp=.o))
 	@rm -f $@
@@ -153,6 +157,15 @@ $(BUILD)/bench/%.o: $(BENCH)/source/%.c
 # main.c's log header names the build (__DATE__ __TIME__): it is compiled
 # again whenever any other part changed, so the header matches what runs.
 $(BUILD)/source/main.o: $(filter-out $(BUILD)/source/main.o,$(OFILES)) $(LIBGUI_A)
+
+$(FATFS_A): $(BUILD)/fatfs/ff.o $(BUILD)/fatfs/ffunicode.o
+	@rm -f $@
+	@$(AR) rcs $@ $^
+
+$(BUILD)/fatfs/%.o: $(FATFS)/%.c
+	@mkdir -p $(dir $@)
+	@echo fatfs/$*.c
+	@$(CC) -MMD -MP -g -O2 -std=gnu11 -ffunction-sections $(MACHDEP) -w -c $< -o $@
 
 $(BUILD)/minilzo.o: $(MINILZO)/minilzo.c
 	@mkdir -p $(dir $@)
@@ -208,4 +221,4 @@ clean-core:
 	@rm -rf $(BUILD)/not64 $(TARGET).wuhb $(TARGET).rpx
 
 -include $(OFILES:.o=.d)
--include $(wildcard $(BUILD)/cxd4/*.d $(BUILD)/cxd4/vu/*.d)
+-include $(wildcard $(BUILD)/cxd4/*.d $(BUILD)/cxd4/vu/*.d $(BUILD)/fatfs/*.d)
