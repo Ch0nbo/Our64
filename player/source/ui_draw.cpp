@@ -1375,9 +1375,9 @@ void setup_header(const char * headline, const char * sub)
 		text(header_x(), 92, sub, fit(sub, 22, 15, int(UI_W - 40 - header_x())), rgb(T.screen.muted));
 }
 
-// Rows of named values, Settings' and Theme's: a row that opens a page has
-// ">", a value row its values with the one in use ticked and the one left/right
-// is on in a thick light border.
+// Rows of named values, Settings', Picture's and Theme's: a row that opens a
+// page has ">", a value row its values with the one in use ticked and the one
+// left/right is on in a thick light border.
 void value_rows(int rows, int sel, const char * (*name)(int), int (*values)(int), const char * (*value)(int, int),
                 const int * pick, const int * in_use, const bool * page, bool (*off)(int, int))
 {
@@ -1406,26 +1406,47 @@ void value_rows(int rows, int sel, const char * (*name)(int), int (*values)(int)
 	}
 }
 
-const settings_ui * g_rows_settings; // for settings_off
-bool settings_off(int row, int i) { return row == SET_SCREEN && !g_rows_settings->gamepad && mode_uses_gamepad(i); }
+// The line under the last of a page's rows.
+void row_about(int rows, const char * about)
+{
+	int under[4];
+	settings_row_rect(rows, under);
+	text(40, under[1] + 4, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
+}
 
 void draw_settings(const setup_view & sv)
 {
 	const settings_ui & s = sv.settings;
 	setup_header("OUR SETTINGS", sv.line[0] ? sv.line : nullptr);
 	text(UI_W - 40, 52, "Version " OUR64_VERSION, 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_RIGHT);
-	int in_use[SET_ROWS];
 	bool page[SET_ROWS];
-	for (int row = 0; row < SET_ROWS; row++) {
-		in_use[row] = settings_in_use(&s, row);
-		page[row] = row == SET_CONTROLLERS || row == SET_THEME;
-	}
-	g_rows_settings = &s;
-	value_rows(SET_ROWS, s.row, settings_row_name, settings_values, settings_value_name, s.pick, in_use, page, settings_off);
+	for (int row = 0; row < SET_ROWS; row++)
+		page[row] = true; // every row opens a page: no values to draw
+	value_rows(SET_ROWS, s.row, settings_row_name, nullptr, nullptr, nullptr, nullptr, page, nullptr);
 	const char * about = settings_row_about(&s);
 	text(40, 384, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
 	pause_key keys[6];
 	int n = settings_legend(&s, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
+// Settings > Picture: Screen mode and Shape.
+const picture_ui * g_rows_picture; // for picture_greyed
+bool picture_greyed(int row, int i) { return picture_off(g_rows_picture, row, i) != 0; }
+
+void draw_picture(const setup_view & sv)
+{
+	const picture_ui & p = sv.picture;
+	setup_header("PICTURE", sv.line[0] ? sv.line : nullptr);
+	int in_use[PIC_ROWS];
+	bool page[PIC_ROWS] = {};
+	for (int row = 0; row < PIC_ROWS; row++)
+		in_use[row] = picture_in_use(&p, row);
+	g_rows_picture = &p;
+	value_rows(PIC_ROWS, p.row, picture_row_name, picture_values, picture_value_name, p.pick, in_use, page, picture_greyed);
+	row_about(PIC_ROWS, picture_row_about(&p));
+	pause_key keys[6];
+	int n = picture_legend(&p, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
 }
 
@@ -1439,10 +1460,7 @@ void draw_look(const setup_view & sv)
 	for (int row = 0; row < LOOK_ROWS; row++)
 		in_use[row] = look_in_use(&l, row);
 	value_rows(LOOK_ROWS, l.row, look_row_name, look_values, look_value_name, l.pick, in_use, page, nullptr);
-	const char * about = look_row_about(&l);
-	int under[4];
-	settings_row_rect(LOOK_ROWS, under); // the about line under the last row, as Settings' sits under its own
-	text(40, under[1] + 4, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
+	row_about(LOOK_ROWS, look_row_about(&l)); // under the last row, as Settings' sits under its own
 	pause_key keys[6];
 	int n = look_legend(&l, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
@@ -1780,6 +1798,7 @@ void draw_setup(const ui_view & v)
 	switch (sv.screen) {
 	case SETUP_SETTINGS: draw_settings(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
+	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;
 	case SETUP_ORDER: draw_order(sv); break;
 	default: draw_mapping(sv); break;

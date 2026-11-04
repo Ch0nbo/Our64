@@ -34,72 +34,32 @@ static int back_glyph(int type) { return type == INPUT_WIIMOTE ? GLYPH_1 : GLYPH
 
 /* ---- Our Settings ---- */
 
-static const char *const g_set_row[SET_ROWS] = { "Controllers", "Picture", "Screen mode", "Theme" };
-
-int settings_values(int row) { return row == SET_SCREEN ? MODES : row == SET_PICTURE ? PICTURES : 0; }
-
-int settings_in_use(const settings_ui *s, int row)
-{
-	return row == SET_SCREEN ? s->mode : row == SET_PICTURE ? s->picture : -1;
-}
-
-const char *settings_value_name(int row, int i)
-{
-	return row == SET_SCREEN ? mode_name(i) : row == SET_PICTURE ? picture_name(i) : "";
-}
+static const char *const g_set_row[SET_ROWS] = { "Controllers", "Picture", "Games", "Theme" };
 
 const char *settings_row_name(int row) { return row >= 0 && row < SET_ROWS ? g_set_row[row] : ""; }
 
-static int pickable(const settings_ui *s, int row, int i)
-{
-	return i >= 0 && i < settings_values(row) && (row != SET_SCREEN || s->gamepad || !mode_uses_gamepad(i));
-}
-
-void settings_open(settings_ui *s, int mode, int picture, int gamepad)
+void settings_open(settings_ui *s)
 {
 	memset(s, 0, sizeof(*s));
-	s->mode = mode;
-	s->picture = picture;
-	s->gamepad = gamepad;
 	s->touched = -1;
-	s->pick[SET_SCREEN] = mode;
-	s->pick[SET_PICTURE] = picture;
 }
 
-void settings_applied(settings_ui *s)
+static int settings_page(int row)
 {
-	s->mode = s->pick[SET_SCREEN];
-	s->picture = s->pick[SET_PICTURE];
-}
-
-static void drop_picks(settings_ui *s)
-{
-	s->pick[SET_SCREEN] = s->mode;
-	s->pick[SET_PICTURE] = s->picture;
-}
-
-static int settings_apply(settings_ui *s)
-{
-	switch (s->row) {
-	case SET_SCREEN: return s->pick[SET_SCREEN] != s->mode ? SACT_MODE : SACT_NONE;
-	case SET_PICTURE: return s->pick[SET_PICTURE] != s->picture ? SACT_PICTURE : SACT_NONE;
-	case SET_THEME: return SACT_THEME;
-	default: return SACT_CONTROLLERS;
+	switch (row) {
+	case SET_CONTROLLERS: return SACT_CONTROLLERS;
+	case SET_PICTURE: return SACT_PICTURE;
+	case SET_GAMES: return SACT_GAMES;
+	default: return SACT_THEME;
 	}
 }
 
 int settings_event(settings_ui *s, int event, int target)
 {
 	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
-		int row = target >= 0 ? target / 8 : -1, value = target >= 0 ? target % 8 - 1 : -1;
-		int now = row == s->row && (value < 0 || (settings_values(row) > 0 && s->pick[row] == value));
-		int e = tap(&s->touched, event, target, now);
+		int e = tap(&s->touched, event, target, target == s->row);
 		if (e == -2) {
-			if (row != s->row)
-				drop_picks(s);
-			s->row = row;
-			if (value >= 0 && pickable(s, row, value))
-				s->pick[row] = value;
+			s->row = target;
 			return SACT_NONE;
 		}
 		if (e < 0)
@@ -110,24 +70,11 @@ int settings_event(settings_ui *s, int event, int target)
 	case PEV_UP:
 	case PEV_DOWN: {
 		int row = s->row + (event == PEV_UP ? -1 : 1);
-		if (row >= 0 && row < SET_ROWS) {
-			drop_picks(s);
+		if (row >= 0 && row < SET_ROWS)
 			s->row = row;
-		}
 		break;
 	}
-	case PEV_LEFT:
-	case PEV_RIGHT:
-		if (settings_values(s->row) > 0) {
-			int step = event == PEV_LEFT ? -1 : 1;
-			for (int i = s->pick[s->row] + step; i >= 0 && i < settings_values(s->row); i += step)
-				if (pickable(s, s->row, i)) {
-					s->pick[s->row] = i;
-					break;
-				}
-		}
-		break;
-	case PEV_OK: return settings_apply(s);
+	case PEV_OK: return settings_page(s->row);
 	case PEV_BACK: return SACT_BACK;
 	case PEV_HOME: return SACT_HOME;
 	}
@@ -137,14 +84,9 @@ int settings_event(settings_ui *s, int event, int target)
 const char *settings_row_about(const settings_ui *s)
 {
 	switch (s->row) {
-	case SET_SCREEN:
-		/* the same whatever is picked (Zach, 2026-10-23) */
-		return "Which screens show the game. The prompt at each start begins on it.";
-	case SET_PICTURE:
-		/* the same whatever is picked (Zach, 2026-10-23): it says what each shape is */
-		return "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.";
-	case SET_THEME:
-		return "Colors and how Our ROMs shows the games";
+	case SET_PICTURE: return "Screens and shape";
+	case SET_GAMES: return "Where the games are, and their covers";
+	case SET_THEME: return "Colors and how Our ROMs shows the games";
 	default: return "Players, rumble and buttons";
 	}
 }
@@ -178,7 +120,135 @@ int settings_hit(int x, int y)
 {
 	int r[4];
 	for (int row = 0; row < SET_ROWS; row++) {
-		for (int i = 0; i < settings_values(row); i++) {
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row;
+	}
+	return -1;
+}
+
+int settings_legend(const settings_ui *s, int type, pause_key *keys, int max)
+{
+	(void)s;
+	int n = 0;
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", 0);
+	return n;
+}
+
+/* ---- Settings > Picture ---- */
+
+static const char *const g_pic_row[PIC_ROWS] = { "Screen mode", "Shape" };
+
+int picture_values(int row) { return row == PIC_SCREEN ? MODES : row == PIC_SHAPE ? PICTURES : 0; }
+
+int picture_in_use(const picture_ui *p, int row) { return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : -1; }
+
+int picture_off(const picture_ui *p, int row, int i) { return row == PIC_SCREEN && !p->gamepad && mode_uses_gamepad(i); }
+
+const char *picture_value_name(int row, int i)
+{
+	return row == PIC_SCREEN ? mode_name(i) : row == PIC_SHAPE ? picture_name(i) : "";
+}
+
+const char *picture_row_name(int row) { return row >= 0 && row < PIC_ROWS ? g_pic_row[row] : ""; }
+
+void picture_open(picture_ui *p, int mode, int shape, int gamepad)
+{
+	memset(p, 0, sizeof(*p));
+	p->mode = p->pick[PIC_SCREEN] = mode;
+	p->shape = p->pick[PIC_SHAPE] = shape;
+	p->gamepad = gamepad;
+	p->touched = -1;
+}
+
+void picture_applied(picture_ui *p)
+{
+	p->mode = p->pick[PIC_SCREEN];
+	p->shape = p->pick[PIC_SHAPE];
+}
+
+static void picture_drop_picks(picture_ui *p)
+{
+	p->pick[PIC_SCREEN] = p->mode;
+	p->pick[PIC_SHAPE] = p->shape;
+}
+
+static int picture_apply(const picture_ui *p)
+{
+	const int i = p->pick[p->row];
+	if (i == picture_in_use(p, p->row) || picture_off(p, p->row, i))
+		return PICT_NONE;
+	return p->row == PIC_SCREEN ? PICT_MODE : PICT_SHAPE;
+}
+
+static void picture_select(picture_ui *p, int row)
+{
+	if (row != p->row)
+		picture_drop_picks(p);
+	p->row = row;
+}
+
+int picture_event(picture_ui *p, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		const int row = target >= 0 ? target / 8 : -1, value = target >= 0 ? target % 8 - 1 : -1;
+		const int now = row == p->row && (value < 0 || p->pick[row] == value);
+		int e = tap(&p->touched, event, target, now);
+		if (e == -2) {
+			picture_select(p, row);
+			if (value >= 0 && value < picture_values(row) && !picture_off(p, row, value))
+				p->pick[row] = value;
+			return PICT_NONE;
+		}
+		if (e < 0)
+			return PICT_NONE;
+		event = e;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = p->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < PIC_ROWS)
+			picture_select(p, row);
+		break;
+	}
+	case PEV_LEFT:
+	case PEV_RIGHT: {
+		const int step = event == PEV_LEFT ? -1 : 1, n = picture_values(p->row);
+		for (int i = p->pick[p->row] + step; i >= 0 && i < n; i += step)
+			if (!picture_off(p, p->row, i)) {
+				p->pick[p->row] = i;
+				break;
+			}
+		break;
+	}
+	case PEV_OK: return picture_apply(p);
+	case PEV_BACK: return PICT_BACK;
+	case PEV_HOME: return PICT_HOME;
+	}
+	return PICT_NONE;
+}
+
+const char *picture_row_about(const picture_ui *p)
+{
+	switch (p->row) {
+	case PIC_SCREEN:
+		/* the same whatever is picked (Zach, 2026-10-23) */
+		return "Which screens show the game. The prompt at each start begins on it.";
+	default:
+		/* the same whatever is picked (Zach, 2026-10-23): it says what each shape is */
+		return "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.";
+	}
+}
+
+int picture_hit(int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < PIC_ROWS; row++) {
+		for (int i = 0; i < picture_values(row); i++) {
 			settings_value_rect(row, i, r);
 			if (inside(x, y, r))
 				return row * 8 + i + 1;
@@ -190,14 +260,13 @@ int settings_hit(int x, int y)
 	return -1;
 }
 
-int settings_legend(const settings_ui *s, int type, pause_key *keys, int max)
+int picture_legend(const picture_ui *p, int type, pause_key *keys, int max)
 {
 	int n = 0;
 	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
 	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
 	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
-	keys_add(keys, &n, max, ok_glyph(type), s->row == SET_CONTROLLERS || s->row == SET_THEME ? "OK" : "Apply",
-	         settings_apply((settings_ui *)s) == SACT_NONE);
+	keys_add(keys, &n, max, ok_glyph(type), "Apply", picture_apply(p) == PICT_NONE);
 	return n;
 }
 

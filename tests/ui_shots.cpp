@@ -642,14 +642,13 @@ void shots_setup()
 	memset(&sv, 0, sizeof(sv));
 	sv.glyphs = INPUT_PRO;
 	sv.screen = SETUP_SETTINGS;
-	settings_open(&sv.settings, MODE_BOTH, PICTURE_43, 1);
+	settings_open(&sv.settings);
 	shot("settings", v);
-	sv.settings.row = 1;
-	shot("settings-picture", v);
-	sv.settings.row = 2;
-	shot("settings-controllers", v);
-	sv.settings.row = SET_THEME;
-	shot("settings-theme", v);
+	sv.settings.row = SET_GAMES;
+	shot("settings-games", v);
+	sv.screen = SETUP_PICTURE; // Settings > Picture
+	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, 1);
+	shot("picture", v);
 	sv.screen = SETUP_THEME; // Settings > Theme
 	look_open(&sv.look, theme_comrade() ? THEME_COMRADE : THEME_STANDARD, LAYOUT_COVERS);
 	shot("theme", v);

@@ -19,30 +19,46 @@ extern "C" {
 
 /* ---- Our Settings ---- */
 
-/* Controllers at the top (Zach, 2026-10-17), Theme at the bottom (2026-10-30). */
-enum { SET_CONTROLLERS, SET_PICTURE, SET_SCREEN, SET_THEME, SET_ROWS };
+/* Every row opens a page (2026-11-04): Controllers at the top (2026-10-17),
+ * Theme at the bottom (2026-10-30). */
+enum { SET_CONTROLLERS, SET_PICTURE, SET_GAMES, SET_THEME, SET_ROWS };
 typedef struct {
 	int row;
-	int mode, picture;   /* in use */
-	int pick[SET_ROWS];  /* the value left/right is on, per value row; A applies it */
-	int gamepad;         /* a GamePad is connected: GamePad only can be picked */
 	int touched;
 } settings_ui;
-/* SACT_CONTROLLERS and SACT_THEME open those pages. */
-enum { SACT_NONE, SACT_BACK, SACT_HOME, SACT_MODE, SACT_PICTURE, SACT_THEME, SACT_CONTROLLERS };
-void settings_open(settings_ui *s, int mode, int picture, int gamepad);
-/* SACT_MODE / SACT_PICTURE: apply s->pick[], then call settings_applied. */
+enum { SACT_NONE, SACT_BACK, SACT_HOME, SACT_CONTROLLERS, SACT_PICTURE, SACT_GAMES, SACT_THEME };
+void settings_open(settings_ui *s);
 int  settings_event(settings_ui *s, int event, int target);
-void settings_applied(settings_ui *s);
-int  settings_values(int row);                 /* values on a row: 3, 2, 0 */
-int  settings_in_use(const settings_ui *s, int row); /* the value a row has now, -1 none */
-const char *settings_value_name(int row, int i);
 const char *settings_row_name(int row);
 const char *settings_row_about(const settings_ui *s); /* the line under the rows */
 void settings_row_rect(int row, int r[4]);
-void settings_value_rect(int row, int i, int r[4]);
-int  settings_hit(int x, int y);               /* row * 8 + value + 1, or row * 8 for the row itself; -1 */
+void settings_value_rect(int row, int i, int r[4]); /* kept: the value pages' boxes */
+int  settings_hit(int x, int y);               /* the row, or -1 */
 int  settings_legend(const settings_ui *s, int type, pause_key *keys, int max);
+
+/* ---- Settings > Picture (2026-11-04): Screen mode and Shape (the old
+ * Picture row), each applied with A, on the Settings rows' layout. ---- */
+
+enum { PIC_SCREEN, PIC_SHAPE, PIC_ROWS };
+typedef struct {
+	int row;
+	int mode, shape;          /* in use */
+	int pick[PIC_ROWS];       /* the value left/right is on, per row; A applies it */
+	int gamepad;              /* a GamePad is connected: GamePad only can be picked */
+	int touched;
+} picture_ui;
+enum { PICT_NONE, PICT_BACK, PICT_HOME, PICT_MODE, PICT_SHAPE };
+void picture_open(picture_ui *p, int mode, int shape, int gamepad);
+int  picture_event(picture_ui *p, int event, int target); /* PICT_MODE/_SHAPE: apply pick[], then picture_applied */
+void picture_applied(picture_ui *p);
+int  picture_values(int row);
+int  picture_in_use(const picture_ui *p, int row);
+int  picture_off(const picture_ui *p, int row, int i); /* greyed: shown, A does nothing */
+const char *picture_value_name(int row, int i);
+const char *picture_row_name(int row);           /* "Screen mode", "Shape" */
+const char *picture_row_about(const picture_ui *p);
+int  picture_hit(int x, int y);                  /* row * 8 + value + 1, or row * 8 for the row itself; -1 */
+int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
 
 /* ---- Theme (Settings > Theme, 2026-10-30): the colors and Our ROMs' layout,
  * each applied with A, on the Settings rows' layout. ---- */

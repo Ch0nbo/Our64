@@ -18,30 +18,28 @@ static int tap_settings(settings_ui *s, int target)
 
 /* ---- Our Settings ---- */
 
-static void a_applies_what_left_right_picked(void)
+static void settings_rows_are_four_pages(void)
 {
 	settings_ui s;
-	settings_open(&s, MODE_BOTH, PICTURE_43, 1);
+	settings_open(&s);
+	CHECK(!strcmp(settings_row_name(SET_CONTROLLERS), "Controllers") && !strcmp(settings_row_name(SET_PICTURE), "Picture"));
+	CHECK(!strcmp(settings_row_name(SET_GAMES), "Games") && !strcmp(settings_row_name(SET_THEME), "Theme"));
+	CHECK(settings_event(&s, PEV_OK, -1) == SACT_CONTROLLERS);
 	settings_event(&s, PEV_DOWN, -1);
-	settings_event(&s, PEV_DOWN, -1);
-	CHECK(s.row == SET_SCREEN && s.pick[SET_SCREEN] == MODE_BOTH);
-	CHECK(settings_event(&s, PEV_OK, -1) == SACT_NONE); /* nothing picked: nothing to apply */
-	settings_event(&s, PEV_RIGHT, -1);
-	CHECK(s.pick[SET_SCREEN] == MODE_GAMEPAD && s.mode == MODE_BOTH); /* picked, not applied */
-	settings_event(&s, PEV_RIGHT, -1);
-	CHECK(s.pick[SET_SCREEN] == MODE_GAMEPAD); /* stops at the end */
-	CHECK(settings_event(&s, PEV_OK, -1) == SACT_MODE);
-	settings_applied(&s);
-	CHECK(s.mode == MODE_GAMEPAD);
-	settings_event(&s, PEV_DOWN, -1);
-	CHECK(s.row == SET_THEME && settings_values(SET_THEME) == 0); /* a page, as Controllers */
-	CHECK(settings_event(&s, PEV_OK, -1) == SACT_THEME);
-	settings_event(&s, PEV_UP, -1);
-	settings_event(&s, PEV_UP, -1);
-	settings_event(&s, PEV_RIGHT, -1);
 	CHECK(settings_event(&s, PEV_OK, -1) == SACT_PICTURE);
-	settings_applied(&s);
-	CHECK(s.picture == PICTURE_WIDE);
+	settings_event(&s, PEV_DOWN, -1);
+	CHECK(settings_event(&s, PEV_OK, -1) == SACT_GAMES);
+	settings_event(&s, PEV_DOWN, -1);
+	CHECK(settings_event(&s, PEV_OK, -1) == SACT_THEME);
+	settings_event(&s, PEV_DOWN, -1);
+	CHECK(s.row == SET_THEME); /* stops at the end */
+	CHECK(settings_event(&s, PEV_LEFT, -1) == SACT_NONE && settings_event(&s, PEV_BACK, -1) == SACT_BACK);
+	int r[4];
+	settings_row_rect(SET_GAMES, r);
+	settings_event(&s, PEV_TOUCH_DOWN, settings_hit(r[0] + 5, r[1] + 5));
+	CHECK(settings_event(&s, PEV_TOUCH_UP, settings_hit(r[0] + 5, r[1] + 5)) == SACT_NONE && s.row == SET_GAMES);
+	settings_event(&s, PEV_TOUCH_DOWN, settings_hit(r[0] + 5, r[1] + 5));
+	CHECK(settings_event(&s, PEV_TOUCH_UP, settings_hit(r[0] + 5, r[1] + 5)) == SACT_GAMES);
 }
 
 /* Settings > Theme: the colors and Our ROMs' layout, each applied with A (2026-10-30). */
@@ -73,56 +71,117 @@ static void theme_page_applies_colors_and_layout(void)
 	CHECK(look_hit(r[0] + 3, r[1] + 3) == LOOK_COLORS * 8 + THEME_STANDARD + 1);
 }
 
-static void gamepad_only_is_skipped_without_a_gamepad(void)
-{
-	settings_ui s;
-	settings_open(&s, MODE_TV, PICTURE_43, 0);
-	s.row = SET_SCREEN;
-	settings_event(&s, PEV_RIGHT, -1);
-	settings_event(&s, PEV_RIGHT, -1);
-	CHECK(s.pick[SET_SCREEN] == MODE_TV); /* both GamePad modes need the GamePad, as on the prompt */
-}
-
 static void settings_leads_to_controllers_and_back(void)
 {
 	settings_ui s;
-	settings_open(&s, MODE_BOTH, PICTURE_43, 1);
-	/* Controllers at the top (Zach, 2026-10-17), Theme at the bottom (2026-10-30) */
-	CHECK(!strcmp(settings_row_name(0), "Controllers") && !strcmp(settings_row_name(SET_ROWS - 1), "Theme"));
+	settings_open(&s);
 	CHECK(s.row == SET_CONTROLLERS && SET_CONTROLLERS == 0);
 	settings_event(&s, PEV_UP, -1);
 	CHECK(s.row == SET_CONTROLLERS);
-	CHECK(settings_event(&s, PEV_OK, -1) == SACT_CONTROLLERS);
-	CHECK(settings_event(&s, PEV_BACK, -1) == SACT_BACK);
 	CHECK(settings_event(&s, PEV_HOME, -1) == SACT_HOME);
 	CHECK(!strcmp(settings_row_about(&s), "Players, rumble and buttons"));
-}
-
-static void leaving_a_row_drops_its_unapplied_pick(void)
-{
-	settings_ui s;
-	settings_open(&s, MODE_BOTH, PICTURE_43, 1);
-	s.row = SET_SCREEN;
-	settings_event(&s, PEV_LEFT, -1);
-	CHECK(s.pick[SET_SCREEN] == MODE_TV);
-	settings_event(&s, PEV_UP, -1);
-	CHECK(s.pick[SET_SCREEN] == MODE_BOTH);
+	pause_key keys[6];
+	int n = settings_legend(&s, INPUT_PRO, keys, 6);
+	CHECK(n == 4 && !strcmp(keys[3].label, "OK") && !keys[3].dim); /* every row opens a page: never dimmed */
 }
 
 static void settings_taps(void)
 {
 	settings_ui s;
 	int r[4];
-	settings_open(&s, MODE_BOTH, PICTURE_43, 1);
-	settings_value_rect(SET_PICTURE, PICTURE_WIDE, r);
-	int t = settings_hit(r[0] + 3, r[1] + 3);
-	CHECK(t == SET_PICTURE * 8 + PICTURE_WIDE + 1);
-	CHECK(tap_settings(&s, t) == SACT_NONE && s.row == SET_PICTURE && s.pick[SET_PICTURE] == PICTURE_WIDE);
+	settings_open(&s);
+	settings_row_rect(SET_PICTURE, r);
+	int t = settings_hit(r[0] + r[2] - 10, r[1] + 3); /* the row's right end, by its ">" */
+	CHECK(t == SET_PICTURE);
+	CHECK(tap_settings(&s, t) == SACT_NONE && s.row == SET_PICTURE);
 	CHECK(tap_settings(&s, t) == SACT_PICTURE);
 	settings_row_rect(SET_CONTROLLERS, r);
 	t = settings_hit(r[0] + 3, r[1] + 3);
 	CHECK(tap_settings(&s, t) == SACT_NONE && s.row == SET_CONTROLLERS);
 	CHECK(tap_settings(&s, t) == SACT_CONTROLLERS);
+	CHECK(settings_hit(5, 5) == -1);
+}
+
+/* ---- Settings > Picture ---- */
+
+static void picture_applies_what_left_right_picked(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	CHECK(p.row == PIC_SCREEN && picture_event(&p, PEV_OK, -1) == PICT_NONE);
+	picture_event(&p, PEV_RIGHT, -1);
+	CHECK(p.pick[PIC_SCREEN] == MODE_GAMEPAD && p.mode == MODE_BOTH);
+	picture_event(&p, PEV_RIGHT, -1);
+	CHECK(p.pick[PIC_SCREEN] == MODE_GAMEPAD); /* stops at the end */
+	CHECK(picture_event(&p, PEV_OK, -1) == PICT_MODE);
+	picture_applied(&p);
+	CHECK(p.mode == MODE_GAMEPAD);
+	picture_event(&p, PEV_DOWN, -1);
+	picture_event(&p, PEV_RIGHT, -1);
+	CHECK(picture_event(&p, PEV_OK, -1) == PICT_SHAPE);
+	picture_applied(&p);
+	CHECK(p.shape == PICTURE_WIDE);
+	CHECK(!strcmp(picture_row_name(PIC_SCREEN), "Screen mode") && !strcmp(picture_row_name(PIC_SHAPE), "Shape"));
+	CHECK(!strcmp(picture_value_name(PIC_SHAPE, PICTURE_WIDE), "16:9 stretched"));
+	CHECK(picture_event(&p, PEV_BACK, -1) == PICT_BACK && picture_event(&p, PEV_HOME, -1) == PICT_HOME);
+}
+
+static void picture_lines_are_the_same_whatever_is_picked(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	p.row = PIC_SCREEN; /* Screen mode and Shape: the same whatever is picked (Zach, 2026-10-23) */
+	CHECK(!strcmp(picture_row_about(&p), "Which screens show the game. The prompt at each start begins on it."));
+	p.row = PIC_SHAPE;
+	CHECK(!strcmp(picture_row_about(&p), "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV."));
+}
+
+static void gamepad_only_is_skipped_without_a_gamepad_on_picture(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, 0);
+	picture_event(&p, PEV_RIGHT, -1);
+	CHECK(p.pick[PIC_SCREEN] == MODE_BOTH); /* GamePad only skipped: nothing to the right */
+	picture_open(&p, MODE_TV, PICTURE_43, 0);
+	picture_event(&p, PEV_RIGHT, -1);
+	picture_event(&p, PEV_RIGHT, -1);
+	CHECK(p.pick[PIC_SCREEN] == MODE_TV); /* both GamePad modes need the GamePad, as on the prompt */
+}
+
+static void leaving_a_picture_row_drops_its_unapplied_pick(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	picture_event(&p, PEV_LEFT, -1);
+	CHECK(p.pick[PIC_SCREEN] == MODE_TV);
+	picture_event(&p, PEV_DOWN, -1);
+	CHECK(p.pick[PIC_SCREEN] == MODE_BOTH);
+	pause_key keys[6];
+	picture_legend(&p, INPUT_PRO, keys, 6);
+	CHECK(keys[3].dim); /* nothing picked on Shape: nothing to apply */
+	picture_event(&p, PEV_RIGHT, -1);
+	picture_legend(&p, INPUT_PRO, keys, 6);
+	CHECK(!keys[3].dim);
+}
+
+static void picture_taps(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	int r[4];
+	settings_value_rect(PIC_SCREEN, MODE_TV, r);
+	int t = picture_hit(r[0] + 2, r[1] + 2);
+	CHECK(t == PIC_SCREEN * 8 + MODE_TV + 1);
+	picture_event(&p, PEV_TOUCH_DOWN, t);
+	picture_event(&p, PEV_TOUCH_UP, t);
+	CHECK(p.row == PIC_SCREEN && p.pick[PIC_SCREEN] == MODE_TV);
+	settings_value_rect(PIC_SHAPE, PICTURE_WIDE, r);
+	t = picture_hit(r[0] + 2, r[1] + 2);
+	picture_event(&p, PEV_TOUCH_DOWN, t);
+	picture_event(&p, PEV_TOUCH_UP, t);
+	CHECK(p.row == PIC_SHAPE && p.pick[PIC_SHAPE] == PICTURE_WIDE && p.pick[PIC_SCREEN] == MODE_BOTH); /* leaving drops the pick */
+	picture_event(&p, PEV_TOUCH_DOWN, t);
+	CHECK(picture_event(&p, PEV_TOUCH_UP, t) == PICT_SHAPE);
 }
 
 /* ---- Our Controllers ---- */
@@ -488,11 +547,14 @@ static void taps_select_a_row_then_change_it_and_switch_tabs_at_once(void)
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
-	RUN(a_applies_what_left_right_picked);
-	RUN(gamepad_only_is_skipped_without_a_gamepad);
+	RUN(settings_rows_are_four_pages);
 	RUN(settings_leads_to_controllers_and_back);
-	RUN(leaving_a_row_drops_its_unapplied_pick);
 	RUN(settings_taps);
+	RUN(picture_applies_what_left_right_picked);
+	RUN(picture_lines_are_the_same_whatever_is_picked);
+	RUN(gamepad_only_is_skipped_without_a_gamepad_on_picture);
+	RUN(leaving_a_picture_row_drops_its_unapplied_pick);
+	RUN(picture_taps);
 	RUN(controllers_cards_then_actions);
 	RUN(an_empty_port_has_no_buttons_to_edit);
 	RUN(a_on_a_card_goes_to_its_actions);

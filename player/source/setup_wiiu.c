@@ -343,22 +343,80 @@ static int run_look(void)
 	}
 }
 
-/* ---- Our Settings ---- */
+/* ---- Settings > Picture: Screen mode at once; Shape saved at once and
+ * shown as the settings close (settings_run) ---- */
 
 static void apply_mode(int mode)
 {
 	ui_set_mode(mode, g_from_pause ? player_title() : "Our ROMs");
 }
 
+static int run_picture(void)
+{
+	picture_ui *p = &g_view.picture;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	input_menu_state(&f.m);
+	picture_open(p, ui_mode(), g_settings.picture, f.m.type[0] >= 0);
+	g_view.screen = SETUP_PICTURE;
+	g_view.line[0] = 0;
+	int touching = 0, target = -1;
+	for (;;) {
+		p->gamepad = f.m.type[0] >= 0;
+		show();
+		read_frame(&f, picture_hit, &touching, &target);
+		if (player_closing())
+			return 1;
+		for (int i = 0; i < f.n; i++) {
+			int act = picture_event(p, f.events[i], f.targets[i]);
+			switch (act) {
+			case PICT_BACK: return 0;
+			case PICT_HOME:
+				if (home_ok())
+					return 1;
+				break;
+			case PICT_MODE: {
+				int keep = g_settings.mode;
+				g_settings.mode = p->pick[PIC_SCREEN];
+				if (setup_save_settings()) {
+					g_settings.mode = keep;
+					p->pick[PIC_SCREEN] = p->mode;
+					write_failed();
+				} else {
+					picture_applied(p);
+					apply_mode(p->mode);
+					snprintf(g_view.line, sizeof(g_view.line), "Screen mode: %s", mode_name(p->mode));
+				}
+				break;
+			}
+			case PICT_SHAPE: {
+				int keep = g_settings.picture;
+				g_settings.picture = p->pick[PIC_SHAPE];
+				if (setup_save_settings()) {
+					g_settings.picture = keep;
+					p->pick[PIC_SHAPE] = p->shape;
+					write_failed();
+				} else {
+					picture_applied(p);
+					snprintf(g_view.line, sizeof(g_view.line), "Shape: %s%s", picture_name(p->shape),
+					         g_from_pause ? ", on Resume" : "");
+				}
+				break;
+			}
+			}
+		}
+	}
+}
+
+/* ---- Our Settings: every row opens a page ---- */
+
 void settings_run(int from_pause)
 {
 	g_from_pause = from_pause;
 	snprintf(g_view.game, sizeof(g_view.game), "%s", from_pause ? player_title() : "");
 	settings_ui *s = &g_view.settings;
-	input_menu m;
-	input_menu_state(&m);
-	settings_open(s, ui_mode(), g_settings.picture, m.type[0] >= 0);
-	/* Picture is applied once, as the settings close: each change rebuilds
+	settings_open(s);
+	/* Shape is applied once, as the settings close: each change rebuilds
 	 * the graphics core's frame buffers, a wait the player should not get at
 	 * every press while trying both (Zach, 2026-10-27). */
 	const int picture_at_open = g_settings.picture;
@@ -366,62 +424,32 @@ void settings_run(int from_pause)
 	g_view.line[0] = 0;
 	frame_input f;
 	memset(&f, 0, sizeof(f));
-	f.m = m;
 	int touching = 0, target = -1, home = 0;
 	input_take_home();
 	while (!home) {
-		s->gamepad = f.m.type[0] >= 0;
 		show();
 		read_frame(&f, settings_hit, &touching, &target);
 		if (player_closing())
 			break;
 		for (int i = 0; i < f.n && !home; i++) {
+			int page = 0; /* 1: HOME on a page; -1: no page opened */
 			switch (settings_event(s, f.events[i], f.targets[i])) {
 			case SACT_BACK:
 				goto done;
 			case SACT_HOME:
 				home = home_ok();
+				page = -1;
 				break;
-			case SACT_MODE: {
-				int keep = g_settings.mode;
-				g_settings.mode = s->pick[SET_SCREEN];
-				if (setup_save_settings()) {
-					g_settings.mode = keep;
-					s->pick[SET_SCREEN] = s->mode;
-					write_failed();
-				} else {
-					settings_applied(s);
-					apply_mode(s->mode);
-					snprintf(g_view.line, sizeof(g_view.line), "Screen mode: %s", mode_name(s->mode));
-				}
-				break;
+			case SACT_CONTROLLERS: page = run_controllers(); break;
+			case SACT_PICTURE: page = run_picture(); break;
+			case SACT_THEME: page = run_look(); break;
+			default: page = -1; break; /* SACT_GAMES: its page comes later */
 			}
-			case SACT_PICTURE: {
-				int keep = g_settings.picture;
-				g_settings.picture = s->pick[SET_PICTURE];
-				if (setup_save_settings()) {
-					g_settings.picture = keep;
-					s->pick[SET_PICTURE] = s->picture;
-					write_failed();
-				} else {
-					settings_applied(s);
-					snprintf(g_view.line, sizeof(g_view.line), "Picture: %s%s", picture_name(s->picture),
-					         from_pause ? ", on Resume" : "");
-				}
-				break;
-			}
-			case SACT_THEME:
-				if (run_look())
+			if (page >= 0) { /* back from a page */
+				if (page)
 					home = 1;
 				g_view.screen = SETUP_SETTINGS;
 				g_view.line[0] = 0;
-				break;
-			case SACT_CONTROLLERS:
-				if (run_controllers())
-					home = 1;
-				g_view.screen = SETUP_SETTINGS;
-				g_view.line[0] = 0;
-				break;
 			}
 		}
 	}
