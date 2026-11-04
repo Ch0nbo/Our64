@@ -47,8 +47,9 @@ Used as they are:
 
 - Settings > Games > Fetch covers downloads covers for games without one from libretro-thumbnails, over the
   Wii U's internet connection.
-- Covers already on the card are never replaced.
-- Hacks and translations that are not in the No-Intro list keep their poster card.
+- Covers already on the card are never replaced, except one that can't be read.
+- Hacks and translations that are not in the No-Intro list keep their poster card, unless a cover is filed under
+  the ROM's file name.
 - `tools/fetch-art.sh` still fetches covers from a computer.
 
 ## Playing
