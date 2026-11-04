@@ -81,6 +81,15 @@ int  library_is_rom(const char *name);
  * when it fits. out holds size bytes and is cut between characters too. */
 void library_cut_middle(const char *s, int max, char *out, unsigned size);
 
+/* A cover's RGBA pixels (w x h) to fit max_w x max_h: copied as they are
+ * when they fit, else scaled down with the aspect kept by an area average
+ * (each output pixel the mean of the source area it covers, fractions of
+ * pixels included), so any size draws sharp. One pass over the source rows,
+ * integer math. Its size in *ow, *oh; 0, or -1 when w * h is past 16 M
+ * pixels (the sums would overflow) or there is no memory. */
+#define LIBRARY_FIT_MAX_PIXELS 16777216u
+int library_fit_rgba(const unsigned char *src, int w, int h, int max_w, int max_h, unsigned char *out, int *ow, int *oh);
+
 #ifdef __cplusplus
 }
 #endif

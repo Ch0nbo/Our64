@@ -302,6 +302,50 @@ static void a_deleted_game_is_in_no_list(void)
 	CHECK(!has[LIBRARY_ALL] && !has[library_category_of("B")]);
 }
 
+/* Covers scaled to fit 640 x 360: libretro's 512 x 374 at 493 x 360, the
+ * aspect kept, a plain color kept exactly, and the area averaged. */
+static void covers_scale_by_area_to_fit(void)
+{
+	const int w = 512, h = 374;
+	unsigned char *src = malloc((size_t)w * h * 4), *out = malloc(640 * 360 * 4);
+	CHECK(src && out);
+	for (int i = 0; i < w * h; i++) {
+		src[i * 4] = 200; src[i * 4 + 1] = 30; src[i * 4 + 2] = 7; src[i * 4 + 3] = 255;
+	}
+	int ow = 0, oh = 0;
+	CHECK(library_fit_rgba(src, w, h, 640, 360, out, &ow, &oh) == 0);
+	CHECK(oh == 360 && ow == 493); /* 512 * 360 / 374 = 492.8 */
+	for (int i = 0; i < ow * oh; i++)
+		CHECK(out[i * 4] == 200 && out[i * 4 + 1] == 30 && out[i * 4 + 2] == 7 && out[i * 4 + 3] == 255);
+	/* at half size, stripes one source pixel wide average to grey; the left
+	 * half dark and the right half light stay apart */
+	unsigned char *big = malloc(1280 * 720 * 4);
+	CHECK(big);
+	for (int y = 0; y < 720; y++)
+		for (int x = 0; x < 1280; x++)
+			for (int c = 0; c < 4; c++)
+				big[(y * 1280 + x) * 4 + c] = c == 3 ? 255 : x < 640 ? (x & 1 ? 100 : 0) : 250;
+	CHECK(library_fit_rgba(big, 1280, 720, 640, 360, out, &ow, &oh) == 0);
+	CHECK(ow == 640 && oh == 360);
+	const unsigned char *mid = out + (180 * ow + 100) * 4, *right = out + (180 * ow + 400) * 4;
+	CHECK(mid[0] == 50 && mid[1] == 50 && mid[3] == 255);
+	CHECK(right[0] == 250 && right[3] == 255);
+	free(big);
+	/* wider than it is tall: the width decides */
+	unsigned char *wide = calloc(1280 * 400 * 4, 1);
+	CHECK(wide);
+	CHECK(library_fit_rgba(wide, 1280, 400, 640, 360, out, &ow, &oh) == 0);
+	CHECK(ow == 640 && oh == 200);
+	free(wide);
+	/* one that fits is copied as it is */
+	CHECK(library_fit_rgba(src, 300, 200, 640, 360, out, &ow, &oh) == 0);
+	CHECK(ow == 300 && oh == 200 && !memcmp(out, src, 300 * 200 * 4));
+	/* past 16 M pixels: refused */
+	CHECK(library_fit_rgba(src, 5000, 5000, 640, 360, out, &ow, &oh) == -1);
+	free(src);
+	free(out);
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 int main(void)
@@ -323,6 +367,7 @@ int main(void)
 	RUN(a_deleted_game_is_in_no_list);
 	RUN(paks_follow_the_game_not_the_rumble_switch);
 	RUN(counter_factors_come_from_the_catalogue);
+	RUN(covers_scale_by_area_to_fit);
 	printf("%d of %d failed\n", g_failed, g_run);
 	return g_failed != 0;
 }

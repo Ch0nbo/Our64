@@ -229,7 +229,9 @@ static void read_info_of(library_game *g)
 	g->art = !stat(path, &st);
 }
 
-/* A cover into out (ART_W x ART_H at most), scaled down by whole pixel boxes. */
+/* A cover into out (ART_W x ART_H at most), scaled down by an area average
+ * (library_fit_rgba): libretro's 512 x 374 covers draw at 493 x 360, not
+ * halved to whole pixels. */
 static int decode_art(const char *id, uint8_t *out, int *pw, int *ph)
 {
 	char path[400];
@@ -240,30 +242,9 @@ static int decode_art(const char *id, uint8_t *out, int *pw, int *ph)
 	if (!png_image_begin_read_from_file(&im, path))
 		return -1;
 	im.format = PNG_FORMAT_RGBA;
-	uint8_t *full = malloc(PNG_IMAGE_SIZE(im));
-	int ok = full && png_image_finish_read(&im, NULL, full, 0, NULL);
-	if (ok) {
-		int w = (int)im.width, h = (int)im.height;
-		int step = 1;
-		while (w / step > ART_W || h / step > ART_H)
-			step++;
-		int ow = w / step, oh = h / step;
-		if (step == 1) {
-			memcpy(out, full, (size_t)w * h * 4);
-		} else {
-			for (int y = 0; y < oh; y++)
-				for (int x = 0; x < ow; x++)
-					for (int c = 0; c < 4; c++) {
-						unsigned sum = 0;
-						for (int dy = 0; dy < step; dy++)
-							for (int dx = 0; dx < step; dx++)
-								sum += full[((y * step + dy) * w + x * step + dx) * 4 + c];
-						out[(y * ow + x) * 4 + c] = (uint8_t)(sum / (step * step));
-					}
-		}
-		*pw = ow;
-		*ph = oh;
-	}
+	uint8_t *full = (uint64_t)im.width * im.height <= LIBRARY_FIT_MAX_PIXELS ? malloc(PNG_IMAGE_SIZE(im)) : NULL;
+	int ok = full && png_image_finish_read(&im, NULL, full, 0, NULL) &&
+	         !library_fit_rgba(full, (int)im.width, (int)im.height, ART_W, ART_H, out, pw, ph);
 	free(full);
 	png_image_free(&im);
 	return ok ? 0 : -1;

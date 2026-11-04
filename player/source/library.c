@@ -279,3 +279,95 @@ void library_cut_middle(const char *s, int max, char *out, unsigned size)
 	memcpy(out, cut, len);
 	out[len] = 0;
 }
+
+/* Where each source pixel along one axis lands among n_out output pixels:
+ * measured in units where a source pixel is n_out long and an output pixel
+ * n_in, source pixel i spans [i * n_out, (i + 1) * n_out), so it falls in
+ * output pixel at[i] with weight[i] units and in the next with the rest
+ * (n_out <= n_in: never more than two). */
+static void fit_axis(int n_in, int n_out, int *at, uint32_t *weight)
+{
+	for (int i = 0; i < n_in; i++) {
+		const uint32_t start = (uint32_t)i * (uint32_t)n_out, end = start + (uint32_t)n_out;
+		const uint32_t o = start / (uint32_t)n_in, edge = (o + 1) * (uint32_t)n_in;
+		at[i] = (int)o;
+		weight[i] = end <= edge ? (uint32_t)n_out : edge - start;
+	}
+}
+
+int library_fit_rgba(const unsigned char *src, int w, int h, int max_w, int max_h, unsigned char *out, int *ow, int *oh)
+{
+	if (w <= 0 || h <= 0 || max_w <= 0 || max_h <= 0 || (uint64_t)w * (uint64_t)h > LIBRARY_FIT_MAX_PIXELS)
+		return -1;
+	if (w <= max_w && h <= max_h) {
+		memcpy(out, src, (size_t)w * h * 4);
+		*ow = w;
+		*oh = h;
+		return 0;
+	}
+	/* the side that is further over decides; the other follows, rounded */
+	int tw, th;
+	if ((uint64_t)w * max_h >= (uint64_t)h * max_w) {
+		tw = max_w;
+		th = (int)(((uint64_t)h * max_w + w / 2) / w);
+	} else {
+		th = max_h;
+		tw = (int)(((uint64_t)w * max_h + h / 2) / h);
+	}
+	if (tw < 1) tw = 1;
+	if (th < 1) th = 1;
+	int *xat = malloc(sizeof(int) * (size_t)w), *yat = malloc(sizeof(int) * (size_t)h);
+	uint32_t *xw = malloc(sizeof(uint32_t) * (size_t)w), *yw = malloc(sizeof(uint32_t) * (size_t)h);
+	uint32_t *row = malloc(sizeof(uint32_t) * 4 * (size_t)tw);     /* one source row, summed across */
+	uint32_t *acc = calloc(8 * (size_t)tw, sizeof(uint32_t));       /* the output row being summed, and the next */
+	int ok = xat && yat && xw && yw && row && acc;
+	if (ok) {
+		fit_axis(w, tw, xat, xw);
+		fit_axis(h, th, yat, yw);
+		/* each output pixel's weights add up to w across and h down: w * h in
+		 * all, at most 16 M, so 255 times it fits 32 bits */
+		const uint32_t total = (uint32_t)w * (uint32_t)h, half = total / 2;
+		uint32_t *cur = acc, *next = acc + 4 * (size_t)tw;
+		int y_out = 0;
+		for (int y = 0; y < h; y++) {
+			if (yat[y] > y_out) { /* the output row is whole: written, and the next one moves up */
+				unsigned char *o = out + (size_t)y_out * tw * 4;
+				for (int i = 0; i < 4 * tw; i++)
+					o[i] = (unsigned char)((cur[i] + half) / total);
+				uint32_t *t = cur;
+				cur = next;
+				next = t;
+				memset(next, 0, sizeof(uint32_t) * 4 * (size_t)tw);
+				y_out++;
+			}
+			memset(row, 0, sizeof(uint32_t) * 4 * (size_t)tw);
+			const unsigned char *s = src + (size_t)y * w * 4;
+			for (int x = 0; x < w; x++, s += 4) {
+				uint32_t *r = row + 4 * xat[x];
+				const uint32_t a = xw[x], b = (uint32_t)tw - a;
+				r[0] += s[0] * a; r[1] += s[1] * a; r[2] += s[2] * a; r[3] += s[3] * a;
+				if (b) {
+					r[4] += s[0] * b; r[5] += s[1] * b; r[6] += s[2] * b; r[7] += s[3] * b;
+				}
+			}
+			const uint32_t a = yw[y], b = (uint32_t)th - a;
+			for (int i = 0; i < 4 * tw; i++) {
+				cur[i] += row[i] * a;
+				if (b)
+					next[i] += row[i] * b;
+			}
+		}
+		unsigned char *o = out + (size_t)y_out * tw * 4; /* the last row */
+		for (int i = 0; i < 4 * tw; i++)
+			o[i] = (unsigned char)((cur[i] + half) / total);
+		*ow = tw;
+		*oh = th;
+	}
+	free(xat);
+	free(yat);
+	free(xw);
+	free(yw);
+	free(row);
+	free(acc);
+	return ok ? 0 : -1;
+}
