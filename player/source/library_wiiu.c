@@ -590,6 +590,8 @@ static void rescan(void)
 	for (int s = 0; s < ROMS_ART; s++)
 		v->art[s].game = -1;
 	library_scan(g_root);
+	if (g_count == 0) /* + from the letter bar: no bar now, so A goes to the screen's own key */
+		v->bar_focus = 0;
 	const int game = library_index_of(file);
 	v->sel = 0;
 	for (int k = 0; k < v->count && file[0]; k++)
