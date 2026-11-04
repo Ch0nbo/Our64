@@ -3,12 +3,15 @@ CRC2, at 0x10 and 0x14 in the header) with the No-Intro name libretro-thumbnails
 files its cover under, so the console can fetch covers without reading a whole
 ROM for its CRC-32.
 
-The inputs:
+The inputs, pinned (covertitles.c was made from these):
 - mupen64plus.ini, mupen64plus-core's ROM catalogue (GPL): each ROM's MD5 with
-  its header CRCs. https://github.com/mupen64plus/mupen64plus-core/blob/master/data/mupen64plus.ini
+  its header CRCs, at mupen64plus-core commit 3be6336.
+  https://raw.githubusercontent.com/mupen64plus/mupen64plus-core/3be6336/data/mupen64plus.ini
 - libretro-database's No-Intro list for the N64 (clrmamepro format): each ROM's
-  MD5 with its No-Intro name, the list tools/fetch-art.py downloads.
-  https://github.com/libretro/libretro-database/blob/master/metadat/no-intro/Nintendo%20-%20Nintendo%2064.dat
+  MD5 with its No-Intro name, the list tools/fetch-art.py downloads, at
+  libretro-database commit 9a899f5, SHA-256
+  17c3a83994717859cca16a89f5b84952dcd8e55d45fe0cf42b1245f565683e49.
+  https://raw.githubusercontent.com/libretro/libretro-database/9a899f5/metadat/no-intro/Nintendo%20-%20Nintendo%2064.dat
 
 The two are joined on the MD5. When releases with different names share header
 CRCs (Ocarina of Time's USA and Japan carts), each name gets a row with the
@@ -36,16 +39,6 @@ def read_ini(path):
         k, v = line.split("=", 1)
         cur[k.strip()] = v.strip()
     return entries
-
-
-def field(entries, e, k, seen=()):
-    """A key of an entry, or of the entry its RefMD5 names (as make-gamedb.py does)."""
-    if k in e:
-        return e[k]
-    ref = e.get("RefMD5", "").upper()
-    if ref in entries and ref not in seen:
-        return field(entries, entries[ref], k, seen + (ref,))
-    return None
 
 
 def tokens(text):
@@ -131,7 +124,7 @@ def main():
     names = read_dat(sys.argv[2])
     rows, unmatched = {}, 0
     for md5, e in entries.items():
-        crc = field(entries, e, "CRC")
+        crc = e.get("CRC")  # the entry's own: a RefMD5 entry shares settings, not header CRCs
         if not crc:
             continue
         name = names.get(md5)
