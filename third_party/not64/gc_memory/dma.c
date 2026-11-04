@@ -76,9 +76,9 @@ int loadSram(fileBrowser_file* savepath){
 	fileBrowser_file saveFile;
 	memcpy(&saveFile, savepath, sizeof(fileBrowser_file));
 	memset(&saveFile.name[0],0,FILE_BROWSER_MAX_PATH_LEN);
-	sprintf((char*)saveFile.name,"%s/%s%s.sra",savepath->name,ROM_SETTINGS.goodname,saveregionstr());
+	const int named = snprintf((char*)saveFile.name,FILE_BROWSER_MAX_PATH_LEN,"%s/%s%s.sra",savepath->name,ROM_SETTINGS.goodname,saveregionstr()) < FILE_BROWSER_MAX_PATH_LEN; /* Our64: bounded; too long reads as no file */
 
-	if(saveFile_readFile(&saveFile, &i, 4) == 4){ //file exists
+	if(named && saveFile_readFile(&saveFile, &i, 4) == 4){ //file exists
 		saveFile.offset = 0;
 		if(saveFile_readFile(&saveFile, sram, 0x8000)!=0x8000) {  //error reading file
   		for (i=0; i<0x8000; i++) sram[i] = 0;
@@ -101,7 +101,8 @@ int saveSram(fileBrowser_file* savepath){
 	fileBrowser_file saveFile;
 	memcpy(&saveFile, savepath, sizeof(fileBrowser_file));
 	memset(&saveFile.name[0],0,FILE_BROWSER_MAX_PATH_LEN);
-	sprintf((char*)saveFile.name,"%s/%s%s.sra",savepath->name,ROM_SETTINGS.goodname,saveregionstr());
+	if(snprintf((char*)saveFile.name,FILE_BROWSER_MAX_PATH_LEN,"%s/%s%s.sra",savepath->name,ROM_SETTINGS.goodname,saveregionstr()) >= FILE_BROWSER_MAX_PATH_LEN)
+	  return -1; /* Our64: bounded; a cut name would write another file */
 
 	if(saveFile_writeFile(&saveFile, sram, 0x8000)!=0x8000)
 	  return -1;

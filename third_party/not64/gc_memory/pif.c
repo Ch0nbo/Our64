@@ -85,9 +85,9 @@ int loadEeprom(fileBrowser_file* savepath){
 	fileBrowser_file saveFile;
 	memcpy(&saveFile, savepath, sizeof(fileBrowser_file));
 	memset(&saveFile.name[0],0,FILE_BROWSER_MAX_PATH_LEN);
-	sprintf((char*)saveFile.name,"%s/%s%s.eep",savepath->name,ROM_SETTINGS.goodname,saveregionstr());
+	const int named = snprintf((char*)saveFile.name,FILE_BROWSER_MAX_PATH_LEN,"%s/%s%s.eep",savepath->name,ROM_SETTINGS.goodname,saveregionstr()) < FILE_BROWSER_MAX_PATH_LEN; /* Our64: bounded; too long reads as no file */
 
-	if(saveFile_readFile(&saveFile, &i, 4) == 4) {  //file exists
+	if(named && saveFile_readFile(&saveFile, &i, 4) == 4) {  //file exists
 		saveFile.offset = 0;
 		if(saveFile_readFile(&saveFile, eeprom, 0x800)!=0x800) { //error reading file
   		for (i=0; i<0x800; i++) eeprom[i] = 0xff;
@@ -111,7 +111,8 @@ int saveEeprom(fileBrowser_file* savepath){
 	fileBrowser_file saveFile;
 	memcpy(&saveFile, savepath, sizeof(fileBrowser_file));
 	memset(&saveFile.name[0],0,FILE_BROWSER_MAX_PATH_LEN);
-	sprintf((char*)saveFile.name,"%s/%s%s.eep",savepath->name,ROM_SETTINGS.goodname,saveregionstr());
+	if(snprintf((char*)saveFile.name,FILE_BROWSER_MAX_PATH_LEN,"%s/%s%s.eep",savepath->name,ROM_SETTINGS.goodname,saveregionstr()) >= FILE_BROWSER_MAX_PATH_LEN)
+	  return -1; /* Our64: bounded; a cut name would write another file */
 
 	if(saveFile_writeFile(&saveFile, eeprom, 0x800)!=0x800)
 	  return -1;
@@ -276,9 +277,9 @@ int loadMempak(fileBrowser_file* savepath){
 
 	memcpy(&saveFile, savepath, sizeof(fileBrowser_file));
 	memset(&saveFile.name[0],0,FILE_BROWSER_MAX_PATH_LEN);
-	sprintf((char*)saveFile.name,"%s/%s%s.mpk",savepath->name,ROM_SETTINGS.goodname,saveregionstr());
+	const int named = snprintf((char*)saveFile.name,FILE_BROWSER_MAX_PATH_LEN,"%s/%s%s.mpk",savepath->name,ROM_SETTINGS.goodname,saveregionstr()) < FILE_BROWSER_MAX_PATH_LEN; /* Our64: bounded; too long reads as no file */
 
-	if(saveFile_readFile(&saveFile, &i, 4) == 4) {  //file exists
+	if(named && saveFile_readFile(&saveFile, &i, 4) == 4) {  //file exists
 		saveFile.offset = 0;
 		if(saveFile_readFile(&saveFile, mempack, 0x8000 * 4)!=(0x8000*4)) { //error reading file
   		format_mempacks();
@@ -300,7 +301,8 @@ int saveMempak(fileBrowser_file* savepath){
 	fileBrowser_file saveFile;
 	memcpy(&saveFile, savepath, sizeof(fileBrowser_file));
 	memset(&saveFile.name[0],0,FILE_BROWSER_MAX_PATH_LEN);
-	sprintf((char*)saveFile.name,"%s/%s%s.mpk",savepath->name,ROM_SETTINGS.goodname,saveregionstr());
+	if(snprintf((char*)saveFile.name,FILE_BROWSER_MAX_PATH_LEN,"%s/%s%s.mpk",savepath->name,ROM_SETTINGS.goodname,saveregionstr()) >= FILE_BROWSER_MAX_PATH_LEN)
+	  return -1; /* Our64: bounded; a cut name would write another file */
 
 	if(saveFile_writeFile(&saveFile, mempack, 0x8000 * 4)!=(0x8000*4))
 	  return -1;

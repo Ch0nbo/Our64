@@ -20,5 +20,8 @@ Changes made for Our64, built only with `__WIIU__` where they touch the Wii and 
   Resident Evil 2 on a big-endian host, 4 MB at boot for games that need it.
 - File browser: `FILE_BROWSER_MAX_PATH_LEN` is 512, not 128, so a ROM in a folder chosen in Settings
   (on the SD card or a USB drive) keeps its whole path. `fileBrowser_file` is never written to the card.
+- Save files (`.sra`, `.eep`, `.mpk`, `.fla` in `gc_memory/dma.c`, `pif.c`, `flashram.c`): their names are
+  built with `snprintf` bounded by `FILE_BROWSER_MAX_PATH_LEN`, not `sprintf`. A name too long reads as no
+  save, and a write fails instead of writing a cut name.
 
 These are changes for Our64, not fixes claimed for Not64 itself.
