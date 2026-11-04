@@ -60,6 +60,27 @@ const char *picture_row_about(const picture_ui *p);
 int  picture_hit(int x, int y);                  /* row * 8 + value + 1, or row * 8 for the row itself; -1 */
 int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
 
+/* ---- Settings > Games (2026-11-04): where the ROMs are, and fetching
+ * missing covers (only when asked). Both rows act on A; the value is text. ---- */
+enum { GAMES_FOLDER, GAMES_COVERS, GAMES_ROWS };
+typedef struct {
+	int row;
+	char folder[96];      /* "SD card: wiiu/our64/roms", "USB GAMES: N64" */
+	int missing;          /* readable games without a cover */
+	int running, done, total; /* a fetch in progress */
+	int touched;
+} games_ui;
+enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP };
+void games_open(games_ui *g, const char *folder, int missing);
+int  games_event(games_ui *g, int event, int target);
+void games_fetching(games_ui *g, int done, int total);
+void games_fetched(games_ui *g, int missing);   /* the fetch ended or stopped */
+const char *games_row_name(int row);
+void games_value(const games_ui *g, int row, char *out, unsigned size);
+const char *games_row_about(const games_ui *g);
+int  games_hit(int x, int y);                   /* row, or -1 */
+int  games_legend(const games_ui *g, int type, pause_key *keys, int max);
+
 /* ---- Theme (Settings > Theme, 2026-10-30): the colors and Our ROMs' layout,
  * each applied with A, on the Settings rows' layout. ---- */
 

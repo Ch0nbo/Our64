@@ -542,6 +542,86 @@ static void taps_select_a_row_then_change_it_and_switch_tabs_at_once(void)
 	CHECK(mapping_hit(&g_m, r[0] + 5, r[1] + 5) == -1);
 }
 
+/* ---- Settings > Games (2026-11-04) ---- */
+
+static void games_rows_and_fetch_progress(void)
+{
+	games_ui g;
+	games_open(&g, "SD card: wiiu/our64/roms", 12);
+	CHECK(!strcmp(games_row_name(GAMES_FOLDER), "ROM folder") && !strcmp(games_row_name(GAMES_COVERS), "Fetch covers"));
+	char v[64];
+	games_value(&g, GAMES_FOLDER, v, sizeof(v));
+	CHECK(!strcmp(v, "SD card: wiiu/our64/roms"));
+	games_value(&g, GAMES_COVERS, v, sizeof(v));
+	CHECK(!strcmp(v, "12 missing"));
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_FOLDER);
+	games_event(&g, PEV_DOWN, -1);
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
+	games_fetching(&g, 3, 12);
+	games_value(&g, GAMES_COVERS, v, sizeof(v));
+	CHECK(!strcmp(v, "3 of 12"));
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);       /* already running */
+	CHECK(games_event(&g, PEV_UP, -1) == GACT_NONE && g.row == GAMES_COVERS); /* stays while it runs */
+	CHECK(games_event(&g, PEV_BACK, -1) == GACT_STOP);      /* B stops, does not leave */
+	games_fetched(&g, 9);
+	games_value(&g, GAMES_COVERS, v, sizeof(v));
+	CHECK(!strcmp(v, "9 missing"));
+	CHECK(games_event(&g, PEV_BACK, -1) == GACT_BACK);
+}
+
+static void no_missing_covers_dims_fetch(void)
+{
+	games_ui g;
+	games_open(&g, "SD card: wiiu/our64/roms", 0);
+	char v[64];
+	games_value(&g, GAMES_COVERS, v, sizeof(v));
+	CHECK(!strcmp(v, "None missing"));
+	g.row = GAMES_COVERS;
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);
+	pause_key k[6];
+	int n = games_legend(&g, INPUT_PRO, k, 6);
+	CHECK(n == 4 && !strcmp(k[3].label, "OK") && k[3].dim);
+	g.row = GAMES_FOLDER;
+	n = games_legend(&g, INPUT_PRO, k, 6);
+	CHECK(n == 4 && !k[3].dim);
+}
+
+static void games_legend_and_lines_while_fetching(void)
+{
+	games_ui g;
+	games_open(&g, "SD card: wiiu/our64/roms", 5);
+	CHECK(!strcmp(games_row_about(&g), "Where Our ROMs finds your games"));
+	g.row = GAMES_COVERS;
+	CHECK(!strcmp(games_row_about(&g), "Box art from the internet, for games without one"));
+	games_fetching(&g, 0, 5);
+	CHECK(!strcmp(games_row_about(&g), "B stops"));
+	pause_key k[6];
+	int n = games_legend(&g, INPUT_PRO, k, 6);
+	CHECK(n == 2 && k[0].glyph == GLYPH_HOME && k[1].glyph == GLYPH_B && !strcmp(k[1].label, "Stop"));
+	CHECK(games_event(&g, PEV_HOME, -1) == GACT_HOME); /* the loop stops the fetch first */
+}
+
+static int tap_games(games_ui *g, int target)
+{
+	games_event(g, PEV_TOUCH_DOWN, target);
+	return games_event(g, PEV_TOUCH_UP, target);
+}
+
+static void games_taps_select_then_act(void)
+{
+	games_ui g;
+	games_open(&g, "SD card: wiiu/our64/roms", 3);
+	int r[4];
+	settings_row_rect(GAMES_COVERS, r);
+	const int t = games_hit(r[0] + 5, r[1] + 5);
+	CHECK(t == GAMES_COVERS && games_hit(5, 5) == -1);
+	CHECK(tap_games(&g, t) == GACT_NONE && g.row == GAMES_COVERS); /* a tap selects */
+	CHECK(tap_games(&g, t) == GACT_FETCH);                          /* a tap on the selected acts */
+	games_fetching(&g, 1, 3);
+	settings_row_rect(GAMES_FOLDER, r);
+	CHECK(tap_games(&g, games_hit(r[0] + 5, r[1] + 5)) == GACT_NONE && g.row == GAMES_COVERS); /* not while it runs */
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 int main(void)
@@ -573,6 +653,10 @@ int main(void)
 	RUN(the_legend_follows_the_row_and_the_controller);
 	RUN(each_controller_has_its_buttons_for_the_actions);
 	RUN(taps_select_a_row_then_change_it_and_switch_tabs_at_once);
+	RUN(games_rows_and_fetch_progress);
+	RUN(no_missing_covers_dims_fetch);
+	RUN(games_legend_and_lines_while_fetching);
+	RUN(games_taps_select_then_act);
 	printf("%d of %d failed\n", g_failed, g_run);
 	return g_failed != 0;
 }

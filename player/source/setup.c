@@ -270,6 +270,118 @@ int picture_legend(const picture_ui *p, int type, pause_key *keys, int max)
 	return n;
 }
 
+/* ---- Settings > Games ---- */
+
+static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers" };
+
+const char *games_row_name(int row) { return row >= 0 && row < GAMES_ROWS ? g_games_row[row] : ""; }
+
+void games_open(games_ui *g, const char *folder, int missing)
+{
+	memset(g, 0, sizeof(*g));
+	snprintf(g->folder, sizeof(g->folder), "%s", folder ? folder : "");
+	g->missing = missing;
+	g->touched = -1;
+}
+
+void games_fetching(games_ui *g, int done, int total)
+{
+	g->running = 1;
+	g->done = done;
+	g->total = total;
+}
+
+void games_fetched(games_ui *g, int missing)
+{
+	g->running = 0;
+	g->missing = missing;
+}
+
+static int games_act(const games_ui *g)
+{
+	if (g->running)
+		return GACT_NONE;
+	if (g->row == GAMES_FOLDER)
+		return GACT_FOLDER;
+	return g->missing > 0 ? GACT_FETCH : GACT_NONE;
+}
+
+int games_event(games_ui *g, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		int e = tap(&g->touched, event, target, target == g->row);
+		if (g->running || e == -1)
+			return GACT_NONE; /* while a fetch runs the selection stays: B stops it */
+		if (e == -2) {
+			g->row = target;
+			return GACT_NONE;
+		}
+		event = e;
+	}
+	if (g->running) {
+		if (event == PEV_BACK)
+			return GACT_STOP;
+		return event == PEV_HOME ? GACT_HOME : GACT_NONE;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = g->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < GAMES_ROWS)
+			g->row = row;
+		break;
+	}
+	case PEV_OK: return games_act(g);
+	case PEV_BACK: return GACT_BACK;
+	case PEV_HOME: return GACT_HOME;
+	}
+	return GACT_NONE;
+}
+
+void games_value(const games_ui *g, int row, char *out, unsigned size)
+{
+	if (row == GAMES_FOLDER)
+		snprintf(out, size, "%s", g->folder);
+	else if (g->running)
+		snprintf(out, size, "%d of %d", g->done, g->total);
+	else if (g->missing > 0)
+		snprintf(out, size, "%d missing", g->missing);
+	else
+		snprintf(out, size, "None missing");
+}
+
+const char *games_row_about(const games_ui *g)
+{
+	if (g->row == GAMES_FOLDER)
+		return "Where Our ROMs finds your games";
+	return g->running ? "B stops" : "Box art from the internet, for games without one";
+}
+
+int games_hit(int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < GAMES_ROWS; row++) {
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row;
+	}
+	return -1;
+}
+
+int games_legend(const games_ui *g, int type, pause_key *keys, int max)
+{
+	int n = 0;
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	if (g->running) {
+		keys_add(keys, &n, max, back_glyph(type), "Stop", 0);
+		return n;
+	}
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", games_act(g) == GACT_NONE);
+	return n;
+}
+
 /* ---- Theme ---- */
 
 static const char *const g_look_row[LOOK_ROWS] = { "Colors", "Our ROMs" };
