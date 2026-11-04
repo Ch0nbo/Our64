@@ -109,8 +109,11 @@ int library_scan(const char *root)
 	if (d) {
 		struct dirent *e;
 		while ((e = readdir(d)) && g_count < MAX_GAMES)
-			if (library_is_rom(e->d_name) && !library_is_folder(g_roms, e))
+			if (library_is_rom(e->d_name) && !library_is_folder(g_roms, e)) {
+				if (strlen(e->d_name) >= sizeof(g_games[0].file)) /* listed cut: it won't open */
+					report_line("OUR ROMS: file name too long, cut to %d bytes: %s", (int)sizeof(g_games[0].file) - 1, e->d_name);
 				library_game_init(&g_games[g_count++], e->d_name);
+			}
 		closedir(d);
 	}
 	library_cut_middle(folder_label(f), ROMS_FOLDER_SHOWN, g_view.folder, sizeof(g_view.folder));

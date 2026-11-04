@@ -141,7 +141,7 @@ static volatile int g_quit;   /* leaving the game: QUIT_HOME (Wii U Menu), QUIT_
 static volatile int g_closing; /* the system asked us to save and close (power button) */
 static uint32_t g_quit_vi;    /* when */
 enum { QUIT_HOME = 1, QUIT_SYSTEM, QUIT_ROMS };
-static char g_rom[256];
+static char g_rom[512]; /* the ROM folder (up to 300) + '/' + a file name (up to 127): fileBrowser_file.name holds it */
 static int g_capture_left;  /* graphics tasks still to save (GamePad minus starts 120) */
 
 #define CAPTURE_TASKS 120
