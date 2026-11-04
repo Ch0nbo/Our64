@@ -382,6 +382,198 @@ int games_legend(const games_ui *g, int type, pause_key *keys, int max)
 	return n;
 }
 
+/* ---- Settings > Games > ROM folder ---- */
+
+void browse_open(browse_ui *b)
+{
+	memset(b, 0, sizeof(*b));
+	b->touched = -1;
+}
+
+void browse_entered(browse_ui *b, int games)
+{
+	b->games = games;
+	b->count = b->row = b->top = 0;
+}
+
+static int browse_use_row(const browse_ui *b) { return b->depth > 0; } /* Use this folder, row 0 inside a drive */
+
+int browse_rows(const browse_ui *b) { return b->count + browse_use_row(b); }
+
+static const browse_entry *browse_entry_of(const browse_ui *b, int row)
+{
+	const int i = row - browse_use_row(b);
+	return i >= 0 && i < b->count ? &b->entries[i] : NULL;
+}
+
+static void browse_scroll(browse_ui *b)
+{
+	if (b->row < b->top)
+		b->top = b->row;
+	if (b->row >= b->top + BROWSE_SHOWN)
+		b->top = b->row - BROWSE_SHOWN + 1;
+}
+
+void browse_add(browse_ui *b, const char *name, const char *path, int off)
+{
+	if (b->count >= BROWSE_MAX)
+		return;
+	browse_entry *e = &b->entries[b->count++];
+	snprintf(e->name, sizeof(e->name), "%s", name);
+	snprintf(e->path, sizeof(e->path), "%s", path);
+	e->off = off;
+	if (b->came_from[0] && !strcmp(path, b->came_from)) { /* back on the folder it came out of */
+		b->row = b->count - 1 + browse_use_row(b);
+		b->came_from[0] = 0;
+		browse_scroll(b);
+	}
+}
+
+const char *browse_row_name(const browse_ui *b, int row)
+{
+	if (browse_use_row(b) && row == 0)
+		return "Use this folder";
+	const browse_entry *e = browse_entry_of(b, row);
+	return e ? e->name : "";
+}
+
+int browse_row_off(const browse_ui *b, int row)
+{
+	const browse_entry *e = browse_entry_of(b, row);
+	return e && e->off;
+}
+
+void browse_row_value(const browse_ui *b, int row, char *out, unsigned size)
+{
+	if (!browse_use_row(b) || row != 0)
+		snprintf(out, size, "%s", "");
+	else if (b->games == 0)
+		snprintf(out, size, "No games");
+	else
+		snprintf(out, size, "%d game%s", b->games, b->games == 1 ? "" : "s");
+}
+
+/* What A does on the selected row, without doing it. */
+static int browse_act(const browse_ui *b)
+{
+	if (browse_use_row(b) && b->row == 0)
+		return BACT_USE;
+	const browse_entry *e = browse_entry_of(b, b->row);
+	return e && !e->off && e->path[0] ? BACT_OPEN : BACT_NONE;
+}
+
+/* "usb1p1:/Games/N64" -> "usb1p1:/Games" -> "usb1p1:/" -> "" (the drive list). */
+static void browse_parent(browse_ui *b)
+{
+	const char *colon = strstr(b->path, ":/");
+	const size_t root = colon ? (size_t)(colon - b->path) + 2 : 0;
+	char *slash = strrchr(b->path, '/');
+	if (!colon || strlen(b->path) <= root || !slash) {
+		b->path[0] = 0;
+		b->depth = 0;
+		return;
+	}
+	b->path[(size_t)(slash - b->path) < root ? root : (size_t)(slash - b->path)] = 0;
+	if (b->depth > 1)
+		b->depth--;
+}
+
+int browse_event(browse_ui *b, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		int e = tap(&b->touched, event, target, target == b->row);
+		if (e == -2) {
+			if (target >= 0 && target < browse_rows(b)) {
+				b->row = target;
+				browse_scroll(b);
+			}
+			return BACT_NONE;
+		}
+		if (e < 0)
+			return BACT_NONE;
+		event = e;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = b->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < browse_rows(b)) {
+			b->row = row;
+			browse_scroll(b);
+		}
+		break;
+	}
+	case PEV_OK: {
+		const int act = browse_act(b);
+		if (act == BACT_OPEN) {
+			const browse_entry *e = browse_entry_of(b, b->row);
+			if (b->depth == 0)
+				snprintf(b->drive, sizeof(b->drive), "%s", e->name);
+			snprintf(b->path, sizeof(b->path), "%s", e->path);
+			b->came_from[0] = 0;
+			b->depth++;
+		}
+		return act;
+	}
+	case PEV_BACK:
+		if (b->depth == 0)
+			return BACT_BACK;
+		snprintf(b->came_from, sizeof(b->came_from), "%s", b->path);
+		browse_parent(b);
+		return BACT_UP;
+	case PEV_HOME: return BACT_HOME;
+	}
+	return BACT_NONE;
+}
+
+const char *browse_title(const browse_ui *b)
+{
+	static char title[sizeof(b->drive) + sizeof(b->path) + 2];
+	if (b->depth == 0)
+		return "Choose a drive";
+	const char *colon = strstr(b->path, ":/");
+	const char *rest = colon ? colon + 2 : "";
+	char drive[sizeof(b->drive)];
+	if (b->drive[0])
+		snprintf(drive, sizeof(drive), "%s", b->drive);
+	else if (!strncmp(b->path, "sd:/", 4))
+		snprintf(drive, sizeof(drive), "SD card");
+	else
+		snprintf(drive, sizeof(drive), "%.*s", colon ? (int)(colon - b->path) : 0, b->path);
+	snprintf(title, sizeof(title), "%s%s%s", drive, rest[0] ? ": " : "", rest);
+	return title;
+}
+
+/* BROWSE_SHOWN rows between the line under the header and the legend. */
+void browse_row_rect(int shown, int r[4])
+{
+	r[0] = 40;
+	r[1] = 124 + shown * 44;
+	r[2] = 774;
+	r[3] = 40;
+}
+
+int browse_hit(const browse_ui *b, int x, int y)
+{
+	int r[4];
+	for (int i = 0; i < BROWSE_SHOWN && b->top + i < browse_rows(b); i++) {
+		browse_row_rect(i, r);
+		if (inside(x, y, r))
+			return b->top + i;
+	}
+	return -1;
+}
+
+int browse_legend(const browse_ui *b, int type, pause_key *keys, int max)
+{
+	int n = 0;
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), b->depth > 0 ? "Up" : "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", browse_act(b) == BACT_NONE);
+	return n;
+}
+
 /* ---- Theme ---- */
 
 static const char *const g_look_row[LOOK_ROWS] = { "Colors", "Our ROMs" };

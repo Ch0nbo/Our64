@@ -622,6 +622,121 @@ static void games_taps_select_then_act(void)
 	CHECK(tap_games(&g, games_hit(r[0] + 5, r[1] + 5)) == GACT_NONE && g.row == GAMES_COVERS); /* not while it runs */
 }
 
+/* ---- Settings > Games > ROM folder (2026-11-04) ---- */
+
+static void browser_opens_drives_then_folders_and_uses_one(void)
+{
+	static browse_ui b;
+	browse_open(&b);
+	browse_add(&b, "SD card", "sd:/", 0);
+	browse_add(&b, "USB GAMES", "usb1p1:/", 0);
+	browse_add(&b, "USB drive 2: no FAT32 or exFAT partition", "", 1); /* shown, greyed */
+	CHECK(b.depth == 0 && b.count == 3 && browse_rows(&b) == 3);    /* no Use row on the drive list */
+	browse_event(&b, PEV_DOWN, -1);
+	browse_event(&b, PEV_DOWN, -1);
+	CHECK(b.row == 2 && browse_event(&b, PEV_OK, -1) == BACT_NONE);  /* greyed */
+	browse_event(&b, PEV_UP, -1);
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN && !strcmp(b.path, "usb1p1:/"));
+	/* the caller lists usb1p1:/ */
+	browse_entered(&b, 4);                 /* 4 ROMs right in this folder */
+	browse_add(&b, "Games", "usb1p1:/Games", 0);
+	CHECK(b.depth == 1 && b.row == 0 && browse_rows(&b) == 2); /* Use this folder, then Games */
+	char v[32];
+	browse_row_value(&b, 0, v, sizeof(v));
+	CHECK(!strcmp(browse_row_name(&b, 0), "Use this folder") && !strcmp(v, "4 games"));
+	browse_event(&b, PEV_DOWN, -1);
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN && !strcmp(b.path, "usb1p1:/Games"));
+	browse_entered(&b, 0);
+	CHECK(b.depth == 2);
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_USE && !strcmp(b.path, "usb1p1:/Games"));
+	CHECK(browse_event(&b, PEV_BACK, -1) == BACT_UP && !strcmp(b.path, "usb1p1:/") && b.depth == 1);
+	browse_entered(&b, 4);
+	browse_add(&b, "Games", "usb1p1:/Games", 0);
+	CHECK(b.row == 1); /* back on the folder it came out of */
+	CHECK(browse_event(&b, PEV_BACK, -1) == BACT_UP && b.depth == 0 && !strcmp(b.path, ""));
+	CHECK(browse_event(&b, PEV_BACK, -1) == BACT_BACK);
+}
+
+static void browser_scrolls_long_lists(void)
+{
+	static browse_ui b;
+	browse_open(&b);
+	b.depth = 1;
+	snprintf(b.path, sizeof(b.path), "sd:/");
+	browse_entered(&b, 0);
+	char name[16], path[32];
+	for (int i = 0; i < 30; i++) {
+		snprintf(name, sizeof(name), "Folder %02d", i);
+		snprintf(path, sizeof(path), "sd:/Folder %02d", i);
+		browse_add(&b, name, path, 0);
+	}
+	for (int i = 0; i < 20; i++)
+		browse_event(&b, PEV_DOWN, -1);
+	CHECK(b.row == 20 && b.top <= 20 && b.top + BROWSE_SHOWN > 20);
+	int r[4];
+	browse_row_rect(0, r);
+	CHECK(browse_hit(&b, r[0] + 3, r[1] + 3) == b.top); /* the first row on screen */
+}
+
+static void browser_titles_values_and_legend(void)
+{
+	static browse_ui b;
+	browse_open(&b);
+	CHECK(!strcmp(browse_title(&b), "Choose a drive"));
+	browse_add(&b, "SD card", "sd:/", 0);
+	browse_add(&b, "USB drive 2: no FAT32 or exFAT partition", "", 1);
+	pause_key k[6];
+	int n = browse_legend(&b, INPUT_PRO, k, 6);
+	CHECK(n == 4 && !strcmp(k[1].label, "Back") && !strcmp(k[3].label, "OK") && !k[3].dim);
+	browse_event(&b, PEV_DOWN, -1);
+	n = browse_legend(&b, INPUT_PRO, k, 6);
+	CHECK(k[3].dim); /* a greyed row */
+	browse_event(&b, PEV_UP, -1);
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN);
+	browse_entered(&b, 1);
+	CHECK(!strcmp(browse_title(&b), "SD card"));
+	n = browse_legend(&b, INPUT_PRO, k, 6);
+	CHECK(!strcmp(k[1].label, "Up"));
+	char v[32];
+	browse_row_value(&b, 0, v, sizeof(v));
+	CHECK(!strcmp(v, "1 game"));
+	browse_add(&b, "wiiu", "sd:/wiiu", 0);
+	browse_row_value(&b, 1, v, sizeof(v));
+	CHECK(!strcmp(v, "") && !strcmp(browse_row_name(&b, 1), "wiiu"));
+	browse_event(&b, PEV_DOWN, -1);
+	browse_event(&b, PEV_OK, -1);
+	browse_entered(&b, 0);
+	browse_row_value(&b, 0, v, sizeof(v));
+	CHECK(!strcmp(v, "No games"));
+	browse_add(&b, "our64", "sd:/wiiu/our64", 0);
+	browse_event(&b, PEV_DOWN, -1);
+	browse_event(&b, PEV_OK, -1);
+	browse_entered(&b, 0);
+	browse_add(&b, "roms", "sd:/wiiu/our64/roms", 0);
+	browse_event(&b, PEV_DOWN, -1);
+	browse_event(&b, PEV_OK, -1);
+	browse_entered(&b, 12);
+	CHECK(!strcmp(browse_title(&b), "SD card: wiiu/our64/roms"));
+}
+
+static void browser_taps_select_then_open(void)
+{
+	static browse_ui b;
+	browse_open(&b);
+	browse_add(&b, "SD card", "sd:/", 0);
+	browse_add(&b, "USB GAMES", "usb1p1:/", 0);
+	int r[4];
+	browse_row_rect(1, r);
+	const int t = browse_hit(&b, r[0] + 3, r[1] + 3);
+	CHECK(t == 1);
+	browse_row_rect(2, r);
+	CHECK(browse_hit(&b, r[0] + 3, r[1] + 3) == -1); /* no row there */
+	browse_event(&b, PEV_TOUCH_DOWN, t);
+	CHECK(browse_event(&b, PEV_TOUCH_UP, t) == BACT_NONE && b.row == 1);
+	browse_event(&b, PEV_TOUCH_DOWN, t);
+	CHECK(browse_event(&b, PEV_TOUCH_UP, t) == BACT_OPEN && !strcmp(b.path, "usb1p1:/"));
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 int main(void)
@@ -657,6 +772,10 @@ int main(void)
 	RUN(no_missing_covers_dims_fetch);
 	RUN(games_legend_and_lines_while_fetching);
 	RUN(games_taps_select_then_act);
+	RUN(browser_opens_drives_then_folders_and_uses_one);
+	RUN(browser_scrolls_long_lists);
+	RUN(browser_titles_values_and_legend);
+	RUN(browser_taps_select_then_open);
 	printf("%d of %d failed\n", g_failed, g_run);
 	return g_failed != 0;
 }

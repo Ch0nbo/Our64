@@ -81,6 +81,36 @@ const char *games_row_about(const games_ui *g);
 int  games_hit(int x, int y);                   /* row, or -1 */
 int  games_legend(const games_ui *g, int type, pause_key *keys, int max);
 
+/* ---- Settings > Games > ROM folder (2026-11-04): drives, then folders.
+ * A opens a folder; "Use this folder", the first row inside a drive, picks
+ * the one shown; B goes up a level. The caller lists the drives and each
+ * folder (paths "sd:/...", "usb1p1:/..."): this never touches files. ---- */
+#define BROWSE_MAX 256
+#define BROWSE_SHOWN 6
+typedef struct { char name[64]; char path[256]; int off; } browse_entry;
+typedef struct {
+	int depth;              /* 0: the drives */
+	char path[256];         /* the folder shown ("" on the drive list) */
+	char came_from[256];    /* after BACT_UP: the folder to select again */
+	char drive[64];         /* the drive's name, from the drive list: browse_title */
+	int games;              /* ROM files right in path */
+	browse_entry entries[BROWSE_MAX];
+	int count, row, top, touched;
+} browse_ui;
+enum { BACT_NONE, BACT_BACK, BACT_HOME, BACT_OPEN, BACT_UP, BACT_USE };
+void browse_open(browse_ui *b);                       /* the drive list, empty */
+void browse_entered(browse_ui *b, int games);         /* after OPEN/UP: clears entries; caller adds */
+void browse_add(browse_ui *b, const char *name, const char *path, int off);
+int  browse_rows(const browse_ui *b);                 /* entries, plus Use this folder inside a drive */
+int  browse_event(browse_ui *b, int event, int target);
+const char *browse_row_name(const browse_ui *b, int row);
+int  browse_row_off(const browse_ui *b, int row);     /* greyed: shown, A does nothing */
+void browse_row_value(const browse_ui *b, int row, char *out, unsigned size); /* "4 games", "1 game", "" */
+const char *browse_title(const browse_ui *b);         /* the line under the header: path shown, "Choose a drive" */
+void browse_row_rect(int shown, int r[4]);
+int  browse_hit(const browse_ui *b, int x, int y);    /* row, or -1 */
+int  browse_legend(const browse_ui *b, int type, pause_key *keys, int max);
+
 /* ---- Theme (Settings > Theme, 2026-10-30): the colors and Our ROMs' layout,
  * each applied with A, on the Settings rows' layout. ---- */
 
