@@ -15,7 +15,8 @@ Our64 is built on top of the shoulders of giants. Modified for the Wii U:
 Used as they are:
 
 - [CafeGLSL](https://github.com/Exzap/CafeGLSL) by Exzap: compiles the graphics shaders on the console.
-- [mupen64plus](https://github.com/mupen64plus): the per-game settings database and the JPEG decoder.
+- [mupen64plus](https://github.com/mupen64plus): the per-game settings database and the JPEG decoder. Fetch covers'
+  table of header CRCs (`covertitles.c`) comes from its mupen64plus.ini too.
 - [cxd4](https://github.com/cxd4/rsp)'s RSP interpreter and [miniLZO](https://www.oberhumer.com/opensource/lzo/) by Markus Oberhumer.
 - [FatFs](https://elm-chan.org/fsw/ff/) by ChaN: reads USB drives.
 - [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails): the box art Fetch covers
