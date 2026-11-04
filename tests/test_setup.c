@@ -578,6 +578,11 @@ static void no_missing_covers_dims_fetch(void)
 	CHECK(!strcmp(v, "None missing"));
 	g.row = GAMES_COVERS;
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);
+	g.missing = GAMES_COUNTING; /* the headers still being read: nothing to fetch yet */
+	games_value(&g, GAMES_COVERS, v, sizeof(v));
+	CHECK(!strcmp(v, "Counting…"));
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);
+	g.missing = 0;
 	pause_key k[6];
 	int n = games_legend(&g, INPUT_PRO, k, 6);
 	CHECK(n == 4 && !strcmp(k[3].label, "OK") && k[3].dim);

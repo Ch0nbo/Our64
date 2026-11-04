@@ -66,11 +66,12 @@ enum { GAMES_FOLDER, GAMES_COVERS, GAMES_ROWS };
 typedef struct {
 	int row;
 	char folder[96];      /* "SD card: wiiu/our64/roms", "USB GAMES: N64" */
-	int missing;          /* readable games without a cover */
+	int missing;          /* readable games without a cover; GAMES_COUNTING while the headers are read */
 	int running, done, total; /* a fetch in progress */
 	int touched;
 } games_ui;
 enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP };
+#define GAMES_COUNTING (-1)
 void games_open(games_ui *g, const char *folder, int missing);
 int  games_event(games_ui *g, int event, int target);
 void games_fetching(games_ui *g, int done, int total);

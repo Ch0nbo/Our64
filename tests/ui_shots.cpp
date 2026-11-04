@@ -684,6 +684,10 @@ void shots_setup()
 	sv.look.pick[LOOK_LAYOUT] = LAYOUT_LIST;
 	shot("theme-layout", v);
 	sv.screen = SETUP_GAMES; // Settings > Games
+	games_open(&sv.games, "SD card: wiiu/our64/roms", GAMES_COUNTING); // the headers read as it opens
+	snprintf(sv.line, sizeof(sv.line), "Reading your games: 120 of 340");
+	shot("games-reading", v);
+	sv.line[0] = 0;
 	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	shot("games", v);
 	sv.games.row = GAMES_COVERS;

@@ -343,19 +343,32 @@ static void loader_wait(int drop)
  * counts). The headers come in lazily as games come into view, so the games
  * not read yet are read here, on the menu thread: once per scan, since what
  * is read stays (about 8 small file reads a game: a second or two for 200
- * games on the SD card, longer on USB). The loader finishes its job first,
- * and its result, taken later, agrees with what is read here. */
-int library_missing_list(covers_game *out, int max)
+ * games on the SD card, longer on USB). reading, when given, is called before
+ * the first is read and about every 100 ms after, so the page can show how far
+ * it got. The loader finishes its job first, and its result, taken later,
+ * agrees with what is read here. */
+int library_missing_list(covers_game *out, int max, void (*reading)(int read, int total))
 {
 	const OSTime t0 = OSGetSystemTime();
-	int n = 0, read = 0;
+	int n = 0, read = 0, unread = 0;
 	loader_wait(0);
+	for (int i = 0; i < g_count; i++)
+		unread += !g_games[i].deleted && !g_info[i];
+	OSTime shown = t0;
+	if (unread && reading)
+		reading(0, unread);
 	for (int i = 0; i < g_count; i++) {
 		if (g_games[i].deleted)
 			continue;
 		if (!g_info[i]) {
+			if (player_closing())
+				break; /* the count no longer matters */
 			need_info(i);
 			read++;
+			if (reading && OSGetSystemTime() - shown >= OSMillisecondsToTicks(100)) {
+				reading(read, unread);
+				shown = OSGetSystemTime();
+			}
 		}
 		const library_game *g = &g_games[i];
 		if (!g->readable || g->art)
@@ -382,7 +395,7 @@ int library_missing_list(covers_game *out, int max)
 	return n;
 }
 
-int library_missing_covers(void) { return library_missing_list(NULL, 0); }
+int library_missing_covers(void (*reading)(int read, int total)) { return library_missing_list(NULL, 0, reading); }
 
 /* A cover Fetch covers saved: every game with that id has one now, and the
  * loader draws it when it comes into view. The loader's result not taken yet

@@ -344,6 +344,8 @@ void games_value(const games_ui *g, int row, char *out, unsigned size)
 		snprintf(out, size, "%s", g->folder);
 	else if (g->running)
 		snprintf(out, size, "%d of %d", g->done, g->total);
+	else if (g->missing == GAMES_COUNTING)
+		snprintf(out, size, "Counting…");
 	else if (g->missing > 0)
 		snprintf(out, size, "%d missing", g->missing);
 	else
