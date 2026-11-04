@@ -261,7 +261,7 @@ static void test_summary(void)
 	summary(COVERS_OK, 0, 2, 0, 3, "Fetched 2 covers. 3 couldn't be downloaded.");
 	summary(COVERS_OK, 0, 2, 1, 3, "Fetched 2 covers. 1 not found. 3 couldn't be downloaded.");
 	summary(COVERS_OK, 0, 0, 4, 0, "No covers found.");
-	summary(COVERS_OK, 0, 0, 0, 0, "No covers found.");
+	summary(COVERS_OK, 0, 0, 0, 0, "All games have covers."); /* every one was on the card already */
 	summary(COVERS_OK, 1, 2, 0, 0, "Stopped: fetched 2 covers.");
 	summary(COVERS_OK, 1, 1, 1, 0, "Stopped: fetched 1 cover. 1 not found.");
 	summary(COVERS_OK, 1, 0, 0, 0, "Stopped.");

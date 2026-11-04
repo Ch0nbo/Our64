@@ -317,7 +317,35 @@ static void covers_scale_by_area_to_fit(void)
 	CHECK(oh == 360 && ow == 493); /* 512 * 360 / 374 = 492.8 */
 	for (int i = 0; i < ow * oh; i++)
 		CHECK(out[i * 4] == 200 && out[i * 4 + 1] == 30 && out[i * 4 + 2] == 7 && out[i * 4 + 3] == 255);
-	/* at half size, stripes one source pixel wide average to grey; the left
+	/* 8 x 8 checkers of two colors: each output pixel is the mean of the
+	 * source area it covers, worked out here in doubles */
+	for (int y = 0; y < h; y++)
+		for (int x = 0; x < w; x++) {
+			const int dark = ((x / 8) + (y / 8)) & 1;
+			unsigned char *p = src + (y * w + x) * 4;
+			p[0] = dark ? 10 : 240; p[1] = dark ? 200 : 20; p[2] = 0; p[3] = 255;
+		}
+	CHECK(library_fit_rgba(src, w, h, 640, 360, out, &ow, &oh) == 0);
+	CHECK(ow == 493 && oh == 360);
+	int worst = 0;
+	for (int oy = 0; oy < oh; oy++)
+		for (int ox = 0; ox < ow; ox++)
+			for (int c = 0; c < 2; c++) {
+				const double x0 = (double)ox * w / ow, x1 = (double)(ox + 1) * w / ow;
+				const double y0 = (double)oy * h / oh, y1 = (double)(oy + 1) * h / oh;
+				double sum = 0;
+				for (int y = (int)y0; y < h && y < y1; y++)
+					for (int x = (int)x0; x < w && x < x1; x++) {
+						const double cx = (x + 1 < x1 ? x + 1 : x1) - (x > x0 ? x : x0);
+						const double cy = (y + 1 < y1 ? y + 1 : y1) - (y > y0 ? y : y0);
+						sum += src[(y * w + x) * 4 + c] * cx * cy;
+					}
+				const int want = (int)(sum / ((x1 - x0) * (y1 - y0)) + 0.5), got = out[(oy * ow + ox) * 4 + c];
+				const int d = want > got ? want - got : got - want;
+				worst = d > worst ? d : worst;
+			}
+	CHECK(worst <= 1);
+	/* at half size, stripes one source pixel wide average to gray; the left
 	 * half dark and the right half light stay apart */
 	unsigned char *big = malloc(1280 * 720 * 4);
 	CHECK(big);

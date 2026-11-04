@@ -255,6 +255,8 @@ void covers_summary(int result, int stopped, int saved, int not_found, int faile
 			snprintf(out, size, "Stopped.%s", counts);
 	} else if (saved > 0) {
 		snprintf(out, size, "Fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", counts);
+	} else if (not_found == 0 && failed == 0) {
+		snprintf(out, size, "All games have covers."); /* every one tried was on the card already */
 	} else {
 		snprintf(out, size, "No covers found.");
 	}

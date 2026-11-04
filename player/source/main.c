@@ -1645,7 +1645,6 @@ static void build_shaders(void)
  * stopped and goes on. The console's auto power-down is off meanwhile. */
 static void sweep(void)
 {
-	const int n = library_count();
 	char path[256];
 	struct stat st;
 	snprintf(path, sizeof(path), "%s/sweep-done", report_sd_root());
@@ -1675,20 +1674,23 @@ static void sweep(void)
 	report_line("SWEEP: every game for %d s%s", g_sweep_s, resume ? ", going on" : "");
 	IMDisableAPD();
 	unsigned done = 0, checks = 0;
-	for (int i = 0; i < n && !g_closing; i++) {
+	/* the count each time: Settings can list another ROM folder during a game (library_rescan) */
+	for (int i = 0; i < library_count() && !g_closing; i++) {
 		const library_game *lg = library_get(i);
-		if (build_listed("sweep-done", lg->file))
+		if (!lg || build_listed("sweep-done", lg->file))
 			continue;
+		char file[sizeof(lg->file)]; /* lg can be another game's after play_game */
+		memcpy(file, lg->file, sizeof(file));
 		input_read();
 		if (input_take_home())
 			break;
-		build_note("sweep-current", "w", lg->file);
+		build_note("sweep-current", "w", file);
 		report_restart(); /* each game's lines reach the card: the 256 KB buffer held only 24 games */
 		g_sweep_t0_us = 0;
 		const int r = play_game(i);
 		char line[400];
 		if (!g_sweep_t0_us) {
-			snprintf(line, sizeof(line), "%s: did not start (could not read it, or graphics did not start)  CHECK", lg->file);
+			snprintf(line, sizeof(line), "%s: did not start (could not read it, or graphics did not start)  CHECK", file);
 		} else {
 			extern unsigned our64_gx2_links;
 			const double s = (report_now_us() - g_sweep_t0_us) / 1e6;
@@ -1703,12 +1705,12 @@ static void sweep(void)
 			if (g_sweep_low < 1e9)
 				snprintf(low, sizeof(low), " (lowest 10 s %.1f)", g_sweep_low);
 			snprintf(line, sizeof(line), "%s (%.20s): %.0f s, %.1f VI/s%s, %.1f graphics tasks/s, %u underruns, %u yields, "
-			         "%u shaders compiled%s", lg->file, (const char *)ROM_HEADER.Name, s, vis, low, tasks, under, yields,
+			         "%u shaders compiled%s", file, (const char *)ROM_HEADER.Name, s, vis, low, tasks, under, yields,
 			         our64_gx2_links - g_sweep_links0, check ? "  CHECK" : "");
 			checks += check;
 		}
 		build_note("sweep-results.txt", "a", line);
-		build_note("sweep-done", "a", lg->file);
+		build_note("sweep-done", "a", file);
 		build_note("sweep-current", "w", "");
 		report_line("SWEEP: %s", line);
 		report_save();
@@ -1719,7 +1721,7 @@ static void sweep(void)
 	}
 	IMEnableAPD();
 	int finished = 1;
-	for (int i = 0; i < n && finished; i++)
+	for (int i = 0; i < library_count() && finished; i++)
 		finished = build_listed("sweep-done", library_get(i)->file);
 	if (finished)
 		build_note("sweep-results.txt", "a", "Done.");

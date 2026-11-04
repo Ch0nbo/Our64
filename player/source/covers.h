@@ -69,7 +69,7 @@ int covers_final(int result, int saved, int failed);
 /* The line under Settings > Games' header after a fetch (result as
  * covers_final gives it): "Fetched 9 covers. 3 not found.", "Fetched 2
  * covers. 3 couldn't be downloaded.", "Fetched 1 cover.", "No covers
- * found.", "Stopped: fetched 2 covers." after B, or the failure's own line
+ * found.", "All games have covers." (all on the card already), "Stopped: fetched 2 covers." after B, or the failure's own line
  * with its OUR- code. saved counts covers downloaded, not those already on
  * the card; not_found 404s; failed downloads that failed. */
 void covers_summary(int result, int stopped, int saved, int not_found, int failed, char *out, unsigned size);
