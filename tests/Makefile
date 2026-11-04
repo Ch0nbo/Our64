@@ -2,7 +2,7 @@
 CC	?=	cc
 CFLAGS	:=	-std=gnu11 -O1 -g -Wall -Wextra -I../player/source
 BUILD	:=	build
-TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower
+TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs
 
 .PHONY: all clean shots
 all: $(addprefix $(BUILD)/,$(TESTS))
@@ -56,6 +56,34 @@ $(BUILD)/test_rsp_lle: test_rsp_lle.c ../player/source/rsp_lle.c ../player/sourc
 $(BUILD)/test_gb_tower: test_gb_tower.c ../player/source/gb_tower_hle.c ../player/source/gb_tower_hle.h $(BUILD)/test_rsp_lle
 	$(CC) $(CFLAGS) -O2 -I$(CXD4) -o $@ test_gb_tower.c ../player/source/gb_tower_hle.c ../player/source/rsp_lle.c \
 		$(addprefix $(BUILD)/cxd4/,$(CXD4_SRC:.c=.o))
+
+# USB drives (usbfs.c) on disk images. test_usbfs and FatFs get ASan and UBSan:
+# the images include broken volumes. make_disk makes the images with a
+# read-write FatFs: its own copies of the sources beside tests/fatfs_rw/ffconf.h
+# (ff.h includes "ffconf.h" from its own folder first, so -I cannot swap it).
+FATFS	:=	../third_party/fatfs
+FATFS_SRC :=	ff.c ff.h diskio.h ffunicode.c
+SAN	:=	-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+USBFS_IMGS :=	$(BUILD)/usbfs-images
+$(BUILD)/fatfs_ro/%.o: $(FATFS)/%.c $(addprefix $(FATFS)/,$(FATFS_SRC) ffconf.h)
+	@mkdir -p $(dir $@)
+	$(CC) -std=gnu11 -O1 -g -w $(SAN) -c $< -o $@
+
+$(BUILD)/make_disk: make_disk.c usbfs_diskio_file.c fatfs_rw/ffconf.h $(addprefix $(FATFS)/,$(FATFS_SRC))
+	@mkdir -p $(BUILD)/fatfs_rw
+	cp $(addprefix $(FATFS)/,$(FATFS_SRC)) fatfs_rw/ffconf.h $(BUILD)/fatfs_rw/
+	$(CC) -std=gnu11 -O1 -g -w -c $(BUILD)/fatfs_rw/ff.c -o $(BUILD)/fatfs_rw/ff.o
+	$(CC) -std=gnu11 -O1 -g -w -c $(BUILD)/fatfs_rw/ffunicode.c -o $(BUILD)/fatfs_rw/ffunicode.o
+	$(CC) $(CFLAGS) -I$(BUILD)/fatfs_rw -o $@ make_disk.c usbfs_diskio_file.c $(BUILD)/fatfs_rw/ff.o $(BUILD)/fatfs_rw/ffunicode.o
+
+$(USBFS_IMGS): $(BUILD)/make_disk
+	$(BUILD)/make_disk $(BUILD)
+	@touch $@
+
+$(BUILD)/test_usbfs: test_usbfs.c usbfs_diskio_file.c ../player/source/usbfs.c ../player/source/usbfs.h \
+		$(BUILD)/fatfs_ro/ff.o $(BUILD)/fatfs_ro/ffunicode.o $(USBFS_IMGS)
+	$(CC) $(CFLAGS) $(SAN) -I$(FATFS) -o $@ test_usbfs.c usbfs_diskio_file.c ../player/source/usbfs.c \
+		$(BUILD)/fatfs_ro/ff.o $(BUILD)/fatfs_ro/ffunicode.o
 
 # Every screen drawn on the PC with the console's drawing code and font: results/shots.
 LIBGUI	:=	../third_party/libgui/source
