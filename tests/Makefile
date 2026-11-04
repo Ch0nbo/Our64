@@ -2,7 +2,7 @@
 CC	?=	cc
 CFLAGS	:=	-std=gnu11 -O1 -g -Wall -Wextra -I../player/source
 BUILD	:=	build
-TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs
+TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers
 
 .PHONY: all clean shots
 all: $(addprefix $(BUILD)/,$(TESTS))
@@ -43,6 +43,10 @@ $(BUILD)/test_setup: test_setup.c ../player/source/setup.c ../player/source/setu
 $(BUILD)/test_tpak: test_tpak.c ../player/source/tpak.c ../player/source/tpak.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I../third_party/minilzo -o $@ test_tpak.c ../player/source/tpak.c ../third_party/minilzo/minilzo.c
+
+$(BUILD)/test_covers: test_covers.c ../player/source/covertitles.c ../player/source/covertitles_find.c ../player/source/covertitles.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_covers.c ../player/source/covertitles.c ../player/source/covertitles_find.c
 
 # cxd4 (vendored) at -O2, as in the player; its own warnings off.
 CXD4	:=	../third_party/cxd4
