@@ -17,6 +17,7 @@ Used as they are:
 - [CafeGLSL](https://github.com/Exzap/CafeGLSL) by Exzap: compiles the graphics shaders on the console.
 - [mupen64plus](https://github.com/mupen64plus): the per-game settings database and the JPEG decoder.
 - [cxd4](https://github.com/cxd4/rsp)'s RSP interpreter and [miniLZO](https://www.oberhumer.com/opensource/lzo/) by Markus Oberhumer.
+- [FatFs](https://elm-chan.org/fsw/ff/) by ChaN: reads USB drives.
 
 ## What you need
 
@@ -28,8 +29,17 @@ Used as they are:
 
 1. Download the latest zip from [Releases](../../releases).
 2. Copy its `wiiu` folder to the root of the SD card.
-3. Copy your games into `sd:/wiiu/our64/roms`.
+3. Copy your games into `sd:/wiiu/our64/roms`, or into any folder you choose in Settings > Games > ROM folder,
+   on the SD card or on a FAT32 or exFAT USB drive.
 4. Start Our64 from the Wii U Menu.
+
+## USB drives
+
+- Our64 only reads USB drives; it never writes to them. Saves, save states and covers stay on the SD card.
+- Drives formatted for the Wii U can't hold ROMs.
+- With ISFShax and stroopwafel's `5usbpart.ipx` plugin, Our64 can't see the drive's FAT32 partition, because
+  the plugin shows homebrew only the Wii U partition. Use the plugin's SD build, `5upartsd.ipx`, instead: it
+  makes that partition the SD card, and Our64 reads it as the SD card.
 
 ## Playing
 
@@ -100,7 +110,7 @@ The other scripts in `tools/` say what they do in their first lines.
 
 ## License
 
-Our64's own code is GPL-2.0-or-later ([LICENSE](LICENSE)). The code in `third_party/` keeps its own license: Not64 and GLideN64 are GPL-2.0, CafeGLSL is MIT.
+Our64's own code is GPL-2.0-or-later ([LICENSE](LICENSE)). The code in `third_party/` keeps its own license: Not64 and GLideN64 are GPL-2.0, CafeGLSL is MIT, FatFs R0.16 has its own BSD-style license.
 
 ## History
 
