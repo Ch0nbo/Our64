@@ -658,6 +658,46 @@ void shots_setup()
 	sv.look.row = LOOK_LAYOUT;
 	sv.look.pick[LOOK_LAYOUT] = LAYOUT_LIST;
 	shot("theme-layout", v);
+	sv.screen = SETUP_GAMES; // Settings > Games
+	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
+	shot("games", v);
+	sv.games.row = GAMES_COVERS;
+	games_fetching(&sv.games, 3, 12);
+	shot("games-fetching", v);
+	games_open(&sv.games, "SD card: wiiu/our64/roms", 0);
+	sv.games.row = GAMES_COVERS;
+	shot("games-none-missing", v);
+	sv.screen = SETUP_BROWSE; // Settings > Games > ROM folder
+	browse_open(&sv.browse);
+	browse_add(&sv.browse, "SD card", "sd:/", 0);
+	browse_add(&sv.browse, "USB GAMES", "usb1p1:/", 0);
+	browse_add(&sv.browse, "USB drive 2: no FAT32 or exFAT partition", "", 1);
+	shot("browse-drives", v);
+	sv.browse.row = 2;
+	shot("browse-drives-greyed", v);
+	sv.browse.row = 0;
+	browse_event(&sv.browse, PEV_OK, -1); // into the SD card
+	browse_entered(&sv.browse, 4);
+	const char * folders[8] = { "3ds", "Games", "N64 ROMs", "retroarch", "switch", "wiiu", "Wii U backups", "music" };
+	char path[64];
+	for (int i = 0; i < 8; i++) {
+		snprintf(path, sizeof(path), "sd:/%s", folders[i]);
+		browse_add(&sv.browse, folders[i], path, 0);
+	}
+	sv.browse.row = 3;
+	shot("browse-folder", v);
+	sv.browse.row = 0;
+	shot("browse-folder-use", v);
+	browse_entered(&sv.browse, 0);
+	char name[32];
+	for (int i = 0; i < 30; i++) {
+		snprintf(name, sizeof(name), "Folder %02d", i);
+		snprintf(path, sizeof(path), "sd:/Folder %02d", i);
+		browse_add(&sv.browse, name, path, 0);
+	}
+	for (int i = 0; i < 20; i++)
+		browse_event(&sv.browse, PEV_DOWN, -1);
+	shot("browse-long", v);
 	sv.screen = SETUP_SETTINGS;
 
 	sv.screen = SETUP_CONTROLLERS;

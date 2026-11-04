@@ -1792,11 +1792,75 @@ void draw_mapping(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
+// Settings > Games: the ROM folder and Fetch covers, each with its value as
+// words at the right.
+void draw_games(const setup_view & sv)
+{
+	const games_ui & g = sv.games;
+	setup_header("GAMES", sv.line[0] ? sv.line : nullptr);
+	for (int row = 0; row < GAMES_ROWS; row++) {
+		int r[4];
+		settings_row_rect(row, r);
+		const bool sel = g.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+		text(r[0] + 20, r[1] + 12, games_row_name(row), 26, card_ink(sel, false));
+		char value[96];
+		games_value(&g, row, value, sizeof(value));
+		const int px = fit(value, 22, 15, 300);
+		text(r[0] + r[2] - 24, r[1] + 15, clipped(value, px, 300).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+	}
+	row_about(GAMES_ROWS, games_row_about(&g));
+	pause_key keys[6];
+	int n = games_legend(&g, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
+// Settings > Games > ROM folder: the drives, then a drive's folders, with
+// "Use this folder" first; arrows in the margin when rows are out of view.
+void draw_browse(const setup_view & sv)
+{
+	const browse_ui & b = sv.browse;
+	setup_header("ROM FOLDER", sv.line[0] ? sv.line : browse_title(&b));
+	const int rows = browse_rows(&b);
+	for (int i = 0; i < BROWSE_SHOWN && b.top + i < rows; i++) {
+		const int row = b.top + i;
+		int r[4];
+		browse_row_rect(i, r);
+		const bool sel = b.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 4, 8);
+		char value[32];
+		browse_row_value(&b, row, value, sizeof(value));
+		const int vw = value[0] ? text_width(value, 20) + 24 : 0;
+		const char * name = browse_row_name(&b, row);
+		const int room = r[2] - 40 - vw;
+		const int px = fit(name, 22, 16, room);
+		// a drive without a partition Our64 reads is shown greyed: A does nothing on it
+		const PixelColor ink = browse_row_off(&b, row) ? rgb(theme_off(&surface_of(sel, false))) : card_ink(sel, false);
+		text(r[0] + 20, r[1] + 8, clipped(name, px, room).c_str(), px, ink);
+		if (value[0])
+			text(r[0] + r[2] - 24, r[1] + 9, value, 20, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+	}
+	int r[4];
+	if (b.top > 0) {
+		browse_row_rect(0, r);
+		text(UI_W - 20, r[1] + 10, "▲", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+	}
+	if (b.top + BROWSE_SHOWN < rows) {
+		browse_row_rect(BROWSE_SHOWN - 1, r);
+		text(UI_W - 20, r[1] + 10, "▼", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+	}
+	pause_key keys[6];
+	int n = browse_legend(&b, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
 void draw_setup(const ui_view & v)
 {
 	const setup_view & sv = *v.setup;
 	switch (sv.screen) {
 	case SETUP_SETTINGS: draw_settings(sv); break;
+	case SETUP_GAMES: draw_games(sv); break;
+	case SETUP_BROWSE: draw_browse(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;

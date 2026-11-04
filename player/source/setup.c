@@ -544,11 +544,12 @@ const char *browse_title(const browse_ui *b)
 	return title;
 }
 
-/* BROWSE_SHOWN rows between the line under the header and the legend. */
+/* BROWSE_SHOWN rows between the line under the header and the legend, the
+ * selected row's frame clear of both. */
 void browse_row_rect(int shown, int r[4])
 {
 	r[0] = 40;
-	r[1] = 124 + shown * 44;
+	r[1] = 130 + shown * 44;
 	r[2] = 774;
 	r[3] = 40;
 }
