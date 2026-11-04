@@ -52,4 +52,15 @@ int  usbfs_store_path(const usbfs_volume *v, int n, const char *device_path, cha
  * the path given. */
 int  usbfs_device_path(const usbfs_volume *v, int n, const char *stored, char *out, unsigned size);
 
+/* "sd:/Games/N64" as the SD card's own path, under sd (where the console
+ * mounts it, "fs:/vol/external01"): "fs:/vol/external01/Games/N64"; "sd:/" is
+ * sd itself. 0, or -1 when path does not start "sd:/" or out is too small. */
+int  usbfs_sd_path(const char *sd, const char *path, char *out, unsigned size);
+/* settings.cfg's ROM folder as the folder Our ROMs opens: "" is "<root>/roms",
+ * "sd:/x" goes through usbfs_sd_path and "usb:<serial>/x" through
+ * usbfs_device_path with the n volumes in v. 0, or -1 when the folder can't be
+ * reached: its drive is not among v, the value is malformed, or out is too small. */
+int  usbfs_rom_folder(const char *folder, const char *root, const char *sd, const usbfs_volume *v, int n,
+                      char *out, unsigned size);
+
 #endif

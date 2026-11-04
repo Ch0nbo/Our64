@@ -228,3 +228,54 @@ int library_find(const library_game *g, int n, const char *file)
 			return i;
 	return -1;
 }
+
+int library_is_rom(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	if (!strncmp(name, "._", 2))
+		return 0;
+	return dot && (!strcasecmp(dot, ".z64") || !strcasecmp(dot, ".n64") || !strcasecmp(dot, ".v64"));
+}
+
+static int utf8_continues(char c) { return ((unsigned char)c & 0xC0) == 0x80; }
+
+/* The byte where character k starts (the end when s has fewer). */
+static size_t utf8_at(const char *s, int k)
+{
+	size_t i = 0;
+	for (; s[i] && k > 0; k--)
+		for (i++; utf8_continues(s[i]); i++)
+			;
+	return i;
+}
+
+static int utf8_count(const char *s)
+{
+	int n = 0;
+	for (; *s; s++)
+		n += !utf8_continues(*s);
+	return n;
+}
+
+void library_cut_middle(const char *s, int max, char *out, unsigned size)
+{
+	if (!size)
+		return;
+	char cut[512];
+	const int n = utf8_count(s);
+	if (max < 3 || n <= max) {
+		snprintf(cut, sizeof(cut), "%s", s);
+	} else {
+		const int head = (max - 1) / 2, tail = max - 1 - head;
+		const size_t h = utf8_at(s, head), t = utf8_at(s, n - tail);
+		snprintf(cut, sizeof(cut), "%.*s\xE2\x80\xA6%s", (int)h, s, s + t);
+	}
+	size_t len = strlen(cut);
+	if (len >= size) { /* never half a character */
+		len = size - 1;
+		while (len > 0 && utf8_continues(cut[len]))
+			len--;
+	}
+	memcpy(out, cut, len);
+	out[len] = 0;
+}

@@ -52,7 +52,7 @@ int  setup_save_settings(void);    /* 0 when written */
 /* Our Settings, from the pause menu or Our ROMs. HOME there: settings_take_home is 1 after. */
 void settings_run(int from_pause);
 int  settings_take_home(void);
-int  settings_take_rescan(void);   /* 1 once after Settings, from Our ROMs, changed the ROM folder */
+int  settings_take_rescan(void);   /* 1 once after Settings changed the ROM folder (from a game: Our ROMs asks when it ends) */
 
 /* ---- library_wiiu.c: Our ROMs ---- */
 enum { LIB_PLAY, LIB_WIIU, LIB_SYSTEM };
@@ -63,7 +63,8 @@ int  library_index_of(const char *file); /* -1 */
 void library_path(int i, char *out, unsigned size);
 void library_refresh(int i);            /* after playing: its autosave and save states again */
 int  library_run(int *game, const char *notice);
-int  library_is_rom(const char *name);  /* a .z64, .n64 or .v64 file name */
+struct dirent;
+int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
 const char *library_folder_label(void); /* the ROM folder in use, for people: "SD card: wiiu/our64/roms" */
 int  library_missing_covers(void);      /* readable games without a cover */
 

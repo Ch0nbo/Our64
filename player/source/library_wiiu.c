@@ -1,6 +1,7 @@
 /* Our64 player: Our ROMs on the console (ux/flows/library). The games are
- * the .z64, .n64 and .v64 files in sd:/wiiu/our64/roms, listed A to Z by
- * their file names, # first. Left and right pick a letter on the letter bar
+ * the .z64, .n64 and .v64 files in the ROM folder (Settings > Games:
+ * sd:/wiiu/our64/roms unless another is chosen, on the SD card or a USB
+ * drive), listed A to Z by their file names, # first. Left and right pick a letter on the letter bar
  * (the Favorites star, Recent, All, #, A to Z); up and down move through its
  * games, stacked like a drawer. Y (minus on a Wii Remote) stars a game for
  * the Favorites tab, kept in config/favorites.txt; X (GamePad, Pro and
@@ -25,6 +26,7 @@
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
 #include <png.h>
+#include <whb/sdcard.h>
 
 #include <dirent.h>
 #include <math.h>
@@ -42,6 +44,8 @@ static int *g_shown;
 static unsigned char *g_info;  /* header and saves read */
 static int g_count;
 static char g_root[256];
+static char g_roms[300];           /* the ROM folder, resolved at each scan; "" when it can't be reached */
+static int g_sd_only;              /* A on "USB DRIVE NOT FOUND": <root>/roms this session, the setting kept */
 static char g_favorites_path[300]; /* config/favorites.txt, beside settings.cfg */
 static roms_view g_view;
 static int g_deleted;              /* games deleted since the scan: still in g_games, for the loader's indices */
@@ -54,11 +58,24 @@ static unsigned g_art_gen;
 static int g_art_use[ROMS_ART]; /* when each slot was last wanted, for replacing the oldest */
 static int g_tick;
 
-int library_is_rom(const char *name)
+int library_is_folder(const char *dir, const struct dirent *e)
 {
-	const char *dot = strrchr(name, '.');
-	return dot && (!strcasecmp(dot, ".z64") || !strcasecmp(dot, ".n64") || !strcasecmp(dot, ".v64"));
+	if (e->d_type != DT_UNKNOWN)
+		return e->d_type == DT_DIR;
+	char full[600];
+	struct stat st;
+	const int n = snprintf(full, sizeof(full), "%s%s%s", dir, dir[0] && dir[strlen(dir) - 1] == '/' ? "" : "/", e->d_name);
+	return n > 0 && (unsigned)n < sizeof(full) && stat(full, &st) == 0 && S_ISDIR(st.st_mode);
 }
+
+/* A file in the ROM folder: "usb1p1:/" + "Banjo.z64" without a second slash. */
+static void in_roms(const char *file, char *out, unsigned size)
+{
+	const size_t n = strlen(g_roms);
+	snprintf(out, size, "%s%s%s", g_roms, n && g_roms[n - 1] == '/' ? "" : "/", file);
+}
+
+static const char *folder_label(const char *f);
 
 int library_scan(const char *root)
 {
@@ -70,18 +87,36 @@ int library_scan(const char *root)
 		if (!g_games || !g_shown || !g_info)
 			return 0;
 	}
-	char dir[300];
-	snprintf(dir, sizeof(dir), "%s/roms", root);
-	mkdir(dir, 0777);
+	/* settings.cfg's ROM folder (usbfs.h): only the default is made when it is not there */
+	const char *f = g_sd_only ? "" : setup_settings()->rom_folder;
+	int vols;
+	const usbfs_volume *v = usbfs_volumes(&vols);
 	g_count = 0;
 	g_deleted = 0;
-	DIR *d = opendir(dir);
+	g_view.usb = !strncmp(f, "usb:", 4);
+	g_view.missing = ROMS_FOUND;
+	DIR *d = NULL;
+	if (usbfs_rom_folder(f, root, WHBGetSdCardMountPath(), v, vols, g_roms, sizeof(g_roms))) {
+		g_roms[0] = 0;
+		g_view.missing = g_view.usb ? ROMS_NO_DRIVE : ROMS_NO_FOLDER;
+	} else {
+		if (!f[0])
+			mkdir(g_roms, 0777);
+		d = opendir(g_roms);
+		if (!d && f[0]) /* the default folder that can't be made reads as no games yet, as before */
+			g_view.missing = ROMS_NO_FOLDER;
+	}
 	if (d) {
 		struct dirent *e;
 		while ((e = readdir(d)) && g_count < MAX_GAMES)
-			if (library_is_rom(e->d_name))
+			if (library_is_rom(e->d_name) && !library_is_folder(g_roms, e))
 				library_game_init(&g_games[g_count++], e->d_name);
 		closedir(d);
+	}
+	library_cut_middle(folder_label(f), ROMS_FOLDER_SHOWN, g_view.folder, sizeof(g_view.folder));
+	if (g_view.missing) {
+		report_line("OUR ROMS: can't read the ROM folder %s (%s)", f, g_roms[0] ? g_roms : "drive not found");
+		report_line("ERROR ROM folder missing: OUR-0105");
 	}
 	library_sort(g_games, g_count);
 	memset(g_info, 0, MAX_GAMES);
@@ -92,7 +127,7 @@ int library_scan(const char *root)
 	g_view.category = LIBRARY_ALL;
 	g_view.count = library_show(g_games, g_count, LIBRARY_ALL, g_shown);
 	library_categories(g_games, g_count, g_view.has);
-	report_line("OUR ROMS: %d games in %s", g_count, dir);
+	report_line("OUR ROMS: %d games in %s", g_count, g_roms);
 	return g_count;
 }
 
@@ -120,10 +155,9 @@ static void usb_folder_label(const char *f, char *label, unsigned size)
 /* settings.cfg's ROM folder: "" is the default, "sd:/path" a folder on the
  * SD card, "usb:<serial>/path" one on a USB drive's partition (Settings >
  * Games > ROM folder). */
-const char *library_folder_label(void)
+static const char *folder_label(const char *f)
 {
 	static char label[300];
-	const char *f = setup_settings()->rom_folder;
 	if (!f[0])
 		return "SD card: wiiu/our64/roms";
 	if (!strncmp(f, "usb:", 4)) {
@@ -139,6 +173,8 @@ const char *library_folder_label(void)
 	return label;
 }
 
+const char *library_folder_label(void) { return folder_label(setup_settings()->rom_folder); }
+
 /* None counted yet: Task 15 counts the readable games without a cover, and
  * until then Settings > Games says "None missing". */
 int library_missing_covers(void) { return 0; }
@@ -146,14 +182,14 @@ int library_missing_covers(void) { return 0; }
 int library_count(void) { return g_count; }
 const library_game *library_get(int i) { return i >= 0 && i < g_count ? &g_games[i] : NULL; }
 int library_index_of(const char *file) { return library_find(g_games, g_count, file); }
-void library_path(int i, char *out, unsigned size) { snprintf(out, size, "%s/roms/%s", g_root, g_games[i].file); }
+void library_path(int i, char *out, unsigned size) { in_roms(g_games[i].file, out, size); }
 
 /* The header, the autosave's time, the save states and whether there is a
  * cover, read into g (either thread: it touches only g and the files). */
 static void read_info_of(library_game *g)
 {
 	char path[512];
-	snprintf(path, sizeof(path), "%s/roms/%s", g_root, g->file);
+	in_roms(g->file, path, sizeof(path));
 	unsigned char h[64];
 	struct stat st;
 	FILE *f = fopen(path, "rb");
@@ -479,16 +515,20 @@ static void delete_game(void)
 	roms_view *v = &g_view;
 	const int i = g_shown[v->sel];
 	library_game *g = &g_games[i];
+	if (v->usb) { /* Our64 never writes to a USB drive (usbfs.h: read-only) */
+		snprintf(v->notice, sizeof(v->notice), "On a USB drive: delete it on a computer");
+		return;
+	}
 	char question[96];
 	snprintf(question, sizeof(question), "Delete %s?", g->title);
 	if (!player_ask(question, "Its saves and save states stay.", "Delete"))
 		return;
-	char trash[300], from[400], to[450];
+	char trash[300], from[512], to[450];
 	snprintf(trash, sizeof(trash), "%s/trash", g_root);
 	mkdir(trash, 0777);
 	snprintf(trash, sizeof(trash), "%s/trash/N64", g_root);
 	mkdir(trash, 0777);
-	snprintf(from, sizeof(from), "%s/roms/%s", g_root, g->file);
+	in_roms(g->file, from, sizeof(from));
 	snprintf(to, sizeof(to), "%s/%s", trash, g->file);
 	remove(to); /* an older copy deleted before: the trash keeps the newest */
 	const int failed = rename(from, to) != 0;
@@ -520,13 +560,18 @@ static void delete_game(void)
 	v->pos = (float)v->sel;
 }
 
-/* After Settings > Games > ROM folder: the games listed again from nothing.
- * The loader reads games by index, so its job finishes first and its result
- * is dropped, and the covers in the art slots go with the old indices.
- * Settings posts no jobs, so the loader is idle by now, or nearly. */
+/* After Settings > Games > ROM folder, or A on a folder not found: the games
+ * listed again from nothing, in All, the game selected before still selected
+ * when it is listed (by file name), else the first. The loader reads games by
+ * index, so its job finishes first and its result is dropped, and the covers
+ * in the art slots go with the old indices. Settings posts no jobs, so the
+ * loader is idle by now, or nearly. */
 static void rescan(void)
 {
 	roms_view *v = &g_view;
+	char file[sizeof(g_games[0].file)] = "";
+	if (v->count > 0)
+		snprintf(file, sizeof(file), "%s", g_games[g_shown[v->sel]].file);
 	while (g_loader_on) {
 		OSLockMutex(&g_load_lock);
 		const int busy = g_job != JOB_NONE;
@@ -540,8 +585,12 @@ static void rescan(void)
 	for (int s = 0; s < ROMS_ART; s++)
 		v->art[s].game = -1;
 	library_scan(g_root);
+	const int game = library_index_of(file);
 	v->sel = 0;
-	v->pos = 0;
+	for (int k = 0; k < v->count && file[0]; k++)
+		if (g_shown[k] == game)
+			v->sel = k;
+	v->pos = (float)v->sel;
 }
 
 /* Our ROMs until A on a game (LIB_PLAY, *game its index), HOME (LIB_WIIU) or
@@ -558,6 +607,17 @@ int library_run(int *game, const char *notice)
 		first = 0;
 	}
 	loader_start();
+	/* The ROM folder changed in Settings from a paused game: listed again now
+	 * that the game is over (not when Our64 is closing), the game played still
+	 * selected when the new folder has it. */
+	if (settings_take_rescan() && !player_closing()) {
+		char file[sizeof(g_games[0].file)] = "";
+		if (*game >= 0 && *game < g_count)
+			snprintf(file, sizeof(file), "%s", g_games[*game].file);
+		g_sd_only = 0; /* a folder chosen: that one, not the SD card's for now */
+		rescan();
+		*game = library_index_of(file);
+	}
 	/* Recent follows the games played since the list was last up. The first
 	 * time, it opens on the last game when that is among them (Zach,
 	 * 2026-10-18); otherwise All. */
@@ -584,7 +644,7 @@ int library_run(int *game, const char *notice)
 				v->sel = i;
 	}
 	v->pos = (float)v->sel;
-	snprintf(v->notice, sizeof(v->notice), "%s", notice ? notice : "");
+	snprintf(v->notice, sizeof(v->notice), "%s", notice && !v->missing ? notice : ""); /* the folder's message says it all */
 	input_menu m;
 	input_menu_state(&m);
 	v->glyphs = m.last_id >= 0 && m.type[m.last_id] >= 0 ? m.type[m.last_id] : INPUT_GAMEPAD;
@@ -744,11 +804,23 @@ int library_run(int *game, const char *notice)
 #endif
 		if (plus) {
 			settings_run(0);
-			if (settings_take_rescan())
-				rescan();
 			input_take_home();
-			if (settings_take_home())
+			const int home = settings_take_home(), changed = settings_take_rescan();
+			if (changed)
+				g_sd_only = 0;
+			/* a folder not found is looked for again too: the browser rescans the drives */
+			if ((changed || v->missing) && !home && !player_closing())
+				rescan();
+			if (home)
 				result = LIB_WIIU;
+			continue;
+		}
+		/* A on "USB DRIVE NOT FOUND": the SD card's wiiu/our64/roms until Our64
+		 * starts again; settings.cfg keeps the folder chosen */
+		if (ok && v->missing) {
+			report_line("OUR ROMS: the SD card's roms folder, this session only");
+			g_sd_only = 1;
+			rescan();
 			continue;
 		}
 		if (ok && v->count > 0) {

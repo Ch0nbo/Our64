@@ -1770,12 +1770,12 @@ static int emu_thread(int argc, const char **argv)
 		snprintf(line, sizeof(line), "Our64 stopped unexpectedly last time. Your autosave is safe.");
 		report_line("CRASH: Our64 stopped while %s was running", crashed);
 	} else if (library_count() == 0) {
-		snprintf(line, sizeof(line), "A: Our ROMs. No games on the SD card yet.");
+		snprintf(line, sizeof(line), "A: Our ROMs. No games yet.");
 	}
 	if (s.last_game[0] && game < 0) {
 		char title[64];
 		ui_game_title(title, sizeof(title), s.last_game);
-		snprintf(notice, sizeof(notice), "%.60s is no longer on the SD card. Its saves are kept: copy it back to play on.",
+		snprintf(notice, sizeof(notice), "%.60s is no longer in the ROM folder. Its saves are kept: copy it back to play on.",
 		         title);
 	}
 	/* Test switch sd:/wiiu/our64/autostart: a ROM file name in Our ROMs.

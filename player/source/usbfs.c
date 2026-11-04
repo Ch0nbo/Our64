@@ -207,3 +207,22 @@ int usbfs_device_path(const usbfs_volume *v, int n, const char *stored, char *ou
 			return fits(snprintf(out, size, "usb%dp%d:/%s", v[i].drive, v[i].part, rest), size);
 	return -1;
 }
+
+int usbfs_sd_path(const char *sd, const char *path, char *out, unsigned size)
+{
+	if (strncmp(path, "sd:/", 4))
+		return -1;
+	return path[4] ? fits(snprintf(out, size, "%s/%s", sd, path + 4), size) : copy(sd, out, size);
+}
+
+int usbfs_rom_folder(const char *folder, const char *root, const char *sd, const usbfs_volume *v, int n,
+                     char *out, unsigned size)
+{
+	if (!folder[0])
+		return fits(snprintf(out, size, "%s/roms", root), size);
+	if (!strncmp(folder, "sd:/", 4))
+		return usbfs_sd_path(sd, folder, out, size);
+	if (!strncmp(folder, "usb:", 4))
+		return usbfs_device_path(v, n, folder, out, size);
+	return -1;
+}

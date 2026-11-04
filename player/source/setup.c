@@ -439,13 +439,15 @@ const char *browse_row_name(const browse_ui *b, int row)
 
 int browse_row_off(const browse_ui *b, int row)
 {
+	if (browse_use_row(b) && row == 0)
+		return b->games < 0; /* a folder that couldn't be opened */
 	const browse_entry *e = browse_entry_of(b, row);
 	return e && e->off;
 }
 
 void browse_row_value(const browse_ui *b, int row, char *out, unsigned size)
 {
-	if (!browse_use_row(b) || row != 0)
+	if (!browse_use_row(b) || row != 0 || b->games < 0)
 		snprintf(out, size, "%s", "");
 	else if (b->games == 0)
 		snprintf(out, size, "No games");
@@ -457,7 +459,7 @@ void browse_row_value(const browse_ui *b, int row, char *out, unsigned size)
 static int browse_act(const browse_ui *b)
 {
 	if (browse_use_row(b) && b->row == 0)
-		return BACT_USE;
+		return b->games < 0 ? BACT_NONE : BACT_USE;
 	const browse_entry *e = browse_entry_of(b, b->row);
 	return e && !e->off && e->path[0] ? BACT_OPEN : BACT_NONE;
 }

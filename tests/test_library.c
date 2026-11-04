@@ -236,6 +236,30 @@ static void the_last_game_is_found_by_file_name(void)
 	CHECK(library_find(g, 2, "Gone.z64") == -1);
 }
 
+static void rom_names_skip_a_macs_dot_underscore_files(void)
+{
+	CHECK(library_is_rom("Banjo.z64") && library_is_rom("Mario.N64") && library_is_rom("Zelda.v64"));
+	CHECK(!library_is_rom("._Banjo.z64"));   /* AppleDouble, beside the ROM on a FAT drive */
+	CHECK(library_is_rom(".Banjo.z64"));     /* only "._" is a Mac's */
+	CHECK(!library_is_rom("Banjo.zip") && !library_is_rom("z64") && !library_is_rom("Banjo.z64.txt"));
+}
+
+static void a_long_folder_is_cut_in_the_middle(void)
+{
+	char out[64];
+	library_cut_middle("SD card: wiiu/our64/roms", 40, out, sizeof(out));
+	CHECK(!strcmp(out, "SD card: wiiu/our64/roms")); /* fits: as it is */
+	library_cut_middle("USB GAMES: Games/Nintendo 64/USA", 21, out, sizeof(out));
+	CHECK(!strcmp(out, "USB GAMES:\xE2\x80\xA6" "ndo 64/USA")); /* 10 before, 10 after: "…" is the 21st */
+	library_cut_middle("abcdefghij", 5, out, sizeof(out));
+	CHECK(!strcmp(out, "ab\xE2\x80\xA6ij"));
+	/* characters, not bytes: "é" is two bytes and one character, and is never split */
+	library_cut_middle("\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9", 5, out, sizeof(out));
+	CHECK(!strcmp(out, "\xC3\xA9\xC3\xA9\xE2\x80\xA6\xC3\xA9\xC3\xA9"));
+	library_cut_middle("ab\xC3\xA9", 10, out, 4); /* out too small: cut before the "é", not inside it */
+	CHECK(!strcmp(out, "ab"));
+}
+
 static void paks_follow_the_game_not_the_rumble_switch(void)
 {
 	int mk64 = gamedb_paks(0x3E5055B6, 0x2E92DA52); /* Mario Kart 64 (U): ghosts on the Controller Pak */
@@ -294,6 +318,8 @@ int main(void)
 	RUN(a_letter_shows_its_games_and_all_shows_every_game);
 	RUN(two_files_of_one_game_are_found);
 	RUN(the_last_game_is_found_by_file_name);
+	RUN(rom_names_skip_a_macs_dot_underscore_files);
+	RUN(a_long_folder_is_cut_in_the_middle);
 	RUN(a_deleted_game_is_in_no_list);
 	RUN(paks_follow_the_game_not_the_rumble_switch);
 	RUN(counter_factors_come_from_the_catalogue);

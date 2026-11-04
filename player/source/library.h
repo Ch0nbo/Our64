@@ -72,6 +72,15 @@ int  library_next_category(const int has[LIBRARY_CATEGORIES], int category, int 
 int  library_shares(const library_game *g, int n, int i); /* another file with the same game id, -1 */
 int  library_find(const library_game *g, int n, const char *file); /* by file name, ignoring case; -1 */
 
+/* A ROM file's name: .z64, .n64 or .v64, ignoring case, and not a Mac's
+ * "._" file beside it (AppleDouble, written on FAT drives). Our ROMs and the
+ * ROM folder browser's count both go by it. */
+int  library_is_rom(const char *name);
+/* s cut to at most max characters (UTF-8, max >= 3) with "…" in the middle,
+ * so a long folder's drive and its last folder both stay in view; s as it is
+ * when it fits. out holds size bytes and is cut between characters too. */
+void library_cut_middle(const char *s, int max, char *out, unsigned size);
+
 #ifdef __cplusplus
 }
 #endif

@@ -158,6 +158,30 @@ static void the_first_of_two_volumes_with_one_serial_wins(void)
 	CHECK(!strcmp(out, "usb:1A2B3C4D/Games/N64"));
 }
 
+/* settings.cfg's ROM folder to the folder Our ROMs opens. */
+static void the_rom_folder_resolves_or_is_missing(void)
+{
+	const char *root = "fs:/vol/external01/wiiu/our64", *sd = "fs:/vol/external01";
+	usbfs_volume v[1] = { {.drive = 1, .part = 2, .mounted = 1, .serial = 0x1A2B3C4D} };
+	char out[64];
+	CHECK(usbfs_rom_folder("", root, sd, v, 1, out, sizeof(out)) == 0);
+	CHECK(!strcmp(out, "fs:/vol/external01/wiiu/our64/roms")); /* the default */
+	CHECK(usbfs_rom_folder("sd:/Games/N64", root, sd, v, 1, out, sizeof(out)) == 0);
+	CHECK(!strcmp(out, "fs:/vol/external01/Games/N64"));
+	CHECK(usbfs_rom_folder("sd:/", root, sd, v, 1, out, sizeof(out)) == 0 && !strcmp(out, sd));
+	CHECK(usbfs_rom_folder("usb:1A2B3C4D/Games/N64", root, sd, v, 1, out, sizeof(out)) == 0);
+	CHECK(!strcmp(out, "usb1p2:/Games/N64"));
+	CHECK(usbfs_rom_folder("usb:1A2B3C4D", root, sd, v, 1, out, sizeof(out)) == 0 && !strcmp(out, "usb1p2:/"));
+	/* missing: the drive is not plugged in, no drive at all, or a value no browser writes */
+	CHECK(usbfs_rom_folder("usb:DEADBEEF/Games", root, sd, v, 1, out, sizeof(out)) == -1);
+	CHECK(usbfs_rom_folder("usb:1A2B3C4D/Games", root, sd, NULL, 0, out, sizeof(out)) == -1);
+	CHECK(usbfs_rom_folder("usb1p2:/Games", root, sd, v, 1, out, sizeof(out)) == -1);
+	CHECK(usbfs_rom_folder("Games", root, sd, v, 1, out, sizeof(out)) == -1);
+	CHECK(usbfs_rom_folder("sd:/Games/N64", root, sd, v, 1, out, 20) == -1); /* too long for out */
+	CHECK(usbfs_rom_folder("", root, sd, v, 1, out, 20) == -1);
+	CHECK(usbfs_sd_path(sd, "usb1p1:/x", out, sizeof(out)) == -1);
+}
+
 static void names_and_devices(void)
 {
 	usbfs_volume v[8];
@@ -306,6 +330,7 @@ int main(void)
 	RUN(files_read_through_fatfs);
 	RUN(stored_paths_name_the_serial);
 	RUN(the_first_of_two_volumes_with_one_serial_wins);
+	RUN(the_rom_folder_resolves_or_is_missing);
 	RUN(names_and_devices);
 	RUN(a_wii_u_formatted_drive_mounts_nothing);
 	RUN(a_stick_without_a_partition_table_is_partition_1);

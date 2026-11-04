@@ -719,6 +719,30 @@ static void browser_titles_values_and_legend(void)
 	CHECK(!strcmp(browse_title(&b), "SD card: wiiu/our64/roms"));
 }
 
+/* A folder that couldn't be opened: Use this folder is greyed, with no count. */
+static void browser_greys_use_for_a_folder_it_couldnt_open(void)
+{
+	static browse_ui b;
+	browse_open(&b);
+	browse_add(&b, "SD card", "sd:/", 0);
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN);
+	browse_entered(&b, -1);
+	char v[32];
+	browse_row_value(&b, 0, v, sizeof(v));
+	CHECK(browse_row_off(&b, 0) && !strcmp(v, "") && !strcmp(browse_row_name(&b, 0), "Use this folder"));
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_NONE);
+	pause_key k[6];
+	browse_legend(&b, INPUT_PRO, k, 6);
+	CHECK(k[3].dim);
+	CHECK(browse_event(&b, PEV_BACK, -1) == BACT_UP); /* B still goes up */
+	browse_entered(&b, 0);                           /* a folder it could open, even empty: usable */
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_NONE); /* the drive list has no Use row */
+	browse_add(&b, "SD card", "sd:/", 0);
+	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN);
+	browse_entered(&b, 0);
+	CHECK(!browse_row_off(&b, 0) && browse_event(&b, PEV_OK, -1) == BACT_USE);
+}
+
 static void browser_taps_select_then_open(void)
 {
 	static browse_ui b;
@@ -775,6 +799,7 @@ int main(void)
 	RUN(browser_opens_drives_then_folders_and_uses_one);
 	RUN(browser_scrolls_long_lists);
 	RUN(browser_titles_values_and_legend);
+	RUN(browser_greys_use_for_a_folder_it_couldnt_open);
 	RUN(browser_taps_select_then_open);
 	printf("%d of %d failed\n", g_failed, g_run);
 	return g_failed != 0;

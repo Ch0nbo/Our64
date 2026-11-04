@@ -50,6 +50,9 @@ enum {
 #define ROMS_LIST_COVER_TOP 218
 #define ROMS_LIST_COVER_BOTTOM 350
 #define ROMS_LIST_RIGHT 390
+/* The ROM folder (Settings > Games): read, its USB drive not found, or the folder itself gone. */
+enum { ROMS_FOUND, ROMS_NO_DRIVE, ROMS_NO_FOLDER };
+#define ROMS_FOLDER_SHOWN 60 /* characters of its name in a sentence; a longer one loses its middle */
 typedef struct {
 	const library_game *games;
 	const int *shown;        /* the category's games in list order */
@@ -70,6 +73,9 @@ typedef struct {
 	time_t now;
 	int us;
 	int glyphs;
+	int missing;             /* ROMS_: the ROM folder can't be read, and why (OUR-0105) */
+	int usb;                 /* the ROM folder is on a USB drive: Delete is off */
+	char folder[ROMS_FOLDER_SHOWN * 4]; /* the folder in use, for people ("SD card: wiiu/our64/roms"), cut in the middle */
 } roms_view;
 
 /* Loading (UI_LOADING): the game, a bar and the step. */

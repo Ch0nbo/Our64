@@ -1147,6 +1147,40 @@ void drawer_cover(const roms_view & rv, int at, float d)
 	}
 }
 
+// No games yet, or the ROM folder not found (OUR-0105), where the covers go:
+// a headline, and the folder in up to three lines. x is the left edge, or the
+// middle when centred.
+void draw_roms_none(const roms_view & rv, float x, float head_y, float body_y, int w, bool centred)
+{
+	const char * folder = rv.folder[0] ? rv.folder : "SD card: wiiu/our64/roms";
+	const char * head = "No games yet.";
+	char body[sizeof(rv.folder) + 100];
+	if (rv.missing == ROMS_NO_DRIVE) {
+		head = "USB DRIVE NOT FOUND";
+		snprintf(body, sizeof(body), "Our ROMs looks for your games on %s. Plug the drive in, then start Our64 again. OUR-0105",
+		         folder);
+	} else if (rv.missing) {
+		head = "ROM FOLDER NOT FOUND";
+		snprintf(body, sizeof(body), "Our ROMs looks for your games in %s. Choose another folder in Settings > Games. OUR-0105",
+		         folder);
+	} else {
+		snprintf(body, sizeof(body), "Copy your .z64, .n64 or .v64 files to %s with a computer, then start Our64 again.", folder);
+	}
+	const uint32_t align = centred ? GUI_TEXT_JUSTIFY_CENTER : GUI_TEXT_JUSTIFY_LEFT;
+	text(x, head_y, head, fit(head, 30, 22, w), rgb(T.screen.ink), align);
+	std::string lines[3];
+	int size = 24;
+	int k = wrap_fit(body, size, 18, w, lines, 3);
+	for (int i = 0; i < k; i++)
+		text(x, body_y + i * (size + 8), lines[i].c_str(), size, rgb(T.screen.ink), align);
+}
+
+// A on a folder not found: the SD card's wiiu/our64/roms for now.
+pause_key use_sd_key(const roms_view & rv)
+{
+	return pause_key{ rv.glyphs == INPUT_WIIMOTE ? GLYPH_2 : GLYPH_A, "Use the SD card", 0 };
+}
+
 void draw_roms_list(const ui_view & v)
 {
 	const roms_view & rv = *v.roms;
@@ -1161,17 +1195,14 @@ void draw_roms_list(const ui_view & v)
 	}
 	pause_key keys[7];
 	int n = 0;
-	keys[n++] = pause_key{ GLYPH_DPAD, "Choose", rv.total == 0 };
+	if (rv.missing)
+		keys[n++] = use_sd_key(rv);
+	else
+		keys[n++] = pause_key{ GLYPH_DPAD, "Choose", rv.total == 0 };
 	keys[n++] = pause_key{ GLYPH_PLUS, "Settings", 0 };
 	keys[n++] = pause_key{ GLYPH_HOME, "Wii U Menu", 0 };
 	if (rv.total == 0) {
-		text(60, 190, "No games yet.", 30, rgb(T.screen.ink));
-		std::string lines[3];
-		int size = 24;
-		int k = wrap_fit("Copy your .z64, .n64 or .v64 files to wiiu/our64/roms on the SD card with a computer, "
-		                 "then start Our64 again.", size, 18, UI_W - 120, lines, 3);
-		for (int i = 0; i < k; i++)
-			text(60, 240 + i * (size + 8), lines[i].c_str(), size, rgb(T.screen.ink));
+		draw_roms_none(rv, 60, 190, 240, UI_W - 120, false);
 		draw_keys(keys, n, nullptr);
 		return;
 	}
@@ -1251,7 +1282,7 @@ void draw_roms_list(const ui_view & v)
 	                        g.favorite ? "Unfavorite" : "Favorite", 0 };
 #ifndef OUR64_RELEASE // Delete is the developer's own: the public build has none
 	if (rv.glyphs != INPUT_WIIMOTE && rv.glyphs != INPUT_NUNCHUK) // X: a Wii Remote has none to spare
-		keys[n++] = pause_key{ GLYPH_X, "Delete", 0 };
+		keys[n++] = pause_key{ GLYPH_X, "Delete", rv.usb }; // greyed on a USB drive: X says why
 #endif
 	draw_keys(keys, n, nullptr);
 }
@@ -1267,13 +1298,9 @@ void draw_roms(const ui_view & v)
 	pause_key keys[4];
 	int n = 0;
 	if (rv.total == 0) {
-		text(UI_W / 2, 150, "No games yet.", 30, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
-		std::string lines[3];
-		int size = 24;
-		int k = wrap_fit("Copy your .z64, .n64 or .v64 files to wiiu/our64/roms on the SD card with a computer, "
-		                 "then start Our64 again.", size, 18, UI_W - 160, lines, 3);
-		for (int i = 0; i < k; i++)
-			text(UI_W / 2, 200 + i * (size + 8), lines[i].c_str(), size, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
+		draw_roms_none(rv, UI_W / 2, 150, 200, UI_W - 160, true);
+		if (rv.missing)
+			keys[n++] = use_sd_key(rv);
 		keys[n++] = pause_key{ GLYPH_PLUS, "Settings", 0 };
 		draw_side_keys(keys, n);
 		if (rv.notice[0])

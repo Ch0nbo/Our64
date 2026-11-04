@@ -580,6 +580,7 @@ void shots_roms()
 	g_rv.now = NOW;
 	g_rv.us = 1;
 	g_rv.glyphs = INPUT_PRO;
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "SD card: wiiu/our64/roms");
 	library_categories(g_games.data(), int(g_games.size()), g_rv.has);
 	roms_shot("roms-all", LIBRARY_ALL, "Majora", 0);
 	{ // the cover beside the portrait while the game loads (Zach, 2026-10-20)
@@ -615,6 +616,11 @@ void shots_roms()
 	roms_shot("roms-list", LIBRARY_ALL, "Majora", 0);
 	roms_shot("roms-list-sliding", LIBRARY_ALL, "Majora", 0.45f);
 	roms_shot("roms-list-long-title", LIBRARY_ALL, "Master Quest", 0);
+	g_rv.usb = 1; // the folder on a USB drive: Delete greyed, and X says why
+	snprintf(g_rv.notice, sizeof(g_rv.notice), "On a USB drive: delete it on a computer");
+	roms_shot("roms-list-delete-usb", library_category_of("M"), "Mario Kart", 0);
+	g_rv.notice[0] = 0;
+	g_rv.usb = 0;
 	theme_use_layout(LAYOUT_COVERS);
 	{ // HOME on Our ROMs asks first (Zach, 2026-10-19)
 		ui_view v = base_view(UI_ROMS);
@@ -632,6 +638,24 @@ void shots_roms()
 	roms_shot("roms-unreadable", library_category_of("#"), "", 0);
 	g_rv.total = 0;
 	roms_shot("roms-empty", LIBRARY_ALL, "", 0);
+	g_rv.usb = 1; // an empty folder on a USB drive
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB GAMES: Games/N64");
+	roms_shot("roms-empty-usb", LIBRARY_ALL, "", 0);
+	g_rv.missing = ROMS_NO_DRIVE; // the drive not plugged in: its name unknown (OUR-0105)
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB drive: Games/N64");
+	roms_shot("roms-usb-missing", LIBRARY_ALL, "", 0);
+	theme_use_layout(LAYOUT_LIST);
+	roms_shot("roms-list-usb-missing", LIBRARY_ALL, "", 0);
+	theme_use_layout(LAYOUT_COVERS);
+	g_rv.usb = 0;
+	g_rv.missing = ROMS_NO_FOLDER; // an SD folder deleted on a computer; a long one loses its middle
+	library_cut_middle("SD card: Games/Nintendo 64/Every cartridge we own, by year/USA and Europe", ROMS_FOLDER_SHOWN,
+	                   g_rv.folder, sizeof(g_rv.folder));
+	roms_shot("roms-folder-missing", LIBRARY_ALL, "", 0);
+	theme_use_layout(LAYOUT_LIST);
+	roms_shot("roms-list-folder-missing", LIBRARY_ALL, "", 0);
+	theme_use_layout(LAYOUT_COVERS);
+	g_rv.missing = ROMS_FOUND;
 }
 
 void shots_setup()
@@ -688,6 +712,10 @@ void shots_setup()
 	shot("browse-folder", v);
 	sv.browse.row = 0;
 	shot("browse-folder-use", v);
+	browse_entered(&sv.browse, -1); // a folder it couldn't open: Use this folder greyed
+	snprintf(sv.line, sizeof(sv.line), "Couldn't open this folder.");
+	shot("browse-folder-unreadable", v);
+	sv.line[0] = 0;
 	browse_entered(&sv.browse, 0);
 	char name[32];
 	for (int i = 0; i < 30; i++) {

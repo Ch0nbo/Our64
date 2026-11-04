@@ -32,7 +32,7 @@ static our_settings g_settings;
 static char g_settings_path[300];
 static int g_from_pause;
 static int g_home_asked; /* HOME on a setup screen: the caller handles it */
-static int g_rescan;     /* the ROM folder changed from Our ROMs: it lists the games again */
+static int g_rescan;     /* the ROM folder changed: Our ROMs lists the games again */
 
 int settings_take_home(void)
 {
@@ -467,17 +467,14 @@ static int open_path(const char *path, char *out, unsigned size)
 		int n = snprintf(out, size, "%s", path);
 		return n > 0 && (unsigned)n < size;
 	}
-	if (strncmp(path, "sd:/", 4))
-		return 0;
-	int n = path[4] ? snprintf(out, size, "%s/%s", WHBGetSdCardMountPath(), path + 4)
-	                : snprintf(out, size, "%s", WHBGetSdCardMountPath());
-	return n > 0 && (unsigned)n < size;
+	return !usbfs_sd_path(WHBGetSdCardMountPath(), path, out, size);
 }
 
 static int by_name(const void *a, const void *b) { return strcasecmp((const char *)a, (const char *)b); }
 
 /* The folder b->path: its folders A to Z (not those starting with "."), and
- * the ROM files right in it counted for Use this folder. */
+ * the ROM files right in it counted for Use this folder, as Our ROMs counts
+ * them (library_is_rom, library_is_folder). One it can't open greys Use. */
 static void list_folder(browse_ui *b)
 {
 	static char names[BROWSE_MAX][256];
@@ -486,22 +483,15 @@ static void list_folder(browse_ui *b)
 	DIR *d = open_path(b->path, dir, sizeof(dir)) ? opendir(dir) : NULL;
 	if (!d) {
 		report_line("ROM FOLDER: can't read %s", b->path);
-		line("Couldn't read this folder.");
+		line("Couldn't open this folder.");
+		games = -1;
 	} else {
 		struct dirent *e;
 		while ((e = readdir(d))) {
-			if (e->d_name[0] == '.')
-				continue;
-			int is_dir = e->d_type == DT_DIR;
-			if (e->d_type == DT_UNKNOWN) {
-				struct stat st;
-				snprintf(full, sizeof(full), "%s/%.*s", dir, 255, e->d_name); /* longer names are skipped below */
-				is_dir = stat(full, &st) == 0 && S_ISDIR(st.st_mode);
-			}
-			if (is_dir && n < BROWSE_MAX && strlen(b->path) + strlen(e->d_name) + 2 <= sizeof(b->path))
+			if (!library_is_folder(dir, e))
+				games += library_is_rom(e->d_name);
+			else if (e->d_name[0] != '.' && n < BROWSE_MAX && strlen(b->path) + strlen(e->d_name) + 2 <= sizeof(b->path))
 				snprintf(names[n++], sizeof(names[0]), "%s", e->d_name);
-			else if (!is_dir && library_is_rom(e->d_name))
-				games++;
 		}
 		closedir(d);
 	}
@@ -572,10 +562,10 @@ static int run_browse(void)
 					break;
 				}
 				report_line("ROM FOLDER: %s", g_settings.rom_folder);
-				/* Our ROMs lists the games again as Settings closes; a paused
-				 * game's list stays as it is: the game's place in it is in use */
-				if (!g_from_pause)
-					g_rescan = 1;
+				/* Our ROMs lists the games again as Settings closes; from a
+				 * paused game, when the game ends and Our ROMs is back (the
+				 * game's place in the list is in use until then) */
+				g_rescan = 1;
 				char games[24];
 				browse_row_value(b, 0, games, sizeof(games)); /* Use this folder's: "No games", "1 game", "4 games" */
 				snprintf(g_view.line, sizeof(g_view.line), "ROM folder: %s (%s)", browse_title(b), games);

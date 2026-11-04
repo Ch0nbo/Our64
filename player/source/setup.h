@@ -93,13 +93,13 @@ typedef struct {
 	char path[256];         /* the folder shown ("" on the drive list) */
 	char came_from[256];    /* after BACT_UP: the folder to select again */
 	char drive[64];         /* the drive's name, from the drive list: browse_title */
-	int games;              /* ROM files right in path */
+	int games;              /* ROM files right in path; -1: it couldn't be opened, Use this folder is greyed */
 	browse_entry entries[BROWSE_MAX];
 	int count, row, top, touched;
 } browse_ui;
 enum { BACT_NONE, BACT_BACK, BACT_HOME, BACT_OPEN, BACT_UP, BACT_USE };
 void browse_open(browse_ui *b);                       /* the drive list, empty */
-void browse_entered(browse_ui *b, int games);         /* after OPEN/UP: clears entries; caller adds */
+void browse_entered(browse_ui *b, int games);         /* after OPEN/UP: clears entries; caller adds; games -1: unreadable */
 void browse_add(browse_ui *b, const char *name, const char *path, int off);
 int  browse_rows(const browse_ui *b);                 /* entries, plus Use this folder inside a drive */
 int  browse_event(browse_ui *b, int event, int target);
