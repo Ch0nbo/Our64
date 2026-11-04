@@ -648,6 +648,16 @@ static void rescan(void)
 	v->pos = (float)v->sel;
 }
 
+/* Settings > Games > ROM folder chose a folder: its games listed at once, so
+ * Fetch covers counts them. From a paused game too: the game runs from
+ * memory and nothing of it reads the list until it ends, when main.c finds
+ * the game played again by its file name. */
+void library_rescan(void)
+{
+	g_sd_only = 0; /* a folder chosen: that one, not the SD card's for now */
+	rescan();
+}
+
 /* Our ROMs until A on a game (LIB_PLAY, *game its index), HOME (LIB_WIIU) or
  * the system closing (LIB_SYSTEM). *game in: the game to select. */
 int library_run(int *game, const char *notice)
@@ -662,17 +672,6 @@ int library_run(int *game, const char *notice)
 		first = 0;
 	}
 	loader_start();
-	/* The ROM folder changed in Settings from a paused game: listed again now
-	 * that the game is over (not when Our64 is closing), the game played still
-	 * selected when the new folder has it. */
-	if (settings_take_rescan() && !player_closing()) {
-		char file[sizeof(g_games[0].file)] = "";
-		if (*game >= 0 && *game < g_count)
-			snprintf(file, sizeof(file), "%s", g_games[*game].file);
-		g_sd_only = 0; /* a folder chosen: that one, not the SD card's for now */
-		rescan();
-		*game = library_index_of(file);
-	}
 	/* Recent follows the games played since the list was last up. The first
 	 * time, it opens on the last game when that is among them (Zach,
 	 * 2026-10-18); otherwise All. */
@@ -860,11 +859,10 @@ int library_run(int *game, const char *notice)
 		if (plus) {
 			settings_run(0);
 			input_take_home();
-			const int home = settings_take_home(), changed = settings_take_rescan();
-			if (changed)
-				g_sd_only = 0;
-			/* a folder not found is looked for again too: the browser rescans the drives */
-			if ((changed || v->missing) && !home && !player_closing())
+			const int home = settings_take_home();
+			/* a folder not found is looked for again: the browser rescans the
+			 * drives (a folder chosen there was listed at once: library_rescan) */
+			if (v->missing && !home && !player_closing())
 				rescan();
 			if (home)
 				result = LIB_WIIU;

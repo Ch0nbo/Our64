@@ -32,20 +32,12 @@ static our_settings g_settings;
 static char g_settings_path[300];
 static int g_from_pause;
 static int g_home_asked; /* HOME on a setup screen: the caller handles it */
-static int g_rescan;     /* the ROM folder changed: Our ROMs lists the games again */
 
 int settings_take_home(void)
 {
 	int h = g_home_asked;
 	g_home_asked = 0;
 	return h;
-}
-
-int settings_take_rescan(void)
-{
-	int r = g_rescan;
-	g_rescan = 0;
-	return r;
 }
 
 void setup_start(const char *root, const our_settings *s)
@@ -562,10 +554,7 @@ static int run_browse(void)
 					break;
 				}
 				report_line("ROM FOLDER: %s", g_settings.rom_folder);
-				/* Our ROMs lists the games again as Settings closes; from a
-				 * paused game, when the game ends and Our ROMs is back (the
-				 * game's place in the list is in use until then) */
-				g_rescan = 1;
+				library_rescan(); /* its games listed now: Fetch covers counts them */
 				char games[24];
 				browse_row_value(b, 0, games, sizeof(games)); /* Use this folder's: "No games", "1 game", "4 games" */
 				snprintf(g_view.line, sizeof(g_view.line), "ROM folder: %s (%s)", browse_title(b), games);
@@ -662,6 +651,7 @@ static int run_games(void)
 				const int home = run_browse();
 				g_view.screen = SETUP_GAMES;
 				snprintf(g->folder, sizeof(g->folder), "%s", library_folder_label());
+				games_fetched(g, library_missing_covers()); /* the folder's games: read at once when it changed */
 				if (home)
 					return 1;
 				i = f.n; /* presses after A were the browser's */

@@ -1128,6 +1128,9 @@ static int g_game_paks = -1;
 static int play_game(int index)
 {
 	const library_game *lg = library_get(index);
+	/* its file name for the end: Settings can list another ROM folder during the game (library_rescan) */
+	char played[sizeof(lg->file)];
+	memcpy(played, lg->file, sizeof(played));
 	library_path(index, g_rom, sizeof(g_rom));
 	snprintf(g_title, sizeof(g_title), "%s", lg->title);
 	struct stat st;
@@ -1426,7 +1429,7 @@ static int play_game(int index)
 		if (g_sweep_low < 1e9)
 			snprintf(low, sizeof(low), ", slowest 10 s %.1f VI/s of %d", g_sweep_low, is_pal() ? 50 : 60);
 		saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
-		report_line("GAME: %s (%s): %.0f min%s, %u audio underruns", lg->file, id,
+		report_line("GAME: %s (%s): %.0f min%s, %u audio underruns", played, id,
 		            (report_now_us() - g_sweep_t0_us) / 60e6, low, audio_underruns() - g_sweep_under0);
 	}
 	timeline_write();
@@ -1829,8 +1832,12 @@ static int emu_thread(int argc, const char **argv)
 			g_quit = r == LIB_SYSTEM ? QUIT_SYSTEM : QUIT_HOME;
 			break;
 		}
+		char file[sizeof(library_get(game)->file)];
+		snprintf(file, sizeof(file), "%s", library_get(game)->file);
 		r = play_game(game);
-		library_refresh(game);
+		game = library_index_of(file); /* Settings may have listed another ROM folder meanwhile: -1 when it lacks the game */
+		if (game >= 0)
+			library_refresh(game);
 		if (r == PLAY_EXIT)
 			break;
 		g_quit = 0; /* back on Our ROMs: main reads system messages again (power press) */
