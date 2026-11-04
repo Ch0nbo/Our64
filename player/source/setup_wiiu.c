@@ -12,6 +12,7 @@
 #include "ui.h"
 #include "report.h"
 #include "saves.h"
+#include "usbfs_wiiu.h"
 
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
@@ -424,19 +425,48 @@ static int run_picture(void)
 /* ---- Settings > Games > ROM folder: drives, then folders, listed once per
  * level (BACT_OPEN, BACT_UP), not per frame ---- */
 
-/* The drive list. A later task adds the USB drives' partitions after the SD card. */
+/* The drive list: the SD card, then each mounted USB partition (usbfs_wiiu.h,
+ * scanned as the browser opens), then greyed rows for a USB drive with
+ * nothing to read and for USB without Mocha. No row when no drive is in. */
 static void list_drives(browse_ui *b)
 {
 	browse_entered(b, 0);
 	browse_add(b, "SD card", "sd:/", 0);
+	int n;
+	const usbfs_volume *v = usbfs_volumes(&n);
+	for (int i = 0; i < n; i++) {
+		char name[64], dev[8], path[16];
+		usbfs_name(&v[i], name, sizeof(name));
+		usbfs_device(&v[i], dev, sizeof(dev));
+		snprintf(path, sizeof(path), "%s:/", dev);
+		browse_add(b, name, path, 0);
+	}
+	/* a Wii U-formatted drive, or one whose only partition homebrew sees is WFS */
+	for (int d = 1; d <= USBFS_DRIVES; d++) {
+		int mounted = 0;
+		for (int i = 0; i < n; i++)
+			mounted |= v[i].drive == d;
+		if (usbfs_drive_open(d) && !mounted) {
+			char name[64];
+			snprintf(name, sizeof(name), "USB drive %d: no FAT32 or exFAT partition", d);
+			browse_add(b, name, "", 1);
+		}
+	}
+	if (usbfs_why() == USBFS_NO_MOCHA)
+		browse_add(b, "USB drives need Aroma's Mocha: update Aroma", "", 1);
 }
 
-/* "sd:/x/y" as the player opens it: the SD card is mounted by
- * WHBMountSdCard (report_sd_root), at "fs:/vol/external01", not "sd:". */
+/* A browser path as the player opens it. "sd:/x/y": the SD card is mounted by
+ * WHBMountSdCard (report_sd_root), at "fs:/vol/external01", not "sd:".
+ * "usb1p1:/x/y": a USB partition's own device, as it is. */
 static int open_path(const char *path, char *out, unsigned size)
 {
+	if (usbfs_volume_index(path) >= 0) {
+		int n = snprintf(out, size, "%s", path);
+		return n > 0 && (unsigned)n < size;
+	}
 	if (strncmp(path, "sd:/", 4))
-		return 0; /* USB comes with a later task */
+		return 0;
 	int n = path[4] ? snprintf(out, size, "%s/%s", WHBGetSdCardMountPath(), path + 4)
 	                : snprintf(out, size, "%s", WHBGetSdCardMountPath());
 	return n > 0 && (unsigned)n < size;
@@ -488,6 +518,7 @@ static int run_browse(void)
 {
 	browse_ui *b = &g_view.browse;
 	browse_open(b);
+	usbfs_rescan(); /* drives plugged in or pulled since */
 	list_drives(b);
 	g_view.screen = SETUP_BROWSE;
 	g_view.line[0] = 0;
@@ -521,7 +552,18 @@ static int run_browse(void)
 				break;
 			case BACT_USE: {
 				const our_settings keep = g_settings;
-				snprintf(g_settings.rom_folder, sizeof(g_settings.rom_folder), "%s", b->path);
+				if (usbfs_volume_index(b->path) >= 0) { /* "usb1p1:/x" kept as "usb:<serial>/x" */
+					int n;
+					const usbfs_volume *v = usbfs_volumes(&n);
+					if (usbfs_store_path(v, n, b->path, g_settings.rom_folder, sizeof(g_settings.rom_folder))) {
+						g_settings = keep;
+						report_line("ROM FOLDER: can't keep %s", b->path);
+						line("Couldn't use this folder.");
+						break;
+					}
+				} else {
+					snprintf(g_settings.rom_folder, sizeof(g_settings.rom_folder), "%s", b->path);
+				}
 				if (setup_save_settings()) {
 					g_settings = keep;
 					write_failed();

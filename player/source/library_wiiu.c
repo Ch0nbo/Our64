@@ -18,6 +18,7 @@
 #include "ui.h"
 #include "report.h"
 #include "saves.h"
+#include "usbfs_wiiu.h"
 
 #include <coreinit/condition.h>
 #include <coreinit/mutex.h>
@@ -95,16 +96,42 @@ int library_scan(const char *root)
 	return g_count;
 }
 
+/* "usb:<serial>/path" as "USB GAMES: path", the partition found by its
+ * serial among those mounted now; "USB drive: path" when it is not. */
+static void usb_folder_label(const char *f, char *label, unsigned size)
+{
+	const char *rest = strchr(f + 4, '/');
+	rest = rest ? rest + 1 : "";
+	char name[64] = "USB drive", path[300], dev[8];
+	int n;
+	const usbfs_volume *v = usbfs_volumes(&n);
+	if (!usbfs_device_path(v, n, f, path, sizeof(path)))
+		for (int i = 0; i < n; i++) {
+			usbfs_device(&v[i], dev, sizeof(dev));
+			const size_t len = strlen(dev);
+			if (!strncmp(path, dev, len) && path[len] == ':') {
+				usbfs_name(&v[i], name, sizeof(name));
+				break;
+			}
+		}
+	snprintf(label, size, "%s%s%s", name, rest[0] ? ": " : "", rest);
+}
+
 /* settings.cfg's ROM folder: "" is the default, "sd:/path" a folder on the
- * SD card (Settings > Games > ROM folder). */
+ * SD card, "usb:<serial>/path" one on a USB drive's partition (Settings >
+ * Games > ROM folder). */
 const char *library_folder_label(void)
 {
 	static char label[300];
 	const char *f = setup_settings()->rom_folder;
 	if (!f[0])
 		return "SD card: wiiu/our64/roms";
+	if (!strncmp(f, "usb:", 4)) {
+		usb_folder_label(f, label, sizeof(label));
+		return label;
+	}
 	if (strncmp(f, "sd:/", 4))
-		return "USB drive"; /* a later task names the drive */
+		return "USB drive";
 	if (f[4])
 		snprintf(label, sizeof(label), "SD card: %s", f + 4);
 	else
