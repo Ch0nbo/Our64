@@ -50,7 +50,8 @@ screens:
         - do: "B on the pause menu shown at launch"
           result: "Resume: the game runs on, as from any pause"
       states:
-        - "the last game's ROM is no longer on the SD card: the game list opens with a notice line \"Super Mario 64 is no longer on the SD card\""
+        - "the last game's ROM is no longer in the ROM folder: the game list opens with a notice line \"Super Mario 64 is no longer in the ROM folder. Its saves are kept: copy it back to play on.\" (not shown when the folder itself is not found)"
+        - "the ROM folder is not found (OUR-0105): the prompt's line reads \"A: Our ROMs. USB drive not found.\" or \"A: Our ROMs. ROM folder not found.\", and A opens the game list on that screen"
         - "the last game's autosave is from another Our64 version or damaged: the game list opens, that game selected, with the reason on its line"
   - id: game-list
     title: "Our ROMs (game list)"
@@ -89,6 +90,8 @@ screens:
         - do: "X on a game (GamePad, Pro or Classic Controller)"
           result: "\"Delete <title>?\" in the HOME question's box, \"Its saves and save states stay.\", Cancel focused. Delete moves the ROM to trash/N64 (a rename), adds \"N64/<file>\" to trash/deleted.txt so tools/rom-upload.py never sends it again, unstars it, and the game leaves every list; the game after it is selected (Zach, 2026-10-25: the bulk import left junk). A failed move says OUR-0204 and the game stays"
           undo: "On a computer: move the file from trash/N64 back to roms and drop its line from deleted.txt"
+        - do: "X on a game when the ROM folder is on a USB drive"
+          result: "Nothing is deleted: Our64 never writes to a USB drive. The notice line reads \"On a USB drive: delete it on a computer\", and (X) Delete is greyed in the list layout's legend (2026-11-04)"
         - do: "+"
           result: "Settings (setup flow); B there returns here with the same game selected"
         - do: "HOME"
@@ -103,7 +106,9 @@ screens:
           result: "That letter's games, as left / right would show them"
           story: 2
       states:
-        - "no ROMs: not an error; the column is replaced by \"Copy your .z64, .n64 or .v64 games to wiiu/our64/roms on the SD card with a computer, then start Our64 again\", and A does nothing"
+        - "no ROMs: not an error; the column is replaced by \"No games yet.\" and \"Copy your .z64, .n64 or .v64 files to <folder> with a computer, then start Our64 again.\", the folder in use as Settings > Games names it (\"SD card: wiiu/our64/roms\", \"USB GAMES: Games/N64\"; a long one is cut in the middle with \"…\"), and A does nothing"
+        - "the ROM folder's USB drive is not plugged in (OUR-0105): the column is replaced by \"USB DRIVE NOT FOUND\" and \"Our ROMs looks for your games on <folder>. Plug the drive in, then start Our64 again. OUR-0105\"; legend (A) Use the SD card, (+) Settings, (HOME) Wii U Menu. A lists sd:/wiiu/our64/roms until Our64 starts again; the setting is kept"
+        - "the ROM folder is gone, deleted on a computer (OUR-0105): the same screen with \"ROM FOLDER NOT FOUND\" and \"Our ROMs looks for your games in <folder>. Choose another folder in Settings > Games. OUR-0105\", and the same keys"
         - "a ROM that cannot be read (too small, not an N64 header): it still shows, its cover dimmed, with \"Can't read this file\"; A shows the CAN'T READ THE GAME message (OUR-0104)"
         - "two files with the same game id (the same ROM twice): both show; their saves are shared, and the line says \"Shares its saves with <other file>\""
         - "search with no matches: \"No games match \\\"zelda\\\". Press B to clear the search.\""
