@@ -180,6 +180,8 @@ const char *library_folder_label(void) { return folder_label(setup_settings()->r
 int library_missing_covers(void) { return 0; }
 
 int library_count(void) { return g_count; }
+int library_on_usb(void) { return g_view.usb; }
+int library_missing(void) { return g_view.missing; }
 const library_game *library_get(int i) { return i >= 0 && i < g_count ? &g_games[i] : NULL; }
 int library_index_of(const char *file) { return library_find(g_games, g_count, file); }
 void library_path(int i, char *out, unsigned size) { in_roms(g_games[i].file, out, size); }

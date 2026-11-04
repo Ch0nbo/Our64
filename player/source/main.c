@@ -1179,8 +1179,13 @@ static int play_game(int index)
 		if (g_sweep_s)
 			return PLAY_BACK; /* nobody to press B: the sweep notes it */
 		char body[320];
-		snprintf(body, sizeof(body), "Our64 could not read %s. The file may be damaged, or the SD card could not be "
-		         "read: put the card back in firmly, or copy the file again from a computer.", lg->file);
+		if (library_on_usb())
+			snprintf(body, sizeof(body), "Our64 could not read %s. The file may be damaged, or the USB drive could not "
+			         "be read: check that the USB drive is plugged in firmly, or copy the file again from a computer.",
+			         lg->file);
+		else
+			snprintf(body, sizeof(body), "Our64 could not read %s. The file may be damaged, or the SD card could not be "
+			         "read: put the card back in firmly, or copy the file again from a computer.", lg->file);
 		show_message("CAN'T READ THE GAME", body, "OUR-0104", 1, " Back to Our ROMs");
 		for (;;) {
 			player_menu_wait();
