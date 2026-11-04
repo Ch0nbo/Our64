@@ -15,9 +15,14 @@
 
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
+#include <whb/sdcard.h>
 
+#include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 
 #define BIT(s) (1u << (s))
 
@@ -26,12 +31,20 @@ static our_settings g_settings;
 static char g_settings_path[300];
 static int g_from_pause;
 static int g_home_asked; /* HOME on a setup screen: the caller handles it */
+static int g_rescan;     /* the ROM folder changed from Our ROMs: it lists the games again */
 
 int settings_take_home(void)
 {
 	int h = g_home_asked;
 	g_home_asked = 0;
 	return h;
+}
+
+int settings_take_rescan(void)
+{
+	int r = g_rescan;
+	g_rescan = 0;
+	return r;
 }
 
 void setup_start(const char *root, const our_settings *s)
@@ -408,6 +421,167 @@ static int run_picture(void)
 	}
 }
 
+/* ---- Settings > Games > ROM folder: drives, then folders, listed once per
+ * level (BACT_OPEN, BACT_UP), not per frame ---- */
+
+/* The drive list. A later task adds the USB drives' partitions after the SD card. */
+static void list_drives(browse_ui *b)
+{
+	browse_entered(b, 0);
+	browse_add(b, "SD card", "sd:/", 0);
+}
+
+/* "sd:/x/y" as the player opens it: the SD card is mounted by
+ * WHBMountSdCard (report_sd_root), at "fs:/vol/external01", not "sd:". */
+static int open_path(const char *path, char *out, unsigned size)
+{
+	if (strncmp(path, "sd:/", 4))
+		return 0; /* USB comes with a later task */
+	int n = path[4] ? snprintf(out, size, "%s/%s", WHBGetSdCardMountPath(), path + 4)
+	                : snprintf(out, size, "%s", WHBGetSdCardMountPath());
+	return n > 0 && (unsigned)n < size;
+}
+
+static int by_name(const void *a, const void *b) { return strcasecmp((const char *)a, (const char *)b); }
+
+/* The folder b->path: its folders A to Z (not those starting with "."), and
+ * the ROM files right in it counted for Use this folder. */
+static void list_folder(browse_ui *b)
+{
+	static char names[BROWSE_MAX][256];
+	char dir[300], full[600];
+	int n = 0, games = 0;
+	DIR *d = open_path(b->path, dir, sizeof(dir)) ? opendir(dir) : NULL;
+	if (!d) {
+		report_line("ROM FOLDER: can't read %s", b->path);
+		line("Couldn't read this folder.");
+	} else {
+		struct dirent *e;
+		while ((e = readdir(d))) {
+			if (e->d_name[0] == '.')
+				continue;
+			int is_dir = e->d_type == DT_DIR;
+			if (e->d_type == DT_UNKNOWN) {
+				struct stat st;
+				snprintf(full, sizeof(full), "%s/%.*s", dir, 255, e->d_name); /* longer names are skipped below */
+				is_dir = stat(full, &st) == 0 && S_ISDIR(st.st_mode);
+			}
+			if (is_dir && n < BROWSE_MAX && strlen(b->path) + strlen(e->d_name) + 2 <= sizeof(b->path))
+				snprintf(names[n++], sizeof(names[0]), "%s", e->d_name);
+			else if (!is_dir && library_is_rom(e->d_name))
+				games++;
+		}
+		closedir(d);
+	}
+	qsort(names, (size_t)n, sizeof(names[0]), by_name);
+	browse_entered(b, games);
+	const size_t len = strlen(b->path);
+	for (int i = 0; i < n; i++) {
+		/* "sd:/" + "Games", "sd:/Games" + "/" + "N64" */
+		snprintf(full, sizeof(full), "%s%s%.*s", b->path, len && b->path[len - 1] == '/' ? "" : "/", 255, names[i]);
+		browse_add(b, names[i], full, 0);
+	}
+}
+
+/* 1: HOME, and leaving was confirmed (or the pause menu asks). */
+static int run_browse(void)
+{
+	browse_ui *b = &g_view.browse;
+	browse_open(b);
+	list_drives(b);
+	g_view.screen = SETUP_BROWSE;
+	g_view.line[0] = 0;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1;
+	for (;;) {
+		show();
+		read_frame(&f, NULL, &touching, &target);
+		if (player_closing())
+			return 1;
+		for (int i = 0; i < f.n; i++) {
+			if (f.events[i] == PEV_TOUCH_DOWN || f.events[i] == PEV_TOUCH_UP)
+				f.targets[i] = target = browse_hit(b, f.m.touch_x, f.m.touch_y);
+			switch (browse_event(b, f.events[i], f.targets[i])) {
+			case BACT_BACK:
+				g_view.line[0] = 0;
+				return 0;
+			case BACT_HOME:
+				if (home_ok())
+					return 1;
+				break;
+			case BACT_OPEN:
+			case BACT_UP:
+				g_view.line[0] = 0; /* the line under the header shows the folder again */
+				if (b->depth == 0)
+					list_drives(b);
+				else
+					list_folder(b);
+				i = f.n; /* the rest of this frame's presses were for the old list */
+				break;
+			case BACT_USE: {
+				const our_settings keep = g_settings;
+				snprintf(g_settings.rom_folder, sizeof(g_settings.rom_folder), "%s", b->path);
+				if (setup_save_settings()) {
+					g_settings = keep;
+					write_failed();
+					break;
+				}
+				report_line("ROM FOLDER: %s", g_settings.rom_folder);
+				/* Our ROMs lists the games again as Settings closes; a paused
+				 * game's list stays as it is: the game's place in it is in use */
+				if (!g_from_pause)
+					g_rescan = 1;
+				char games[24];
+				browse_row_value(b, 0, games, sizeof(games)); /* Use this folder's: "No games", "1 game", "4 games" */
+				snprintf(g_view.line, sizeof(g_view.line), "ROM folder: %s (%s)", browse_title(b), games);
+				return 0;
+			}
+			}
+		}
+	}
+}
+
+/* ---- Settings > Games: the ROM folder, and covers (a later task) ---- */
+
+static int run_games(void)
+{
+	games_ui *g = &g_view.games;
+	games_open(g, library_folder_label(), library_missing_covers());
+	g_view.screen = SETUP_GAMES;
+	g_view.line[0] = 0;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1;
+	for (;;) {
+		show();
+		read_frame(&f, games_hit, &touching, &target);
+		if (player_closing())
+			return 1;
+		for (int i = 0; i < f.n; i++) {
+			switch (games_event(g, f.events[i], f.targets[i])) {
+			case GACT_BACK: return 0;
+			case GACT_HOME: /* a fetch would stop first: none runs before the covers task */
+				if (home_ok())
+					return 1;
+				break;
+			case GACT_FOLDER: {
+				const int home = run_browse();
+				g_view.screen = SETUP_GAMES;
+				snprintf(g->folder, sizeof(g->folder), "%s", library_folder_label());
+				if (home)
+					return 1;
+				i = f.n; /* presses after A were the browser's */
+				break;
+			}
+			case GACT_FETCH: /* Fetch covers comes with a later task: library_missing_covers counts none yet, so A never asks */
+			case GACT_STOP:
+				break;
+			}
+		}
+	}
+}
+
 /* ---- Our Settings: every row opens a page ---- */
 
 void settings_run(int from_pause)
@@ -442,8 +616,9 @@ void settings_run(int from_pause)
 				break;
 			case SACT_CONTROLLERS: page = run_controllers(); break;
 			case SACT_PICTURE: page = run_picture(); break;
+			case SACT_GAMES: page = run_games(); break;
 			case SACT_THEME: page = run_look(); break;
-			default: page = -1; break; /* SACT_GAMES: its page comes later */
+			default: page = -1; break;
 			}
 			if (page >= 0) { /* back from a page */
 				if (page)

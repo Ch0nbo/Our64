@@ -53,7 +53,7 @@ static unsigned g_art_gen;
 static int g_art_use[ROMS_ART]; /* when each slot was last wanted, for replacing the oldest */
 static int g_tick;
 
-static int is_rom(const char *name)
+int library_is_rom(const char *name)
 {
 	const char *dot = strrchr(name, '.');
 	return dot && (!strcasecmp(dot, ".z64") || !strcasecmp(dot, ".n64") || !strcasecmp(dot, ".v64"));
@@ -78,7 +78,7 @@ int library_scan(const char *root)
 	if (d) {
 		struct dirent *e;
 		while ((e = readdir(d)) && g_count < MAX_GAMES)
-			if (is_rom(e->d_name))
+			if (library_is_rom(e->d_name))
 				library_game_init(&g_games[g_count++], e->d_name);
 		closedir(d);
 	}
@@ -94,6 +94,27 @@ int library_scan(const char *root)
 	report_line("OUR ROMS: %d games in %s", g_count, dir);
 	return g_count;
 }
+
+/* settings.cfg's ROM folder: "" is the default, "sd:/path" a folder on the
+ * SD card (Settings > Games > ROM folder). */
+const char *library_folder_label(void)
+{
+	static char label[300];
+	const char *f = setup_settings()->rom_folder;
+	if (!f[0])
+		return "SD card: wiiu/our64/roms";
+	if (strncmp(f, "sd:/", 4))
+		return "USB drive"; /* a later task names the drive */
+	if (f[4])
+		snprintf(label, sizeof(label), "SD card: %s", f + 4);
+	else
+		snprintf(label, sizeof(label), "SD card");
+	return label;
+}
+
+/* None counted yet: Task 15 counts the readable games without a cover, and
+ * until then Settings > Games says "None missing". */
+int library_missing_covers(void) { return 0; }
 
 int library_count(void) { return g_count; }
 const library_game *library_get(int i) { return i >= 0 && i < g_count ? &g_games[i] : NULL; }
@@ -472,6 +493,30 @@ static void delete_game(void)
 	v->pos = (float)v->sel;
 }
 
+/* After Settings > Games > ROM folder: the games listed again from nothing.
+ * The loader reads games by index, so its job finishes first and its result
+ * is dropped, and the covers in the art slots go with the old indices.
+ * Settings posts no jobs, so the loader is idle by now, or nearly. */
+static void rescan(void)
+{
+	roms_view *v = &g_view;
+	while (g_loader_on) {
+		OSLockMutex(&g_load_lock);
+		const int busy = g_job != JOB_NONE;
+		if (!busy)
+			g_done = JOB_NONE;
+		OSUnlockMutex(&g_load_lock);
+		if (!busy)
+			break;
+		OSSleepTicks(OSMillisecondsToTicks(1));
+	}
+	for (int s = 0; s < ROMS_ART; s++)
+		v->art[s].game = -1;
+	library_scan(g_root);
+	v->sel = 0;
+	v->pos = 0;
+}
+
 /* Our ROMs until A on a game (LIB_PLAY, *game its index), HOME (LIB_WIIU) or
  * the system closing (LIB_SYSTEM). *game in: the game to select. */
 int library_run(int *game, const char *notice)
@@ -672,6 +717,8 @@ int library_run(int *game, const char *notice)
 #endif
 		if (plus) {
 			settings_run(0);
+			if (settings_take_rescan())
+				rescan();
 			input_take_home();
 			if (settings_take_home())
 				result = LIB_WIIU;
