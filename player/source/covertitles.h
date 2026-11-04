@@ -8,13 +8,18 @@
 extern "C" {
 #endif
 
-typedef struct { uint32_t crc1, crc2; const char *name; } covertitle;
-/* Sorted by (crc1, crc2), one row per pair. */
+/* countries: the header country bytes (0x3E: 'E' USA, 'J' Japan, 'P' Europe...)
+ * the name's regions use, on a pair releases with different names share
+ * (Ocarina of Time's USA and Japan carts); NULL on a pair only one name has. */
+typedef struct { uint32_t crc1, crc2; const char *name, *countries; } covertitle;
+/* Sorted by (crc1, crc2): one row per pair, or one per name on a shared pair. */
 extern const covertitle *const covertitles;
 extern const unsigned covertitles_count;
 
-/* The No-Intro name of the ROM with these header CRCs; NULL when not listed. */
-const char *covertitles_find(uint32_t crc1, uint32_t crc2);
+/* The No-Intro name of the ROM with these header CRCs and country byte: the
+ * pair's row that lists the country, else its first row; NULL when the pair
+ * is not listed. */
+const char *covertitles_find(uint32_t crc1, uint32_t crc2, char country);
 
 #ifdef __cplusplus
 }

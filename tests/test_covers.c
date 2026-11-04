@@ -12,11 +12,30 @@ static int g_failed;
 
 static void test_title_by_header_crcs(void)
 {
-	const char *t = covertitles_find(0x635A2BFF, 0x8B022326); /* mupen64plus.ini: Super Mario 64 (U) [!] */
+	const char *t = covertitles_find(0x635A2BFF, 0x8B022326, 'E'); /* mupen64plus.ini: Super Mario 64 (U) [!] */
 	CHECK(t && !strcmp(t, "Super Mario 64 (USA)"));
-	CHECK(covertitles_find(0x12345678, 0x9ABCDEF0) == NULL);
-	CHECK(covertitles_find(0, 0) == NULL);
-	CHECK(covertitles_find(0xFFFFFFFF, 0xFFFFFFFF) == NULL);
+	t = covertitles_find(0x635A2BFF, 0x8B022326, 'J'); /* a pair only one name has: any country */
+	CHECK(t && !strcmp(t, "Super Mario 64 (USA)"));
+	CHECK(covertitles_find(0x12345678, 0x9ABCDEF0, 'E') == NULL);
+	CHECK(covertitles_find(0, 0, 'E') == NULL);
+	CHECK(covertitles_find(0xFFFFFFFF, 0xFFFFFFFF, 'E') == NULL);
+}
+
+/* Ocarina of Time's USA and Japan carts share their header CRCs: the
+ * header's country byte picks the name. */
+static void test_shared_pair_follows_the_country(void)
+{
+	const char *t = covertitles_find(0xEC7011B7, 0x7616D72B, 'E');
+	CHECK(t && !strcmp(t, "Legend of Zelda, The - Ocarina of Time (USA)"));
+	t = covertitles_find(0xEC7011B7, 0x7616D72B, 'J');
+	CHECK(t && !strcmp(t, "Zelda no Densetsu - Toki no Ocarina (Japan)"));
+	t = covertitles_find(0xC00CA948, 0x8E60D34B, 'X'); /* one of Europe's bytes */
+	CHECK(t && !strcmp(t, "South Park - Chef's Luv Shack (Europe)"));
+	/* a country no row lists, and none at all: the pair's first row */
+	t = covertitles_find(0xEC7011B7, 0x7616D72B, 'K');
+	CHECK(t && !strcmp(t, "Zelda no Densetsu - Toki no Ocarina (Japan)"));
+	t = covertitles_find(0xEC7011B7, 0x7616D72B, 0);
+	CHECK(t && !strcmp(t, "Zelda no Densetsu - Toki no Ocarina (Japan)"));
 }
 
 static void test_table_is_sorted(void)
@@ -24,11 +43,26 @@ static void test_table_is_sorted(void)
 	CHECK(covertitles_count > 0);
 	for (unsigned i = 1; i < covertitles_count; i++) {
 		const covertitle *a = &covertitles[i - 1], *b = &covertitles[i];
-		CHECK(a->crc1 < b->crc1 || (a->crc1 == b->crc1 && a->crc2 < b->crc2));
+		CHECK(a->crc1 < b->crc1 || (a->crc1 == b->crc1 && a->crc2 <= b->crc2));
+		/* a pair on two rows: every row of it names its countries */
+		if (a->crc1 == b->crc1 && a->crc2 == b->crc2)
+			CHECK(a->countries && a->countries[0] && b->countries && b->countries[0]);
 	}
-	/* every row is found by its own pair: the first, the last and all between */
-	for (unsigned i = 0; i < covertitles_count; i++)
-		CHECK(covertitles_find(covertitles[i].crc1, covertitles[i].crc2) == covertitles[i].name);
+	/* every pair's first row is found by the pair; a row by one of its
+	 * countries unless an earlier row of the pair lists it too */
+	for (unsigned i = 0, first = 0; i < covertitles_count; i++) {
+		const covertitle *r = &covertitles[i];
+		if (i == 0 || r[-1].crc1 != r->crc1 || r[-1].crc2 != r->crc2) {
+			first = i;
+			CHECK(covertitles_find(r->crc1, r->crc2, 0) == r->name);
+		}
+		for (const char *c = r->countries; c && *c; c++) {
+			unsigned j = first;
+			while (!strchr(covertitles[j].countries, *c))
+				j++;
+			CHECK(covertitles_find(r->crc1, r->crc2, *c) == covertitles[j].name);
+		}
+	}
 }
 
 static void test_thumb_name(void)
@@ -156,6 +190,7 @@ static void test_small_buffers(void)
 int main(void)
 {
 	test_title_by_header_crcs();
+	test_shared_pair_follows_the_country();
 	test_table_is_sorted();
 	test_thumb_name();
 	test_path();
