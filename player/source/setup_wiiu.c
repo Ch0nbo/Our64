@@ -576,7 +576,55 @@ static int run_browse(void)
 	}
 }
 
-/* ---- Settings > Games: the ROM folder, and covers (a later task) ---- */
+/* ---- Settings > Games: the ROM folder, and Fetch covers (covers_wiiu.c) ---- */
+
+/* Fetch covers: the games without one, to the fetch's thread. */
+static void fetch_start(games_ui *g)
+{
+	const int n = library_missing_covers();
+	covers_game *list = n > 0 ? malloc(sizeof(*list) * (size_t)n) : NULL;
+	int k = list ? library_missing_list(list, n) : 0; /* n again: every header is read by now */
+	if (k > n)
+		k = n;
+	if (k > 0 && !covers_start(report_sd_root(), list, k)) {
+		games_fetching(g, 0, k);
+	} else {
+		games_fetched(g, n);
+		if (n > 0) /* no memory or no thread: logged */
+			line("Couldn't start fetching covers.");
+	}
+	free(list);
+}
+
+/* Each frame of a fetch: the count, and the covers saved since into the list. */
+static void fetch_follow(games_ui *g)
+{
+	int done, total, saved;
+	covers_progress(&done, &total, &saved);
+	games_fetching(g, done, total);
+	for (const char *id; (id = covers_take_saved());)
+		library_cover_saved(id);
+}
+
+/* The fetch ended (stopped: B, HOME, leaving or closing): the thread joined,
+ * the count of games still without a cover, and what happened under the header. */
+static void fetch_end(games_ui *g, int stopped)
+{
+	covers_stop();
+	int done, total, saved;
+	covers_progress(&done, &total, &saved);
+	for (const char *id; (id = covers_take_saved());)
+		library_cover_saved(id);
+	const int result = covers_result();
+	if (result == COVERS_NO_NETWORK)
+		report_line("ERROR no internet for Fetch covers: OUR-0401");
+	else if (result == COVERS_NO_SERVER)
+		report_line("ERROR cover server not reached: OUR-0402");
+	else if (result == COVERS_CARD_FULL)
+		report_line("ERROR cover not written: OUR-0205");
+	covers_summary(result, stopped, saved, covers_not_found(), g_view.line, sizeof(g_view.line));
+	games_fetched(g, library_missing_covers());
+}
 
 static int run_games(void)
 {
@@ -588,14 +636,25 @@ static int run_games(void)
 	memset(&f, 0, sizeof(f));
 	int touching = 0, target = -1;
 	for (;;) {
+		if (g->running) {
+			if (covers_running())
+				fetch_follow(g);
+			else
+				fetch_end(g, 0);
+		}
 		show();
 		read_frame(&f, games_hit, &touching, &target);
-		if (player_closing())
+		if (player_closing()) { /* the system waits for the game to stop: the fetch stops first */
+			if (g->running)
+				fetch_end(g, 1);
 			return 1;
+		}
 		for (int i = 0; i < f.n; i++) {
 			switch (games_event(g, f.events[i], f.targets[i])) {
-			case GACT_BACK: return 0;
-			case GACT_HOME: /* a fetch would stop first: none runs before the covers task */
+			case GACT_BACK: return 0; /* B while fetching is GACT_STOP: none runs here */
+			case GACT_HOME:
+				if (g->running)
+					fetch_end(g, 1);
 				if (home_ok())
 					return 1;
 				break;
@@ -608,8 +667,12 @@ static int run_games(void)
 				i = f.n; /* presses after A were the browser's */
 				break;
 			}
-			case GACT_FETCH: /* Fetch covers comes with a later task: library_missing_covers counts none yet, so A never asks */
+			case GACT_FETCH:
+				g_view.line[0] = 0;
+				fetch_start(g);
+				break;
 			case GACT_STOP:
+				fetch_end(g, 1);
 				break;
 			}
 		}

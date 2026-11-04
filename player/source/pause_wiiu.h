@@ -5,6 +5,7 @@
 #define OUR64_PAUSE_WIIU_H
 #include "pause.h"
 #include "library.h"
+#include "covers.h"
 #include "prompt.h"
 #ifdef __cplusplus
 extern "C" {
@@ -66,7 +67,9 @@ int  library_run(int *game, const char *notice);
 struct dirent;
 int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
 const char *library_folder_label(void); /* the ROM folder in use, for people: "SD card: wiiu/our64/roms" */
-int  library_missing_covers(void);      /* readable games without a cover */
+int  library_missing_covers(void);      /* readable games without a cover, one per game id (reads the headers not read yet) */
+int  library_missing_list(covers_game *out, int max); /* those games, for covers_start; the count */
+void library_cover_saved(const char *id); /* Fetch covers saved this game id's cover: the list shows it */
 int  library_on_usb(void);              /* the folder listed is on a USB drive */
 int  library_missing(void);             /* ROMS_NO_DRIVE, ROMS_NO_FOLDER (ui.h): the folder listed can't be read; 0 */
 

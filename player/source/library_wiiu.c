@@ -7,13 +7,15 @@
  * the Favorites tab, kept in config/favorites.txt; X (GamePad, Pro and
  * Classic only) moves it to trash/N64. A game's header, autosave, save states and cover are read only
  * when it comes into view, so a card with hundreds of ROMs opens at once.
- * Covers are sd:/wiiu/our64/art/<game id>.png (tools/fetch-art.sh).
+ * Covers are sd:/wiiu/our64/art/<game id>.png (Settings > Games > Fetch
+ * covers, covers_wiiu.c; or tools/fetch-art.sh from a computer).
  *
  * The loop runs on the CPU core like the prompt's: read the controllers,
  * update the selection, show a frame, every 16 ms. */
 #include "pause_wiiu.h"
 #include "theme.h"
 #include "library.h"
+#include "covers.h"
 #include "player.h"
 #include "input.h"
 #include "ui.h"
@@ -178,10 +180,6 @@ static const char *folder_label(const char *f)
 
 const char *library_folder_label(void) { return folder_label(setup_settings()->rom_folder); }
 
-/* None counted yet: Task 15 counts the readable games without a cover, and
- * until then Settings > Games says "None missing". */
-int library_missing_covers(void) { return 0; }
-
 int library_count(void) { return g_count; }
 int library_on_usb(void) { return g_view.usb; }
 int library_missing(void) { return g_view.missing; }
@@ -340,6 +338,84 @@ static void need_info(int i)
 	if (i >= 0 && i < g_count && !g_info[i]) {
 		read_info_of(&g_games[i]);
 		g_info[i] = 1;
+	}
+}
+
+/* The loader's job finished (Settings posts none, so it stays idle after);
+ * drop: its result is thrown away too. */
+static void loader_wait(int drop)
+{
+	while (g_loader_on) {
+		OSLockMutex(&g_load_lock);
+		const int busy = g_job != JOB_NONE;
+		if (!busy && drop)
+			g_done = JOB_NONE;
+		OSUnlockMutex(&g_load_lock);
+		if (!busy)
+			break;
+		OSSleepTicks(OSMillisecondsToTicks(1));
+	}
+}
+
+/* Settings > Games: the readable games without a cover, one per game id (two
+ * files of one game share its cover), into out (max of them; out NULL only
+ * counts). The headers come in lazily as games come into view, so the games
+ * not read yet are read here, on the menu thread: once per scan, since what
+ * is read stays (about 8 small file reads a game: a second or two for 200
+ * games on the SD card, longer on USB). The loader finishes its job first,
+ * and its result, taken later, agrees with what is read here. */
+int library_missing_list(covers_game *out, int max)
+{
+	const OSTime t0 = OSGetSystemTime();
+	int n = 0, read = 0;
+	loader_wait(0);
+	for (int i = 0; i < g_count; i++) {
+		if (g_games[i].deleted)
+			continue;
+		if (!g_info[i]) {
+			need_info(i);
+			read++;
+		}
+		const library_game *g = &g_games[i];
+		if (!g->readable || g->art)
+			continue;
+		int shared = 0;
+		for (int j = 0; j < i && !shared; j++)
+			shared = !g_games[j].deleted && g_games[j].readable && !g_games[j].art && !strcmp(g_games[j].rom.id, g->rom.id);
+		if (shared)
+			continue;
+		if (out && n < max) {
+			covers_game *c = &out[n];
+			memset(c, 0, sizeof(*c));
+			snprintf(c->id, sizeof(c->id), "%s", g->rom.id);
+			c->crc1 = g->rom.crc1;
+			c->crc2 = g->rom.crc2;
+			c->country = g->rom.country;
+			snprintf(c->file, sizeof(c->file), "%s", g->file);
+		}
+		n++;
+	}
+	if (read)
+		report_line("OUR ROMS: %d games without a cover; %d headers read for it in %.0f ms", n, read,
+		            OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3);
+	return n;
+}
+
+int library_missing_covers(void) { return library_missing_list(NULL, 0); }
+
+/* A cover Fetch covers saved: every game with that id has one now, and the
+ * loader draws it when it comes into view. The loader's result not taken yet
+ * was read before the cover was there, so it says so too. */
+void library_cover_saved(const char *id)
+{
+	for (int i = 0; i < g_count; i++)
+		if (g_info[i] && g_games[i].readable && !strcmp(g_games[i].rom.id, id))
+			g_games[i].art = 1;
+	if (g_loader_on) {
+		OSLockMutex(&g_load_lock);
+		if (g_done == JOB_INFO && g_done_info.readable && !strcmp(g_done_info.rom.id, id))
+			g_done_info.art = 1;
+		OSUnlockMutex(&g_load_lock);
 	}
 }
 
@@ -577,16 +653,7 @@ static void rescan(void)
 	char file[sizeof(g_games[0].file)] = "";
 	if (v->count > 0)
 		snprintf(file, sizeof(file), "%s", g_games[g_shown[v->sel]].file);
-	while (g_loader_on) {
-		OSLockMutex(&g_load_lock);
-		const int busy = g_job != JOB_NONE;
-		if (!busy)
-			g_done = JOB_NONE;
-		OSUnlockMutex(&g_load_lock);
-		if (!busy)
-			break;
-		OSSleepTicks(OSMillisecondsToTicks(1));
-	}
+	loader_wait(1);
 	for (int s = 0; s < ROMS_ART; s++)
 		v->art[s].game = -1;
 	library_scan(g_root);

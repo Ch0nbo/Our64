@@ -92,7 +92,7 @@ $(BUILD)/test_usbfs: test_usbfs.c usbfs_diskio_file.c ../player/source/usbfs.c .
 # Every screen drawn on the PC with the console's drawing code and font: results/shots.
 LIBGUI	:=	../third_party/libgui/source
 SHOTS_GUI :=	libgui/GuiGeometry libgui/GuiPaint libgui/GuiTextRenderer libgui/GuiMeshCache drivers/Mutex
-SHOTS_C	:=	pause.c prompt.c setup.c input.c library.c notices.c saves.c gamedb.c states.c theme.c
+SHOTS_C	:=	pause.c prompt.c setup.c input.c library.c notices.c saves.c gamedb.c states.c theme.c covers.c
 SHOTS_FLAGS :=	-O1 -g -I../player/source -I$(LIBGUI) -I$(LIBGUI)/libgui $(shell pkg-config --cflags freetype2 libpng)
 $(BUILD)/ui_shots: ui_shots.cpp ../player/source/ui_draw.cpp ../player/source/ui_draw.h ../player/source/ui.h \
 		$(addprefix ../player/source/,$(SHOTS_C)) $(addprefix $(LIBGUI)/,$(addsuffix .cpp,$(SHOTS_GUI)))
