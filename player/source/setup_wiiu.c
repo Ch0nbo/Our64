@@ -502,7 +502,7 @@ static int run_browse(void)
 {
 	browse_ui *b = &g_view.browse;
 	browse_open(b);
-	usbfs_rescan(); /* drives plugged in or pulled since */
+	library_usb_rescan(); /* drives plugged in, pulled or moved since */
 	list_drives(b);
 	g_view.screen = SETUP_BROWSE;
 	g_view.line[0] = 0;

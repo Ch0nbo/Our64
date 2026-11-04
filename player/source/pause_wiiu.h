@@ -64,6 +64,7 @@ void library_path(int i, char *out, unsigned size);
 void library_refresh(int i);            /* after playing: its autosave and save states again */
 int  library_run(int *game, const char *notice);
 void library_rescan(void);              /* Settings chose another ROM folder: its games listed now (indices change) */
+int  library_usb_rescan(void);          /* usbfs_rescan, the loader idle first, and the ROM folder's device found again */
 struct dirent;
 int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
 const char *library_folder_label(void); /* the ROM folder in use, for people: "SD card: wiiu/our64/roms", with "(USB drive not found)" after A on that screen */

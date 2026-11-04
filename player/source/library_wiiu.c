@@ -345,6 +345,30 @@ static void loader_wait(int drop)
 	}
 }
 
+/* The ROM folder browser's rescan of the USB drives. The loader finishes its
+ * job first (it may be reading a game there), then the ROM folder's device is
+ * looked up again by its serial: a drive moved to another port is another
+ * usb<D>p<P>:/ now, and the old path would give OUR-0104 at the next game. A
+ * drive no longer there leaves no path, so another drive in its port is never
+ * read in its place. */
+int library_usb_rescan(void)
+{
+	loader_wait(0);
+	const int n = usbfs_rescan();
+	if (g_view.usb && !g_sd_only) {
+		char roms[sizeof(g_roms)];
+		int vols;
+		const usbfs_volume *v = usbfs_volumes(&vols);
+		if (usbfs_rom_folder(setup_settings()->rom_folder, g_root, WHBGetSdCardMountPath(), v, vols, roms, sizeof(roms)))
+			roms[0] = 0;
+		if (strcmp(roms, g_roms)) {
+			report_line("OUR ROMS: after the USB rescan the ROM folder is %s", roms[0] ? roms : "not found");
+			snprintf(g_roms, sizeof(g_roms), "%s", roms);
+		}
+	}
+	return n;
+}
+
 /* Settings > Games: the readable games without a cover, one per game id (two
  * files of one game share its cover), into out (max of them; out NULL only
  * counts). The headers come in lazily as games come into view, so the games
