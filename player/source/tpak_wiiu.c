@@ -34,10 +34,10 @@
  * newest. */
 #include "tpak_wiiu.h"
 #include "tpak.h"
+#include "mocha_wiiu.h"
 #include "report.h"
 
 #include <coreinit/filesystem_fsa.h>
-#include <coreinit/ios.h>
 #include <coreinit/time.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -71,31 +71,6 @@ static char g_quota[128];     /* its title's save directory (flushed after a wri
 static char g_tid[20];       /* "00050002XXXXXXXX"; for RetroArch, VBA GX or OurGB, the save's file name */
 static char g_root[256];     /* the SD's our64 folder */
 static char g_card[64];      /* the SD card's root */
-
-/* An FSA client that may open any title's files: Mocha answers its API
- * version on /dev/mcp and unlocks a client with ioctl 0x28 (libmocha). */
-static FSAClientHandle unlocked_client(void)
-{
-	int mcp = IOS_Open("/dev/mcp", IOS_OPEN_READ);
-	if (mcp < 0)
-		return -1;
-	uint32_t io[0x40 / 4] __attribute__((aligned(0x40)));
-	io[0] = 0xF8; /* IPC_CUSTOM_GET_MOCHA_API_VERSION */
-	int mocha = IOS_Ioctl(mcp, 100, io, 4, io, 8) == 0 && io[0] == 0xCAFEBABE && io[1] >= 1;
-	IOS_Close(mcp);
-	if (!mocha)
-		return -1;
-	FSAInit();
-	FSAClientHandle c = FSAAddClient(NULL);
-	if (c < 0)
-		return -1;
-	int dummy[0x40 / 4] __attribute__((aligned(0x40)));
-	if (IOS_Ioctl(c, 0x28, dummy, sizeof(dummy), dummy, sizeof(dummy)) != 0) {
-		FSADelClient(c);
-		return -1;
-	}
-	return c;
-}
 
 /* A whole file through FSA, into a 64-byte aligned buffer; NULL on failure. */
 static uint8_t *fsa_read(const char *path, uint32_t *size)
@@ -583,7 +558,7 @@ int tpak_wiiu_start(const char *sd_root, const unsigned char *n64_name, uint32_t
 		return 0;
 	}
 	if (go_on(&best, found)) {
-		g_fsa = unlocked_client();
+		g_fsa = mocha_wiiu_fsa_client(); /* opens any title's files */
 		if (g_fsa >= 0) {
 			uint32_t me = 0;
 			if (act_initialize() >= 0) { /* nn::Result: negative is a failure */

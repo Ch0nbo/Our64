@@ -40,6 +40,7 @@
 #include "pause_wiiu.h"
 #include "gamedb.h"
 #include "tpak_wiiu.h"
+#include "usbfs_wiiu.h"
 
 #include <malloc.h>
 #include <coreinit/codegen.h>
@@ -1748,6 +1749,8 @@ static int emu_thread(int argc, const char **argv)
 	theme_use_layout(s.layout);
 	setup_start(root, &s);
 	input_start(root, NULL);
+	if (!strncmp(s.rom_folder, "usb:", 4))
+		usbfs_start(); /* the ROM folder is on a USB drive */
 	library_scan(root);
 	int game = library_index_of(s.last_game);
 	if (game >= 0)
@@ -1933,6 +1936,7 @@ int main(int argc, char **argv)
 			report_line("SYSTEM: game stopped and saved %.0f ms after the system asked", OSTicksToMicroseconds(OSGetSystemTime() - asked) / 1e3);
 		watchdog_stop();
 	}
+	usbfs_stop(); /* every thread that read a USB file is done */
 	audio_stop();
 	report_save();
 
