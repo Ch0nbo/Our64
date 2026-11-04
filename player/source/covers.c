@@ -238,6 +238,9 @@ void covers_summary(int result, int stopped, int saved, int not_found, int faile
 	case COVERS_CARD_FULL:
 		snprintf(out, size, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
 		return;
+	case COVERS_NO_START:
+		snprintf(out, size, "Couldn't start fetching covers. OUR-0403");
+		return;
 	}
 	if (not_found > 0 && failed > 0)
 		snprintf(counts, sizeof counts, " %d not found. %d couldn't be downloaded.", not_found, failed);

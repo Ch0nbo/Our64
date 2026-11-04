@@ -60,8 +60,8 @@ int covers_server_gone(int *streak, int outcome);
  * differs. 1 with out filled, else 0 and out "". */
 int covers_second_title(const char *table_title, const char *file, char *out, unsigned size);
 
-/* How a fetch ended. */
-enum { COVERS_OK, COVERS_NO_NETWORK, COVERS_NO_SERVER, COVERS_CARD_FULL };
+/* How a fetch ended. COVERS_NO_START: it never began (no memory or thread). */
+enum { COVERS_OK, COVERS_NO_NETWORK, COVERS_NO_SERVER, COVERS_CARD_FULL, COVERS_NO_START };
 /* The fetch's result with its counts: a download that failed with nothing
  * saved is the server not reached (COVERS_NO_SERVER), however few games were
  * tried. */

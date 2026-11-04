@@ -276,6 +276,7 @@ static void test_summary(void)
 	summary(COVERS_NO_NETWORK, 0, 0, 0, 0, "Not connected to the internet. Check the Wii U's Internet settings. OUR-0401");
 	summary(COVERS_NO_SERVER, 0, 4, 1, 3, "Couldn't reach the cover server. Try again later. OUR-0402");
 	summary(COVERS_CARD_FULL, 1, 4, 0, 0, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
+	summary(COVERS_NO_START, 0, 0, 0, 0, "Couldn't start fetching covers. OUR-0403");
 	/* cut to the line's size */
 	char tiny[8];
 	covers_summary(COVERS_OK, 0, 9, 3, 0, tiny, sizeof tiny);

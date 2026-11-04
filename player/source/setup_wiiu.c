@@ -579,8 +579,10 @@ static void fetch_start(games_ui *g)
 		games_fetching(g, 0, k);
 	} else {
 		games_fetched(g, n);
-		if (n > 0) /* no memory or no thread: logged */
-			line("Couldn't start fetching covers.");
+		if (n > 0) { /* no memory or no thread */
+			report_line("ERROR Fetch covers not started: OUR-0403");
+			covers_summary(COVERS_NO_START, 0, 0, 0, 0, g_view.line, sizeof(g_view.line));
+		}
 	}
 	free(list);
 }
