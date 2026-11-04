@@ -102,7 +102,7 @@ int covers_reply(const unsigned char *reply, unsigned n, unsigned *body, unsigne
 	const unsigned char *end = reply + n, *p, *head_end = NULL;
 	int status = 0;
 	unsigned long long length = 0;
-	int has_length = 0;
+	int has_length = 0, chunked = 0;
 	/* "HTTP/1.x SSS ..." */
 	if (n < 12 || memcmp(reply, "HTTP/", 5))
 		return -1;
@@ -147,8 +147,15 @@ int covers_reply(const unsigned char *reply, unsigned n, unsigned *body, unsigne
 			}
 			has_length = 1;
 		}
+		v = header_value(p, eol, "Transfer-Encoding");
+		for (; v && v + 7 <= eol; v++) /* "chunked", in any case, anywhere in the value */
+			if (lower(v[0]) == 'c' && lower(v[1]) == 'h' && lower(v[2]) == 'u' && lower(v[3]) == 'n' &&
+			    lower(v[4]) == 'k' && lower(v[5]) == 'e' && lower(v[6]) == 'd')
+				chunked = 1;
 		p = eol + 2;
 	}
+	if (chunked)
+		return -1; /* its body is not the file */
 	*body = (unsigned)(head_end + 2 - reply);
 	*body_n = n - *body;
 	if (has_length) {
@@ -180,7 +187,7 @@ int covers_status_outcome(int status)
 {
 	if (status == 200)
 		return COVERS_GOT_PNG;
-	return status >= 400 && status <= 499 ? COVERS_NOT_FOUND : COVERS_NET_FAILED;
+	return status == 404 ? COVERS_NOT_FOUND : COVERS_NET_FAILED;
 }
 
 int covers_is_png(const unsigned char *body, unsigned n)
@@ -190,7 +197,7 @@ int covers_is_png(const unsigned char *body, unsigned n)
 
 int covers_server_gone(int *streak, int outcome)
 {
-	if (outcome != COVERS_NET_FAILED) {
+	if (outcome != COVERS_NET_FAILED && outcome != COVERS_NOT_PNG) {
 		*streak = 0;
 		return 0;
 	}
@@ -211,9 +218,14 @@ int covers_second_title(const char *table_title, const char *file, char *out, un
 	return 0;
 }
 
-void covers_summary(int result, int stopped, int saved, int not_found, char *out, unsigned size)
+int covers_final(int result, int saved, int failed)
 {
-	char missed[32] = "";
+	return result == COVERS_OK && failed > 0 && saved == 0 ? COVERS_NO_SERVER : result;
+}
+
+void covers_summary(int result, int stopped, int saved, int not_found, int failed, char *out, unsigned size)
+{
+	char counts[96] = "";
 	if (size == 0)
 		return;
 	switch (result) {
@@ -227,15 +239,19 @@ void covers_summary(int result, int stopped, int saved, int not_found, char *out
 		snprintf(out, size, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
 		return;
 	}
-	if (not_found > 0)
-		snprintf(missed, sizeof missed, " %d not found.", not_found);
+	if (not_found > 0 && failed > 0)
+		snprintf(counts, sizeof counts, " %d not found. %d couldn't be downloaded.", not_found, failed);
+	else if (not_found > 0)
+		snprintf(counts, sizeof counts, " %d not found.", not_found);
+	else if (failed > 0)
+		snprintf(counts, sizeof counts, " %d couldn't be downloaded.", failed);
 	if (stopped) {
 		if (saved > 0)
-			snprintf(out, size, "Stopped: fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", missed);
+			snprintf(out, size, "Stopped: fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", counts);
 		else
-			snprintf(out, size, "Stopped.%s", missed);
+			snprintf(out, size, "Stopped.%s", counts);
 	} else if (saved > 0) {
-		snprintf(out, size, "Fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", missed);
+		snprintf(out, size, "Fetched %d cover%s.%s", saved, saved == 1 ? "" : "s", counts);
 	} else {
 		snprintf(out, size, "No covers found.");
 	}

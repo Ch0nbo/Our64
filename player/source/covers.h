@@ -23,8 +23,9 @@ void covers_path(const char *thumb_name, char *out, unsigned size);
 int covers_request(const char *path, char *out, unsigned size);
 /* A whole reply of n bytes: 200 with a body -> 200, the body's offset and
  * length (Content-Length when given); else the status (404...), or -1 when
- * it is not HTTP, its headers never end or the body is shorter than its
- * Content-Length (a cut-off download). */
+ * it is not HTTP, its headers never end, the body is shorter than its
+ * Content-Length (a cut-off download), or it is chunked (Transfer-Encoding:
+ * the request is HTTP/1.0, so a server should never send that). */
 int covers_reply(const unsigned char *reply, unsigned n, unsigned *body, unsigned *body_n);
 /* The second try: the ROM's file name without its folder and extension
  * ("roms/Banjo-Kazooie (USA).z64" -> "Banjo-Kazooie (USA)"). */
@@ -36,20 +37,23 @@ void covers_file_title(const char *file, char *out, unsigned size);
 /* A reply bigger than this is not a cover (libretro's N64 covers are about
  * 350 KB). */
 #define COVERS_MAX_REPLY (2u * 1024 * 1024)
-/* Network failures in a row that end a fetch: the server is down or gone. */
+/* Failed downloads in a row that end a fetch: the server is down or gone. */
 #define COVERS_NET_TRIES 3
 
-/* What one game's try came to. */
+/* What one game's try came to. COVERS_NOT_FOUND is only a 404: no cover
+ * under that name. COVERS_NOT_PNG (a body that is not a whole PNG, or one
+ * too big) and COVERS_NET_FAILED (no connection, a reset, a timeout, a
+ * cut-off or garbled reply, any other status) are both a cover that couldn't
+ * be downloaded. */
 enum { COVERS_GOT_PNG, COVERS_NOT_FOUND, COVERS_NOT_PNG, COVERS_NET_FAILED };
 /* covers_reply's status as an outcome: 200 COVERS_GOT_PNG (the body still has
- * to be a PNG), 404 and the other 4xx COVERS_NOT_FOUND, anything else (-1, a
- * cut-off or garbled reply, 5xx) COVERS_NET_FAILED. */
+ * to be a PNG), 404 COVERS_NOT_FOUND, anything else COVERS_NET_FAILED. */
 int covers_status_outcome(int status);
 /* The first 8 bytes are PNG's signature. */
 int covers_is_png(const unsigned char *body, unsigned n);
-/* After each game: counts network failures in a row in *streak (any other
- * outcome ends the run); 1 when this one was the COVERS_NET_TRIES'th and the
- * fetch stops. */
+/* After each game: counts failed downloads in a row in *streak
+ * (COVERS_NET_FAILED or COVERS_NOT_PNG; a cover or a 404 ends the run); 1
+ * when this one was the COVERS_NET_TRIES'th and the fetch stops. */
 int covers_server_gone(int *streak, int outcome);
 /* The second title, after a 404 on table_title (covertitles_find's): the ROM
  * file's own (covers_file_title), when there was a table title and the file's
@@ -58,10 +62,17 @@ int covers_second_title(const char *table_title, const char *file, char *out, un
 
 /* How a fetch ended. */
 enum { COVERS_OK, COVERS_NO_NETWORK, COVERS_NO_SERVER, COVERS_CARD_FULL };
-/* The line under Settings > Games' header after a fetch: "Fetched 9 covers.
- * 3 not found.", "Fetched 1 cover.", "No covers found.", "Stopped: fetched 2
- * covers." after B, or the failure's own line with its OUR- code. */
-void covers_summary(int result, int stopped, int saved, int not_found, char *out, unsigned size);
+/* The fetch's result with its counts: a download that failed with nothing
+ * saved is the server not reached (COVERS_NO_SERVER), however few games were
+ * tried. */
+int covers_final(int result, int saved, int failed);
+/* The line under Settings > Games' header after a fetch (result as
+ * covers_final gives it): "Fetched 9 covers. 3 not found.", "Fetched 2
+ * covers. 3 couldn't be downloaded.", "Fetched 1 cover.", "No covers
+ * found.", "Stopped: fetched 2 covers." after B, or the failure's own line
+ * with its OUR- code. saved counts covers saved; not_found 404s; failed
+ * downloads that failed. */
+void covers_summary(int result, int stopped, int saved, int not_found, int failed, char *out, unsigned size);
 
 /* One game to fetch a cover for, copied when the fetch starts. */
 typedef struct {
@@ -79,8 +90,9 @@ typedef struct {
 int  covers_start(const char *root, const covers_game *games, int n);
 /* 1 while the thread works; 0 once it has finished (or was never started). */
 int  covers_running(void);
-void covers_progress(int *done, int *total, int *saved); /* games tried, games, covers saved */
-int  covers_not_found(void);       /* games tried with no cover found (404s and bad PNGs) */
+void covers_progress(int *done, int *total, int *saved); /* games tried, games, covers downloaded and saved */
+int  covers_not_found(void);       /* games whose cover is not on the server (404) */
+int  covers_failed(void);          /* games whose download failed */
 /* The next game id whose cover was saved since the last call, NULL when none:
  * for library_cover_saved. Valid until the next covers_start. */
 const char *covers_take_saved(void);

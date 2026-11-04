@@ -604,14 +604,14 @@ static void fetch_end(games_ui *g, int stopped)
 	covers_progress(&done, &total, &saved);
 	for (const char *id; (id = covers_take_saved());)
 		library_cover_saved(id);
-	const int result = covers_result();
+	const int failed = covers_failed(), result = covers_final(covers_result(), saved, failed);
 	if (result == COVERS_NO_NETWORK)
 		report_line("ERROR no internet for Fetch covers: OUR-0401");
 	else if (result == COVERS_NO_SERVER)
 		report_line("ERROR cover server not reached: OUR-0402");
 	else if (result == COVERS_CARD_FULL)
 		report_line("ERROR cover not written: OUR-0205");
-	covers_summary(result, stopped, saved, covers_not_found(), g_view.line, sizeof(g_view.line));
+	covers_summary(result, stopped, saved, covers_not_found(), failed, g_view.line, sizeof(g_view.line));
 	games_fetched(g, library_missing_covers());
 }
 

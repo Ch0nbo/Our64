@@ -12,6 +12,7 @@
  * writes. */
 #include "covers.h"
 #include "covertitles.h"
+#include "library.h"
 #include "report.h"
 #include "saves.h"
 
@@ -53,9 +54,10 @@ static covers_game *g_games;   /* the copy: read by the thread, kept until the n
 static int g_total;
 static unsigned char *g_buf;   /* one reply, COVERS_MAX_REPLY and a byte to see it is over */
 /* under g_lock */
-static int g_done, g_saved, g_not_found, g_finished, g_result;
-static int *g_saved_list;      /* indices into g_games, as saved */
-static int g_taken;            /* the menu's: saved ids handed out so far */
+static int g_done, g_saved, g_not_found, g_failed, g_finished, g_result;
+static int *g_listed;          /* indices into g_games with a cover on the card now, in order */
+static int g_listed_n;
+static int g_taken;            /* the menu's: listed ids handed out so far */
 
 /* What one game came to, past covers.h's outcomes. */
 enum { GAME_SAVED = 10, GAME_THERE, GAME_WRITE_FAILED, GAME_STOPPED };
@@ -160,17 +162,25 @@ static int download(const char *title, const struct sockaddr_in *addr, unsigned 
 	return covers_status_outcome(covers_reply(g_buf, (unsigned)n, body, body_n));
 }
 
-/* The PNG signature, and a header libpng reads. */
-static int png_ok(const unsigned char *p, unsigned n)
+/* A PNG the loader can draw, decoded whole into a scratch buffer: from
+ * memory (p, n) or from a file (path). 1 it is; 0 it is not (cut off,
+ * damaged, or past the loader's 16 M pixels); -1 no memory to tell. */
+static int png_whole(const char *path, const unsigned char *p, unsigned n)
 {
-	if (!covers_is_png(p, n))
-		return 0;
 	png_image im;
 	memset(&im, 0, sizeof(im));
 	im.version = PNG_IMAGE_VERSION;
-	const int ok = png_image_begin_read_from_memory(&im, p, n) && im.width > 0 && im.height > 0;
+	if (path ? !png_image_begin_read_from_file(&im, path) : !covers_is_png(p, n) || !png_image_begin_read_from_memory(&im, p, n))
+		return 0;
+	int r = 0;
+	if (im.width > 0 && im.height > 0 && (uint64_t)im.width * im.height <= LIBRARY_FIT_MAX_PIXELS) {
+		im.format = PNG_FORMAT_RGBA;
+		void *scratch = malloc(PNG_IMAGE_SIZE(im));
+		r = !scratch ? -1 : png_image_finish_read(&im, NULL, scratch, 0, NULL) != 0;
+		free(scratch);
+	}
 	png_image_free(&im);
-	return ok;
+	return r;
 }
 
 static int one_game(const covers_game *gm, const struct sockaddr_in *addr)
@@ -195,8 +205,8 @@ static int one_game(const covers_game *gm, const struct sockaddr_in *addr)
 	}
 	if (r == GAME_STOPPED)
 		return r;
-	if (r == COVERS_GOT_PNG && !png_ok(g_buf + body, body_n))
-		r = COVERS_NOT_PNG;
+	if (r == COVERS_GOT_PNG && png_whole(NULL, g_buf + body, body_n) != 1)
+		r = COVERS_NOT_PNG; /* no memory to check it counts too: an unchecked cover is never saved */
 	if (r == COVERS_GOT_PNG)
 		r = savefile_write(path, g_buf + body, body_n) ? GAME_WRITE_FAILED : GAME_SAVED;
 	report_line("COVERS: %s: %s", title, r == GAME_SAVED ? "saved" : r == COVERS_NOT_FOUND ? "not found"
@@ -279,10 +289,12 @@ static int worker(int argc, const char **argv)
 			result = COVERS_NO_SERVER;
 		OSLockMutex(&g_lock);
 		g_done = i + 1;
-		if (r == GAME_SAVED || r == GAME_THERE)
-			g_saved_list[g_saved++] = i;
-		else if (r == COVERS_NOT_FOUND || r == COVERS_NOT_PNG)
-			g_not_found++;
+		if (r == GAME_SAVED || r == GAME_THERE) {
+			g_listed[g_listed_n++] = i;
+			g_saved++;
+		}
+		g_not_found += r == COVERS_NOT_FOUND;
+		g_failed += r == COVERS_NET_FAILED || r == COVERS_NOT_PNG;
 		OSUnlockMutex(&g_lock);
 	}
 	if (ours)
@@ -290,7 +302,8 @@ static int worker(int argc, const char **argv)
 	if (ac)
 		ACFinalize();
 	/* the counts are this thread's own to write: read without the lock */
-	report_line("COVERS: %d saved, %d not found, %d of %d tried in %.1f s%s%s", g_saved, g_not_found, g_done, g_total,
+	report_line("COVERS: %d saved, %d not found, %d couldn't be downloaded, %d of %d tried in %.1f s%s%s", g_saved,
+	            g_not_found, g_failed, g_done, g_total,
 	            OSTicksToMilliseconds(OSGetSystemTime() - t0) / 1000.0, g_stop ? ", stopped" : "",
 	            result == COVERS_NO_NETWORK ? ", no network" : result == COVERS_NO_SERVER ? ", server not reached"
 	            : result == COVERS_CARD_FULL ? ", card full" : "");
@@ -311,11 +324,11 @@ int covers_start(const char *root, const covers_game *games, int n)
 		return -1;
 	covers_stop(); /* the last one's thread, finished: joined */
 	free(g_games);
-	free(g_saved_list);
+	free(g_listed);
 	g_games = malloc(sizeof(*g_games) * (size_t)n);
-	g_saved_list = malloc(sizeof(*g_saved_list) * (size_t)n);
+	g_listed = malloc(sizeof(*g_listed) * (size_t)n);
 	g_buf = malloc(COVERS_MAX_REPLY + 1);
-	if (!g_games || !g_saved_list || !g_buf) {
+	if (!g_games || !g_listed || !g_buf) {
 		free(g_buf);
 		g_buf = NULL;
 		report_line("COVERS: no memory to start");
@@ -324,7 +337,7 @@ int covers_start(const char *root, const covers_game *games, int n)
 	memcpy(g_games, games, sizeof(*g_games) * (size_t)n);
 	snprintf(g_root, sizeof(g_root), "%s", root);
 	g_total = n;
-	g_done = g_saved = g_not_found = g_finished = g_taken = 0;
+	g_done = g_saved = g_not_found = g_failed = g_finished = g_listed_n = g_taken = 0;
 	g_result = COVERS_OK;
 	g_stop = 0;
 	/* below the loader (26) and the SD writer (24), on core 2 with them */
@@ -365,6 +378,16 @@ void covers_progress(int *done, int *total, int *saved)
 	OSUnlockMutex(&g_lock);
 }
 
+int covers_failed(void)
+{
+	if (!g_lock_ready)
+		return 0;
+	OSLockMutex(&g_lock);
+	const int n = g_failed;
+	OSUnlockMutex(&g_lock);
+	return n;
+}
+
 int covers_not_found(void)
 {
 	if (!g_lock_ready)
@@ -381,8 +404,8 @@ const char *covers_take_saved(void)
 	if (!g_lock_ready)
 		return NULL;
 	OSLockMutex(&g_lock);
-	if (g_taken < g_saved)
-		id = g_games[g_saved_list[g_taken++]].id;
+	if (g_taken < g_listed_n)
+		id = g_games[g_listed[g_taken++]].id;
 	OSUnlockMutex(&g_lock);
 	return id;
 }

@@ -690,9 +690,9 @@ void shots_setup()
 	games_fetching(&sv.games, 3, 12);
 	shot("games-fetching", v);
 	games_fetched(&sv.games, 3); // the fetch ended: what it did, under the header
-	covers_summary(COVERS_OK, 0, 9, 3, sv.line, sizeof(sv.line));
+	covers_summary(COVERS_OK, 0, 9, 3, 0, sv.line, sizeof(sv.line));
 	shot("games-fetched", v);
-	covers_summary(COVERS_NO_NETWORK, 0, 0, 0, sv.line, sizeof(sv.line));
+	covers_summary(COVERS_NO_NETWORK, 0, 0, 0, 0, sv.line, sizeof(sv.line));
 	games_fetched(&sv.games, 12);
 	shot("games-no-network", v);
 	sv.line[0] = 0;

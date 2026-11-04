@@ -134,6 +134,11 @@ static void test_reply(void)
 	/* the headers never ended */
 	CHECK(reply("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n", &body, &body_n) == -1);
 	CHECK(reply("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r", &body, &body_n) == -1);
+	/* chunked: the body is not the file (an HTTP/1.0 request should never get it) */
+	CHECK(reply("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n12345\r\n0\r\n\r\n", &body, &body_n) == -1);
+	CHECK(reply("HTTP/1.1 200 OK\r\ntransfer-encoding: gzip, CHUNKED\r\n\r\nx", &body, &body_n) == -1);
+	CHECK(reply("HTTP/1.1 200 OK\r\nTransfer-Encoding: identity\r\n\r\n123", &body, &body_n) == 200);
+	CHECK(reply("HTTP/1.1 404 Not Found\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", &body, &body_n) == 404);
 	/* only the n bytes given are read: a reply cut inside its headers */
 	CHECK(covers_reply((const unsigned char *)ok, 20, &body, &body_n) == -1);
 }
@@ -192,7 +197,8 @@ static void test_outcomes(void)
 {
 	CHECK(covers_status_outcome(200) == COVERS_GOT_PNG);
 	CHECK(covers_status_outcome(404) == COVERS_NOT_FOUND);
-	CHECK(covers_status_outcome(403) == COVERS_NOT_FOUND);
+	CHECK(covers_status_outcome(403) == COVERS_NET_FAILED); /* "not found" is only a 404 */
+	CHECK(covers_status_outcome(410) == COVERS_NET_FAILED);
 	CHECK(covers_status_outcome(-1) == COVERS_NET_FAILED); /* garbled or cut off */
 	CHECK(covers_status_outcome(503) == COVERS_NET_FAILED);
 	CHECK(covers_status_outcome(301) == COVERS_NET_FAILED); /* a redirect is not followed */
@@ -201,8 +207,9 @@ static void test_outcomes(void)
 	CHECK(!covers_is_png((const unsigned char *)"<html><body>", 12));
 }
 
-/* Three network failures in a row stop the fetch; a 404 or a bad PNG between
- * them starts the count again. */
+/* Three failed downloads in a row (the network, or a body that is not a
+ * whole PNG) stop the fetch; a cover or a 404 between them starts the count
+ * again. */
 static void test_server_gone(void)
 {
 	int streak = 0;
@@ -214,8 +221,11 @@ static void test_server_gone(void)
 	CHECK(!covers_server_gone(&streak, COVERS_GOT_PNG));
 	CHECK(!covers_server_gone(&streak, COVERS_NOT_PNG));
 	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
-	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
 	CHECK(covers_server_gone(&streak, COVERS_NET_FAILED));
+	streak = 0;
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(!covers_server_gone(&streak, COVERS_NET_FAILED));
+	CHECK(covers_server_gone(&streak, COVERS_NOT_PNG));
 }
 
 static void test_second_title(void)
@@ -234,10 +244,10 @@ static void test_second_title(void)
 	CHECK(out[0] == 0);
 }
 
-static void summary(int result, int stopped, int saved, int not_found, const char *want)
+static void summary(int result, int stopped, int saved, int not_found, int failed, const char *want)
 {
 	char out[128];
-	covers_summary(result, stopped, saved, not_found, out, sizeof out);
+	covers_summary(covers_final(result, saved, failed), stopped, saved, not_found, failed, out, sizeof out);
 	if (strcmp(out, want))
 		printf("  got \"%s\", want \"%s\"\n", out, want);
 	CHECK(!strcmp(out, want));
@@ -245,21 +255,30 @@ static void summary(int result, int stopped, int saved, int not_found, const cha
 
 static void test_summary(void)
 {
-	summary(COVERS_OK, 0, 9, 3, "Fetched 9 covers. 3 not found.");
-	summary(COVERS_OK, 0, 1, 0, "Fetched 1 cover.");
-	summary(COVERS_OK, 0, 2, 1, "Fetched 2 covers. 1 not found.");
-	summary(COVERS_OK, 0, 0, 4, "No covers found.");
-	summary(COVERS_OK, 0, 0, 0, "No covers found.");
-	summary(COVERS_OK, 1, 2, 0, "Stopped: fetched 2 covers.");
-	summary(COVERS_OK, 1, 1, 1, "Stopped: fetched 1 cover. 1 not found.");
-	summary(COVERS_OK, 1, 0, 0, "Stopped.");
+	summary(COVERS_OK, 0, 9, 3, 0, "Fetched 9 covers. 3 not found.");
+	summary(COVERS_OK, 0, 1, 0, 0, "Fetched 1 cover.");
+	summary(COVERS_OK, 0, 2, 1, 0, "Fetched 2 covers. 1 not found.");
+	summary(COVERS_OK, 0, 2, 0, 3, "Fetched 2 covers. 3 couldn't be downloaded.");
+	summary(COVERS_OK, 0, 2, 1, 3, "Fetched 2 covers. 1 not found. 3 couldn't be downloaded.");
+	summary(COVERS_OK, 0, 0, 4, 0, "No covers found.");
+	summary(COVERS_OK, 0, 0, 0, 0, "No covers found.");
+	summary(COVERS_OK, 1, 2, 0, 0, "Stopped: fetched 2 covers.");
+	summary(COVERS_OK, 1, 1, 1, 0, "Stopped: fetched 1 cover. 1 not found.");
+	summary(COVERS_OK, 1, 0, 0, 0, "Stopped.");
+	/* any failed download with nothing saved: the server, however few were tried */
+	summary(COVERS_OK, 0, 0, 0, 1, "Couldn't reach the cover server. Try again later. OUR-0402");
+	summary(COVERS_OK, 0, 0, 5, 1, "Couldn't reach the cover server. Try again later. OUR-0402");
+	summary(COVERS_OK, 1, 0, 0, 2, "Couldn't reach the cover server. Try again later. OUR-0402");
+	CHECK(covers_final(COVERS_OK, 1, 1) == COVERS_OK);
+	CHECK(covers_final(COVERS_OK, 0, 0) == COVERS_OK);
+	CHECK(covers_final(COVERS_CARD_FULL, 0, 1) == COVERS_CARD_FULL);
 	/* a failure's line, whatever was saved before it */
-	summary(COVERS_NO_NETWORK, 0, 0, 0, "Not connected to the internet. Check the Wii U's Internet settings. OUR-0401");
-	summary(COVERS_NO_SERVER, 0, 4, 1, "Couldn't reach the cover server. Try again later. OUR-0402");
-	summary(COVERS_CARD_FULL, 1, 4, 0, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
-	/* the line fits Settings' (setup_view.line: 128 bytes) */
+	summary(COVERS_NO_NETWORK, 0, 0, 0, 0, "Not connected to the internet. Check the Wii U's Internet settings. OUR-0401");
+	summary(COVERS_NO_SERVER, 0, 4, 1, 3, "Couldn't reach the cover server. Try again later. OUR-0402");
+	summary(COVERS_CARD_FULL, 1, 4, 0, 0, "Couldn't save a cover: check the SD card's lock switch or free space. OUR-0205");
+	/* cut to the line's size */
 	char tiny[8];
-	covers_summary(COVERS_OK, 0, 9, 3, tiny, sizeof tiny);
+	covers_summary(COVERS_OK, 0, 9, 3, 0, tiny, sizeof tiny);
 	CHECK(strlen(tiny) == 7);
 }
 
