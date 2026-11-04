@@ -18,6 +18,8 @@ Used as they are:
 - [mupen64plus](https://github.com/mupen64plus): the per-game settings database and the JPEG decoder.
 - [cxd4](https://github.com/cxd4/rsp)'s RSP interpreter and [miniLZO](https://www.oberhumer.com/opensource/lzo/) by Markus Oberhumer.
 - [FatFs](https://elm-chan.org/fsw/ff/) by ChaN: reads USB drives.
+- [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails): the box art Fetch covers
+  downloads, found by the No-Intro names in [libretro-database](https://github.com/libretro/libretro-database).
 
 ## What you need
 
@@ -41,6 +43,14 @@ Used as they are:
   the plugin shows homebrew only the Wii U partition. Use the plugin's SD build, `5upartsd.ipx`, instead: it
   makes that partition the SD card, and Our64 reads it as the SD card.
 
+## Covers
+
+- Settings > Games > Fetch covers downloads covers for games without one from libretro-thumbnails, over the
+  Wii U's internet connection.
+- Covers already on the card are never replaced.
+- Hacks and translations that are not in the No-Intro list keep their poster card.
+- `tools/fetch-art.sh` still fetches covers from a computer.
+
 ## Playing
 
 - **Controllers:** GamePad, Pro Controller, Classic Controller, Wii Remote with or without a Nunchuk.
@@ -57,6 +67,7 @@ Files Our64 writes, all under `sd:/wiiu/our64`:
 | `saves/`         | in-game saves (cartridge saves, Controller Paks) |
 | `states/`        | save states and the autosave                     |
 | `config/`        | settings and button mappings                     |
+| `art/`           | covers (Fetch covers)                            |
 | `player-log.txt` | which games ran and how, errors, crashes         |
 
 Error screens show a code such as `OUR-0104`. What each one means and how to fix it:
