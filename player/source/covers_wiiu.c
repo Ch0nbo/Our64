@@ -163,7 +163,7 @@ static int download(const char *title, const struct sockaddr_in *addr, unsigned 
 }
 
 /* A PNG the loader can draw, decoded whole into a scratch buffer: from
- * memory (p, n) or from a file (path). 1 it is; 0 it is not (cut off,
+ * memory (p, n) or from the card (path). 1 it is; 0 it is not (cut off,
  * damaged, or past the loader's 16 M pixels); -1 no memory to tell. */
 static int png_whole(const char *path, const unsigned char *p, unsigned n)
 {
@@ -193,9 +193,15 @@ static int one_game(const covers_game *gm, const struct sockaddr_in *addr)
 		snprintf(title, sizeof(title), "%s", table);
 	else
 		covers_file_title(gm->file, title, sizeof(title));
-	if (!stat(path, &st)) { /* a cover already on the card is never replaced */
-		report_line("COVERS: %s: already on the card", title);
-		return GAME_THERE;
+	if (!stat(path, &st)) { /* a cover already on the card is never replaced, unless it can't be drawn */
+		if (png_whole(path, NULL, 0)) {
+			report_line("COVERS: %s: already on the card", title);
+			return GAME_THERE;
+		}
+		const int gone = !remove(path);
+		report_line("COVERS: %s: the cover on the card can't be read: %s", title, gone ? "removed" : "NOT removed");
+		if (!gone)
+			return GAME_WRITE_FAILED;
 	}
 	unsigned body = 0, body_n = 0;
 	int r = download(title, addr, &body, &body_n);
@@ -289,10 +295,9 @@ static int worker(int argc, const char **argv)
 			result = COVERS_NO_SERVER;
 		OSLockMutex(&g_lock);
 		g_done = i + 1;
-		if (r == GAME_SAVED || r == GAME_THERE) {
+		if (r == GAME_SAVED || r == GAME_THERE)
 			g_listed[g_listed_n++] = i;
-			g_saved++;
-		}
+		g_saved += r == GAME_SAVED;
 		g_not_found += r == COVERS_NOT_FOUND;
 		g_failed += r == COVERS_NET_FAILED || r == COVERS_NOT_PNG;
 		OSUnlockMutex(&g_lock);

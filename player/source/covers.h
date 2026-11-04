@@ -70,8 +70,8 @@ int covers_final(int result, int saved, int failed);
  * covers_final gives it): "Fetched 9 covers. 3 not found.", "Fetched 2
  * covers. 3 couldn't be downloaded.", "Fetched 1 cover.", "No covers
  * found.", "Stopped: fetched 2 covers." after B, or the failure's own line
- * with its OUR- code. saved counts covers saved; not_found 404s; failed
- * downloads that failed. */
+ * with its OUR- code. saved counts covers downloaded, not those already on
+ * the card; not_found 404s; failed downloads that failed. */
 void covers_summary(int result, int stopped, int saved, int not_found, int failed, char *out, unsigned size);
 
 /* One game to fetch a cover for, copied when the fetch starts. */
@@ -93,8 +93,9 @@ int  covers_running(void);
 void covers_progress(int *done, int *total, int *saved); /* games tried, games, covers downloaded and saved */
 int  covers_not_found(void);       /* games whose cover is not on the server (404) */
 int  covers_failed(void);          /* games whose download failed */
-/* The next game id whose cover was saved since the last call, NULL when none:
- * for library_cover_saved. Valid until the next covers_start. */
+/* The next game id with a cover on the card since the last call (saved, or
+ * found already there), NULL when none: for library_cover_saved. Valid until
+ * the next covers_start. */
 const char *covers_take_saved(void);
 /* Asks the thread to stop (between games and inside every wait) and waits
  * for it to end. Also ends a fetch that finished: call it before
