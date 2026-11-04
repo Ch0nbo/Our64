@@ -454,6 +454,8 @@ static void list_drives(browse_ui *b)
 	}
 	if (usbfs_why() == USBFS_NO_MOCHA)
 		browse_add(b, "USB drives need Aroma's Mocha: update Aroma", "", 1);
+	else if (usbfs_why() != USBFS_READY) /* no FSA client, or no memory */
+		browse_add(b, "USB drives couldn't be read", "", 1);
 }
 
 /* A browser path as the player opens it. "sd:/x/y": the SD card is mounted by

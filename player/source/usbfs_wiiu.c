@@ -10,11 +10,13 @@
  *
  * Files: one newlib device per mounted partition. FatFs has no locks of its
  * own (FF_FS_REENTRANT 0), so g_lock covers every FatFs call, from any
- * thread. A device stays registered from its first mount until usbfs_stop:
- * newlib's RemoveDevice empties the device's slot, and newlib reads an open
- * file's slot without checking it, so a rescan never removes one. A file or
- * folder opened before a rescan fails (EIO) after it: each holds the scan's
- * number from when it opened. */
+ * thread. A device stays registered from its first mount on, through rescans
+ * and usbfs_stop: newlib's RemoveDevice empties the device's slot, and newlib
+ * reads an open file's slot without checking it, so a thread still reading
+ * (Our ROMs' loader is never joined) would crash. Instead every call checks,
+ * under g_lock, that its partition is mounted now (else ENODEV) and that a
+ * file or folder was opened in this scan (else EIO): each holds the scan's
+ * number from when it opened, and usbfs_stop starts a new one. */
 #include "usbfs_wiiu.h"
 #include "mocha_wiiu.h"
 #include "report.h"
@@ -222,6 +224,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 
 typedef struct {
 	FIL fil;
+	int64_t at;   /* the position lseek gave, which may be past the end */
 	unsigned scan;
 	int vol;
 } usb_file;
@@ -353,6 +356,7 @@ static int dev_open(struct _reent *r, void *fileStruct, const char *path, int fl
 	}
 	if (fr != FR_OK)
 		return fail(r, fat_errno(fr));
+	f->at = 0;
 	f->scan = g_scan;
 	f->vol = vol;
 	OSUnlockMutex(&g_lock);
@@ -378,7 +382,12 @@ static ssize_t dev_read(struct _reent *r, void *fd, char *ptr, size_t len)
 	OSLockMutex(&g_lock);
 	if (!still_valid(f->vol, f->scan))
 		return fail(r, EIO);
+	if (f->at >= (int64_t)f_size(&f->fil)) { /* at or past the end */
+		OSUnlockMutex(&g_lock);
+		return 0;
+	}
 	FRESULT fr = f_read(&f->fil, ptr, (UINT)len, &got);
+	f->at = (int64_t)f_tell(&f->fil);
 	if (fr != FR_OK)
 		return fail(r, fat_errno(fr));
 	OSUnlockMutex(&g_lock);
@@ -394,19 +403,21 @@ static off_t dev_seek(struct _reent *r, void *fd, off_t pos, int dir)
 	int64_t base;
 	switch (dir) {
 	case SEEK_SET: base = 0; break;
-	case SEEK_CUR: base = (int64_t)f_tell(&f->fil); break;
+	case SEEK_CUR: base = f->at; break;
 	case SEEK_END: base = (int64_t)f_size(&f->fil); break;
 	default: return fail(r, EINVAL);
 	}
 	const int64_t at = base + (int64_t)pos;
 	if (at < 0)
 		return fail(r, EINVAL);
-	FRESULT fr = f_lseek(&f->fil, (FSIZE_t)at); /* read-only: past the end stops at the end */
+	/* read-only FatFs stops a seek at the end; lseek allows past it, where reads give 0 */
+	const int64_t size = (int64_t)f_size(&f->fil);
+	FRESULT fr = f_lseek(&f->fil, (FSIZE_t)(at < size ? at : size));
 	if (fr != FR_OK)
 		return fail(r, fat_errno(fr));
-	const off_t now = (off_t)f_tell(&f->fil);
+	f->at = at;
 	OSUnlockMutex(&g_lock);
-	return now;
+	return (off_t)at;
 }
 
 static int dev_fstat(struct _reent *r, void *fd, struct stat *st)
@@ -572,15 +583,6 @@ static void begin(void)
 {
 	g_started = 1;
 	g_why = USBFS_READY;
-	if (!g_shim)
-		g_shim = memalign(0x40, sizeof(FSAShimBuffer));
-	if (!g_bounce)
-		g_bounce = memalign(0x40, BOUNCE_BYTES);
-	if (!g_shim || !g_bounce) {
-		g_why = USBFS_NO_MEMORY;
-		report_line("USB: no memory for the sector buffers: USB drives are off");
-		return;
-	}
 	if (!mocha_wiiu_present()) {
 		g_why = USBFS_NO_MOCHA;
 		report_line("USB: Mocha did not answer: USB drives are off");
@@ -590,12 +592,23 @@ static void begin(void)
 	if (g_client < 0) {
 		g_why = USBFS_NO_CLIENT;
 		report_line("USB: no unlocked FSA client: USB drives are off");
+		return;
+	}
+	if (!g_shim)
+		g_shim = memalign(0x40, sizeof(FSAShimBuffer));
+	if (!g_bounce)
+		g_bounce = memalign(0x40, BOUNCE_BYTES);
+	if (!g_shim || !g_bounce) {
+		g_why = USBFS_NO_MEMORY;
+		report_line("USB: no memory for the sector buffers: USB drives are off");
+		FSADelClient(g_client);
+		g_client = -1;
 	}
 }
 
 static void lock(void)
 {
-	if (!g_lock_ready) { /* start and stop run on one thread; files open only after a start */
+	if (!g_lock_ready) { /* the first start, before any device exists; stop before it does nothing */
 		OSInitMutexEx(&g_lock, "Our64 USB");
 		g_lock_ready = 1;
 	}
@@ -644,11 +657,7 @@ void usbfs_stop(void)
 		return;
 	OSLockMutex(&g_lock);
 	if (g_started) {
-		for (int vol = 0; vol < USBFS_VOLUMES; vol++)
-			if (g_registered[vol]) {
-				RemoveDevice(g_name[vol]);
-				g_registered[vol] = 0;
-			}
+		g_started = 0; /* the devices stay registered and answer ENODEV and EIO from now on */
 		close_all();
 		if (g_client >= 0)
 			FSADelClient(g_client);
@@ -657,7 +666,6 @@ void usbfs_stop(void)
 		free(g_bounce);
 		g_shim = NULL;
 		g_bounce = NULL;
-		g_started = 0;
 		g_why = USBFS_READY;
 	}
 	OSUnlockMutex(&g_lock);
