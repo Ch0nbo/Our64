@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 /* FatFs's table: logical drive -> physical drive (0 or 1) and partition.
  * Partition 1 is switched to 0 (FatFs's own search) while it is tried as a
@@ -103,12 +104,27 @@ void usbfs_device(const usbfs_volume *v, char *out, unsigned size)
 	snprintf(out, size, "usb%dp%d", v->drive, v->part);
 }
 
+/* A label that says USB already ("USB DISK") is shown as it is; any other
+ * gets "USB " in front. Cut to size between UTF-8 characters, never inside one. */
 void usbfs_name(const usbfs_volume *v, char *out, unsigned size)
 {
-	if (v->label[0])
-		snprintf(out, size, "USB %s", v->label);
+	char s[64];
+	if (!size)
+		return;
+	if (!v->label[0])
+		snprintf(s, sizeof(s), "USB drive %d, partition %d", v->drive, v->part);
+	else if (!strncasecmp(v->label, "usb", 3))
+		snprintf(s, sizeof(s), "%s", v->label);
 	else
-		snprintf(out, size, "USB drive %d, partition %d", v->drive, v->part);
+		snprintf(s, sizeof(s), "USB %s", v->label);
+	size_t n = strlen(s);
+	if (n >= size) {
+		n = size - 1;
+		while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80)
+			n--;
+	}
+	memcpy(out, s, n);
+	out[n] = 0;
 }
 
 /* "usb<D>p<P>" at the start of s, D 1-2 and P 1-4: its length (6), else 0. */

@@ -119,6 +119,11 @@ static void stored_paths_name_the_serial(void)
 	snprintf(want, sizeof(want), "usb:%08X/", (unsigned)v[1].serial);
 	CHECK(usbfs_store_path(v, n, "usb1p2:/", out, sizeof(out)) == 0 && !strcmp(out, want));
 	CHECK(usbfs_device_path(v, n, want, out, sizeof(out)) == 0 && !strcmp(out, "usb1p2:/"));
+	/* the root with no slash, or one */
+	snprintf(want, sizeof(want), "usb:%08X", (unsigned)v[0].serial);
+	CHECK(usbfs_device_path(v, n, want, out, sizeof(out)) == 0 && !strcmp(out, "usb1p1:/"));
+	snprintf(want, sizeof(want), "usb:%08X/", (unsigned)v[0].serial);
+	CHECK(usbfs_device_path(v, n, want, out, sizeof(out)) == 0 && !strcmp(out, "usb1p1:/"));
 	/* lowercase hex reads too */
 	snprintf(want, sizeof(want), "usb:%08x/Mario", (unsigned)v[1].serial);
 	CHECK(usbfs_device_path(v, n, want, out, sizeof(out)) == 0 && !strcmp(out, "usb1p2:/Mario"));
@@ -168,6 +173,22 @@ static void names_and_devices(void)
 	CHECK(!strcmp(s, "USB drive 1, partition 2"));
 	usbfs_name(&plain, s, 8);
 	CHECK(!strcmp(s, "USB dri"));
+	/* a label that says USB already is shown as it is */
+	usbfs_volume named = {.drive = 1, .part = 1, .mounted = 1, .label = "USB DISK"};
+	usbfs_name(&named, s, sizeof(s));
+	CHECK(!strcmp(s, "USB DISK"));
+	strcpy(named.label, "usb stick");
+	usbfs_name(&named, s, sizeof(s));
+	CHECK(!strcmp(s, "usb stick"));
+	/* cut between characters, never inside one */
+	strcpy(named.label, "Pok\xC3\xA9mon");
+	usbfs_name(&named, s, 9);
+	CHECK(!strcmp(s, "USB Pok"));
+	usbfs_name(&named, s, 10);
+	CHECK(!strcmp(s, "USB Pok\xC3\xA9"));
+	strcpy(named.label, "\xE3\x82\xB2\xE3\x83\xBC\xE3\x83\xA0");
+	usbfs_name(&named, s, 12);
+	CHECK(!strcmp(s, "USB \xE3\x82\xB2\xE3\x83\xBC"));
 	CHECK(usbfs_volume_index("usb1p1") == 0);
 	CHECK(usbfs_volume_index("usb1p2:/Games") == 1);
 	CHECK(usbfs_volume_index("usb1p3") == -1);
@@ -247,6 +268,35 @@ static void a_fat_size_that_wraps_does_not_mount(void)
 	CHECK(usbfs_mount_all(v, 8) == 0);
 }
 
+static void a_non_fat_partition_1_is_not_mounted_as_partition_2(void)
+{
+	usbfs_volume v[8];
+	CHECK(plug(IMG("mixed.img"), NULL, 512));
+	CHECK(usbfs_mount_all(v, 8) == 1);
+	CHECK(v[0].drive == 1 && v[0].part == 2 && !v[0].exfat);
+	CHECK(usbfs_volume_index("usb1p1") == -1);
+	FILINFO fi;
+	CHECK(f_stat("1:/Yoshi.z64", &fi) == FR_OK && fi.fsize == 64);
+}
+
+static void a_gpt_drive_mounts_its_partitions_in_order(void)
+{
+	usbfs_volume v[8];
+	CHECK(plug(IMG("gpt.img"), NULL, 512));
+	CHECK(usbfs_mount_all(v, 8) == 2);
+	CHECK(v[0].part == 1 && !v[0].exfat && !strcmp(v[0].label, "GPT ONE"));
+	CHECK(v[1].part == 2 && v[1].exfat && !strcmp(v[1].label, "GPT TWO"));
+	FILINFO fi;
+	CHECK(f_stat("0:/Kirby.z64", &fi) == FR_OK && fi.fsize == 64);
+}
+
+static void an_exfat_with_too_few_clusters_does_not_mount(void)
+{
+	usbfs_volume v[8];
+	CHECK(plug(IMG("badclus.img"), NULL, 512));
+	CHECK(usbfs_mount_all(v, 8) == 0);
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 int main(void)
@@ -263,6 +313,9 @@ int main(void)
 	RUN(sectors_of_4096_bytes);
 	RUN(a_corrupt_exfat_label_stops_at_11_characters);
 	RUN(a_fat_size_that_wraps_does_not_mount);
+	RUN(a_non_fat_partition_1_is_not_mounted_as_partition_2);
+	RUN(a_gpt_drive_mounts_its_partitions_in_order);
+	RUN(an_exfat_with_too_few_clusters_does_not_mount);
 	usbfs_unmount_all();
 	plug(NULL, NULL, 512);
 	printf("%d of %d failed\n", g_failed, g_run);

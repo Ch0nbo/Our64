@@ -1,6 +1,7 @@
 /* FatFs configuration for tests/make_disk only: the same as
  * third_party/fatfs/ffconf.h but read-write with f_mkfs, to make the test
- * disk images. The player never builds with it. */
+ * disk images, and f_fdisk makes GPT from 96 MB (FF_MIN_GPT), not 128 GB. The
+ * player never builds with it. */
 
 /*---------------------------------------------------------------------------/
 /  Configurations of FatFs Module
@@ -226,7 +227,7 @@
 /  To enable the 64-bit LBA, also exFAT needs to be enabled. (FF_FS_EXFAT == 1) */
 
 
-#define FF_MIN_GPT		0x10000000
+#define FF_MIN_GPT		0x30000
 /* Minimum number of sectors to switch GPT as partitioning format in f_mkfs() and 
 /  f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0. */
 

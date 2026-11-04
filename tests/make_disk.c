@@ -8,7 +8,10 @@
  *   stick.img     a superfloppy: FAT32 at sector 0, no MBR, no label
  *   badlabel.img  a superfloppy exFAT whose label entry claims 255 characters
  *   badfat.img    stick.img's boot sector with two FATs of 2^31 sectors each:
- *                 their total wraps to 0 in 32 bits */
+ *                 their total wraps to 0 in 32 bits
+ *   badclus.img   a superfloppy exFAT that claims 255 clusters (256 is the least)
+ *   mixed.img     80 MB, MBR: 1 type 0x07 of random bytes, 2 FAT32 with /Yoshi.z64
+ *   gpt.img       100 MB, GPT: 1 FAT32 "GPT ONE" with /Kirby.z64, 2 exFAT "GPT TWO" */
 #include "ff.h"
 
 #include <stdio.h>
@@ -68,6 +71,36 @@ static void rw(FILE *f, long long at, BYTE *b, unsigned n, int write)
 		fprintf(stderr, "make_disk: %s at %lld\n", write ? "write" : "read", at);
 		exit(1);
 	}
+}
+
+/* Random bytes over sectors [from, to) of the image at path (closed in FatFs). */
+static void junk(const char *path, long long from, long long to)
+{
+	BYTE s[512];
+	uint32_t x = 0x2545F491;
+	FILE *f = fopen(path, "r+b");
+	if (!f)
+		exit(1);
+	for (long long at = from; at < to; at++) {
+		for (int i = 0; i < 512; i += 4) {
+			x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+			put32(s + i, x);
+		}
+		rw(f, at * 512, s, 512, 1);
+	}
+	fclose(f);
+}
+
+/* Patches one little-endian DWORD at byte at of the image at path. */
+static void poke32(const char *path, long long at, DWORD v)
+{
+	BYTE b[4];
+	FILE *f = fopen(path, "r+b");
+	if (!f)
+		exit(1);
+	put32(b, v);
+	rw(f, at, b, 4, 1);
+	fclose(f);
 }
 
 int main(int argc, char **argv)
@@ -190,15 +223,70 @@ int main(int argc, char **argv)
 		s[510] = 0x55;
 		s[511] = 0xAA;
 		rw(f, 0, s, 512, 1);
-		uint32_t x = 0x2545F491;
-		for (long long at = 64 * 512; at < 4 << 20; at += 512) {
-			for (int i = 0; i < 512; i += 4) {
-				x ^= x << 13; x ^= x >> 17; x ^= x << 5;
-				put32(s + i, x);
-			}
-			rw(f, at, s, 512, 1);
-		}
 		fclose(f);
+		junk(g_path, 64, (4 << 20) / 512);
+	}
+
+	/* badclus.img: exFAT's ClusterCount (VBR offset 92) one below FatFs's least */
+	image("badclus.img", 8ll << 20, 512);
+	format("2:", FM_EXFAT | FM_SFD, 4096);
+	usbfs_test_image(0, NULL, 512);
+	poke32(g_path, 92, 0xFF);
+
+	/* mixed.img: FatFs's own search would take partition 2 for partition 1 */
+	image("mixed.img", 80ll << 20, 512);
+	{
+		LBA_t parts[] = {50, 50, 0};
+		TRY(f_fdisk(0, parts, g_work));
+	}
+	format("1:", FM_FAT32, 512);
+	TRY(f_mount(&fs, "1:", 1));
+	file("1:/Yoshi.z64", 64, 6);
+	TRY(f_unmount("1:"));
+	usbfs_test_image(0, NULL, 512);
+	{
+		BYTE mbr[512];
+		FILE *f = fopen(g_path, "rb");
+		if (!f)
+			return 1;
+		rw(f, 0, mbr, 512, 0);
+		fclose(f);
+		if (mbr[446 + 4] != 0x07) {
+			fprintf(stderr, "make_disk: %s partition 1 is type %02X\n", g_path, mbr[446 + 4]);
+			return 1;
+		}
+		DWORD start = get32(mbr + 446 + 8);
+		junk(g_path, start, start + 64);
+	}
+
+	/* gpt.img: at least FF_MIN_GPT sectors, so f_fdisk writes GPT */
+	image("gpt.img", 100ll << 20, 512);
+	{
+		LBA_t parts[] = {60, 40, 0};
+		TRY(f_fdisk(0, parts, g_work));
+	}
+	format("0:", FM_FAT32, 512);
+	TRY(f_mount(&fs, "0:", 1));
+	TRY(f_setlabel("0:GPT ONE"));
+	file("0:/Kirby.z64", 64, 7);
+	TRY(f_unmount("0:"));
+	format("1:", FM_EXFAT, 4096);
+	TRY(f_mount(&fs, "1:", 1));
+	TRY(f_setlabel("1:GPT TWO"));
+	TRY(f_unmount("1:"));
+	usbfs_test_image(0, NULL, 512);
+	{
+		BYTE mbr[512], hdr[512];
+		FILE *f = fopen(g_path, "rb");
+		if (!f)
+			return 1;
+		rw(f, 0, mbr, 512, 0);
+		rw(f, 512, hdr, 512, 0);
+		fclose(f);
+		if (mbr[446 + 4] != 0xEE || memcmp(hdr, "EFI PART", 8)) {
+			fprintf(stderr, "make_disk: %s is not GPT\n", g_path);
+			return 1;
+		}
 	}
 	return 0;
 }

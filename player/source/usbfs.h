@@ -5,7 +5,12 @@
  *
  * This part is portable: FatFs calls disk_read and friends for physical drive
  * 0 or 1 (drive 1 or 2), and only those differ between the console (raw
- * sector reads) and the PC tests (image files). */
+ * sector reads) and the PC tests (image files).
+ *
+ * FatFs is built without its own locks (FF_FS_REENTRANT 0), and the cover
+ * fetch and the menu both open ROM files from their own threads: every FatFs
+ * call, these functions included, must sit under one lock, which the
+ * console's devoptab holds. */
 #ifndef OUR64_USBFS_H
 #define OUR64_USBFS_H
 
