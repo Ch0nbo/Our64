@@ -690,6 +690,9 @@ void shots_setup()
 	sv.line[0] = 0;
 	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	shot("games", v);
+	games_open(&sv.games, "SD card: wiiu/our64/roms (USB drive not found)", 12); // A on USB DRIVE NOT FOUND
+	shot("games-sd-fallback", v);
+	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	sv.games.row = GAMES_COVERS;
 	games_fetching(&sv.games, 3, 12);
 	shot("games-fetching", v);

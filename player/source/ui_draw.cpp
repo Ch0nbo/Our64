@@ -1820,7 +1820,7 @@ void draw_mapping(const setup_view & sv)
 }
 
 // Settings > Games: the ROM folder and Fetch covers, each with its value as
-// words at the right.
+// words at the right, in the room the row's name leaves.
 void draw_games(const setup_view & sv)
 {
 	const games_ui & g = sv.games;
@@ -1830,11 +1830,13 @@ void draw_games(const setup_view & sv)
 		settings_row_rect(row, r);
 		const bool sel = g.row == row;
 		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
-		text(r[0] + 20, r[1] + 12, games_row_name(row), 26, card_ink(sel, false));
+		const char * name = games_row_name(row);
+		text(r[0] + 20, r[1] + 12, name, 26, card_ink(sel, false));
 		char value[96];
 		games_value(&g, row, value, sizeof(value));
-		const int px = fit(value, 22, 15, 300);
-		text(r[0] + r[2] - 24, r[1] + 15, clipped(value, px, 300).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+		const int room = r[2] - 20 - text_width(name, 26) - 32 - 24;
+		const int px = fit(value, 22, 15, room);
+		text(r[0] + r[2] - 24, r[1] + 15, clipped(value, px, room).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
 	}
 	row_about(GAMES_ROWS, games_row_about(&g));
 	pause_key keys[6];

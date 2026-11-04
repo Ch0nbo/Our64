@@ -66,7 +66,7 @@ int  library_run(int *game, const char *notice);
 void library_rescan(void);              /* Settings chose another ROM folder: its games listed now (indices change) */
 struct dirent;
 int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
-const char *library_folder_label(void); /* the ROM folder in use, for people: "SD card: wiiu/our64/roms" */
+const char *library_folder_label(void); /* the ROM folder in use, for people: "SD card: wiiu/our64/roms", with "(USB drive not found)" after A on that screen */
 /* Readable games without a cover, one per game id. The headers not read yet
  * are read first; reading (or NULL) is told how far that got, about every 100 ms. */
 int  library_missing_covers(void (*reading)(int read, int total));

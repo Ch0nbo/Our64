@@ -47,7 +47,7 @@ static unsigned char *g_info;  /* header and saves read */
 static int g_count;
 static char g_root[256];
 static char g_roms[300];           /* the ROM folder, resolved at each scan; "" when it can't be reached */
-static int g_sd_only;              /* A on "USB DRIVE NOT FOUND": <root>/roms this session, the setting kept */
+static int g_sd_only;              /* A on "USB DRIVE NOT FOUND": <root>/roms this session, the setting kept; why (ROMS_NO_DRIVE...) */
 static char g_favorites_path[300]; /* config/favorites.txt, beside settings.cfg */
 static roms_view g_view;
 static int g_deleted;              /* games deleted since the scan: still in g_games, for the loader's indices */
@@ -178,7 +178,14 @@ static const char *folder_label(const char *f)
 	return label;
 }
 
-const char *library_folder_label(void) { return folder_label(setup_settings()->rom_folder); }
+/* The folder in use: the SD card's after A on a folder not found, saying why */
+const char *library_folder_label(void)
+{
+	if (g_sd_only)
+		return g_sd_only == ROMS_NO_DRIVE ? "SD card: wiiu/our64/roms (USB drive not found)"
+		                                  : "SD card: wiiu/our64/roms (folder not found)";
+	return folder_label(setup_settings()->rom_folder);
+}
 
 int library_count(void) { return g_count; }
 int library_on_usb(void) { return g_view.usb; }
@@ -885,7 +892,7 @@ int library_run(int *game, const char *notice)
 		 * starts again; settings.cfg keeps the folder chosen */
 		if (ok && v->missing) {
 			report_line("OUR ROMS: the SD card's roms folder, this session only");
-			g_sd_only = 1;
+			g_sd_only = v->missing;
 			rescan();
 			continue;
 		}
