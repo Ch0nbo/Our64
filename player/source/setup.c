@@ -276,34 +276,40 @@ static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers
 
 const char *games_row_name(int row) { return row >= 0 && row < GAMES_ROWS ? g_games_row[row] : ""; }
 
-void games_open(games_ui *g, const char *folder, int missing)
+void games_open(games_ui *g, const char *folder)
 {
 	memset(g, 0, sizeof(*g));
 	snprintf(g->folder, sizeof(g->folder), "%s", folder ? folder : "");
-	g->missing = missing;
 	g->touched = -1;
+}
+
+void games_reading(games_ui *g, int read, int total)
+{
+	games_fetching(g, read, total);
+	g->reading = 1;
 }
 
 void games_fetching(games_ui *g, int done, int total)
 {
 	g->running = 1;
+	g->reading = 0;
 	g->done = done;
 	g->total = total;
 }
 
-void games_fetched(games_ui *g, int missing)
+void games_fetched(games_ui *g)
 {
 	g->running = 0;
-	g->missing = missing;
+	g->reading = 0;
 }
 
+/* Fetch covers is always there: whether a game lacks a cover is found on the
+ * fetch screen, so opening the page reads no game. */
 static int games_act(const games_ui *g)
 {
 	if (g->running)
 		return GACT_NONE;
-	if (g->row == GAMES_FOLDER)
-		return GACT_FOLDER;
-	return g->missing > 0 ? GACT_FETCH : GACT_NONE;
+	return g->row == GAMES_FOLDER ? GACT_FOLDER : GACT_FETCH;
 }
 
 int games_event(games_ui *g, int event, int target)
@@ -340,14 +346,7 @@ int games_event(games_ui *g, int event, int target)
 
 void games_value(const games_ui *g, int row, char *out, unsigned size)
 {
-	if (row == GAMES_FOLDER)
-		snprintf(out, size, "%s", g->folder);
-	else if (g->missing == GAMES_COUNTING)
-		snprintf(out, size, "Counting…");
-	else if (g->missing > 0)
-		snprintf(out, size, "%d missing", g->missing);
-	else
-		snprintf(out, size, "None missing");
+	snprintf(out, size, "%s", row == GAMES_FOLDER ? g->folder : "");
 }
 
 const char *games_row_about(const games_ui *g)
@@ -359,7 +358,10 @@ const char *games_row_about(const games_ui *g)
 
 void games_fetch_step(const games_ui *g, char *out, unsigned size)
 {
-	snprintf(out, size, "%d of %d", g->done, g->total);
+	if (g->reading)
+		snprintf(out, size, "Reading your games: %d of %d", g->done, g->total);
+	else
+		snprintf(out, size, "%d of %d", g->done, g->total);
 }
 
 float games_fetch_progress(const games_ui *g)

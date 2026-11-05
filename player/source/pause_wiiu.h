@@ -72,9 +72,10 @@ struct dirent;
 int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
 const char *library_folder_label(void); /* the ROM folder in settings.cfg, for people: "SD card: wiiu/our64/roms" */
 /* Readable games without a cover, one per game id. The headers not read yet
- * are read first; reading (or NULL) is told how far that got, about every 100 ms. */
-int  library_missing_covers(void (*reading)(int read, int total));
-int  library_missing_list(covers_game *out, int max, void (*reading)(int read, int total)); /* those games, for covers_start; the count */
+ * are read first; reading (or NULL) is told how far that got, about every
+ * 100 ms, and stops it by returning nonzero: the count is -1 then. */
+int  library_missing_covers(int (*reading)(int read, int total));
+int  library_missing_list(covers_game *out, int max, int (*reading)(int read, int total)); /* those games, for covers_start; the count */
 void library_cover_saved(const char *id); /* Fetch covers saved this game id's cover: the list shows it */
 int  library_on_usb(void);              /* the folder listed is on a USB drive */
 int  library_missing(void);             /* ROMS_NO_DRIVE, ROMS_NO_FOLDER (ui.h): the folder listed can't be read; 0 */

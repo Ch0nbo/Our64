@@ -362,16 +362,17 @@ int library_usb_rescan(void)
 	return n;
 }
 
-/* Settings > Games: the readable games without a cover, one per game id (two
+/* Fetch covers: the readable games without a cover, one per game id (two
  * files of one game share its cover), into out (max of them; out NULL only
  * counts). The headers come in lazily as games come into view, so the games
  * not read yet are read here, on the menu thread: once per scan, since what
  * is read stays (about 8 small file reads a game: a second or two for 200
  * games on the SD card, longer on USB). reading, when given, is called before
- * the first is read and about every 100 ms after, so the page can show how far
- * it got. The loader finishes its job first, and its result, taken later,
- * agrees with what is read here. */
-int library_missing_list(covers_game *out, int max, void (*reading)(int read, int total))
+ * the first is read and about every 100 ms after, so the fetch screen can show
+ * how far it got; a nonzero return stops the reading, and the count is -1.
+ * The loader finishes its job first, and its result, taken later, agrees with
+ * what is read here. */
+int library_missing_list(covers_game *out, int max, int (*reading)(int read, int total))
 {
 	const OSTime t0 = OSGetSystemTime();
 	int n = 0, read = 0, unread = 0;
@@ -379,18 +380,19 @@ int library_missing_list(covers_game *out, int max, void (*reading)(int read, in
 	for (int i = 0; i < g_count; i++)
 		unread += !g_games[i].deleted && !g_info[i];
 	OSTime shown = t0;
-	if (unread && reading)
-		reading(0, unread);
-	for (int i = 0; i < g_count; i++) {
+	int stopped = unread && reading && reading(0, unread);
+	for (int i = 0; i < g_count && !stopped; i++) {
 		if (g_games[i].deleted)
 			continue;
 		if (!g_info[i]) {
-			if (player_closing())
-				break; /* the count no longer matters */
+			if (player_closing()) {
+				stopped = 1; /* the count no longer matters */
+				break;
+			}
 			need_info(i);
 			read++;
 			if (reading && OSGetSystemTime() - shown >= OSMillisecondsToTicks(100)) {
-				reading(read, unread);
+				stopped = reading(read, unread);
 				shown = OSGetSystemTime();
 			}
 		}
@@ -414,12 +416,12 @@ int library_missing_list(covers_game *out, int max, void (*reading)(int read, in
 		n++;
 	}
 	if (read)
-		report_line("OUR ROMS: %d games without a cover; %d headers read for it in %.0f ms", n, read,
+		report_line("OUR ROMS: %d games without a cover%s; %d headers read for it in %.0f ms", n, stopped ? " so far, stopped" : "", read,
 		            OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3);
-	return n;
+	return stopped ? -1 : n;
 }
 
-int library_missing_covers(void (*reading)(int read, int total)) { return library_missing_list(NULL, 0, reading); }
+int library_missing_covers(int (*reading)(int read, int total)) { return library_missing_list(NULL, 0, reading); }
 
 /* A cover Fetch covers saved: every game with that id has one now, and the
  * loader draws it when it comes into view. The loader's result not taken yet

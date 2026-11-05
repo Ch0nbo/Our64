@@ -683,29 +683,25 @@ void shots_setup()
 	sv.look.row = LOOK_LAYOUT;
 	sv.look.pick[LOOK_LAYOUT] = LAYOUT_LIST;
 	shot("theme-layout", v);
-	sv.screen = SETUP_GAMES; // Settings > Games
-	games_open(&sv.games, "SD card: wiiu/our64/roms", GAMES_COUNTING); // the headers read as it opens
-	snprintf(sv.line, sizeof(sv.line), "Reading your games: 120 of 340");
-	shot("games-reading", v);
-	sv.line[0] = 0;
-	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
+	sv.screen = SETUP_GAMES; // Settings > Games: no game read as it opens
+	games_open(&sv.games, "SD card: wiiu/our64/roms");
 	shot("games", v);
-	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	sv.games.row = GAMES_COVERS;
+	shot("games-covers", v);
 	sv.screen = SETUP_FETCH; // A on Fetch covers: its own screen, like the loading screen
+	games_reading(&sv.games, 120, 340); // the headers not read yet, first
+	shot("games-fetch-reading", v);
 	games_fetching(&sv.games, 12, 40);
 	shot("games-fetching", v);
 	sv.screen = SETUP_GAMES;
-	games_fetched(&sv.games, 3); // the fetch ended: what it did, under the header
+	games_fetched(&sv.games); // the fetch ended: what it did, under the header
 	covers_summary(COVERS_OK, 0, 9, 3, 0, sv.line, sizeof(sv.line));
 	shot("games-fetched", v);
 	covers_summary(COVERS_NO_NETWORK, 0, 0, 0, 0, sv.line, sizeof(sv.line));
-	games_fetched(&sv.games, 12);
 	shot("games-no-network", v);
-	sv.line[0] = 0;
-	games_open(&sv.games, "SD card: wiiu/our64/roms", 0);
-	sv.games.row = GAMES_COVERS;
+	covers_summary(COVERS_OK, 0, 0, 0, 0, sv.line, sizeof(sv.line)); // no game without a cover: straight back
 	shot("games-none-missing", v);
+	sv.line[0] = 0;
 	sv.screen = SETUP_BROWSE; // Settings > Games > ROM folder
 	browse_open(&sv.browse);
 	browse_add(&sv.browse, "SD card", "sd:/", 0);

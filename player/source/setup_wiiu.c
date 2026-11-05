@@ -554,7 +554,7 @@ static int run_browse(void)
 					break;
 				}
 				report_line("ROM FOLDER: %s", g_settings.rom_folder);
-				library_rescan(); /* its games listed now: Fetch covers counts them */
+				library_rescan(); /* its games listed now */
 				char games[24];
 				browse_row_value(b, 0, games, sizeof(games)); /* Use this folder's: "No games", "1 game", "4 games" */
 				snprintf(g_view.line, sizeof(g_view.line), "ROM folder: %s (%s)", browse_title(b), games);
@@ -578,45 +578,45 @@ int settings_pick_rom_folder(int glyphs)
 
 /* ---- Settings > Games: the ROM folder, and Fetch covers (covers_wiiu.c) ---- */
 
-/* The headers being read for the count, on this thread: the Games page
- * drawn with how far it got, so hundreds of games on USB don't stall it. */
-static void reading_shown(int read, int total)
+/* The headers being read for Fetch covers, on this thread: the fetch screen
+ * drawn with how far it got, so hundreds of games on USB don't stall it. B or
+ * HOME stops the reading: this runs about every 100 ms, not every frame, so a
+ * B held down counts as well as one pressed. */
+static int g_read_stop; /* GACT_STOP or GACT_HOME: how the reading was stopped */
+static int reading_shown(int read, int total)
 {
-	if (read)
-		snprintf(g_view.line, sizeof(g_view.line), "Reading your games: %d of %d", read, total);
-	else
-		line("Reading your games…");
+	games_reading(&g_view.games, read, total);
 	show();
+	input_read();
+	input_menu m;
+	input_menu_state(&m);
+	if (input_take_home())
+		return g_read_stop = GACT_HOME;
+	for (int id = 0; id < INPUT_CONTROLLERS; id++) {
+		if (m.type[id] < 0)
+			continue;
+		int ev[8];
+		const int n = pause_events(m.type[id], m.pressed[id] | m.held[id], ev, 8);
+		for (int k = 0; k < n; k++)
+			if (ev[k] == PEV_BACK)
+				return g_read_stop = GACT_STOP;
+	}
+	return 0;
 }
 
-/* The games without a cover: "Counting…" and the reading line while the
- * headers come in, then the line under the header as it was. */
-static int count_missing(games_ui *g)
+/* Fetch covers: the n games without one, to the fetch's thread. */
+static void fetch_start(games_ui *g, int n)
 {
-	char keep[sizeof(g_view.line)];
-	memcpy(keep, g_view.line, sizeof(keep));
-	g->missing = GAMES_COUNTING;
-	const int n = library_missing_covers(reading_shown);
-	memcpy(g_view.line, keep, sizeof(keep));
-	return n;
-}
-
-/* Fetch covers: the games without one, to the fetch's thread. */
-static void fetch_start(games_ui *g)
-{
-	const int n = count_missing(g);
-	covers_game *list = n > 0 ? malloc(sizeof(*list) * (size_t)n) : NULL;
+	covers_game *list = malloc(sizeof(*list) * (size_t)n);
 	int k = list ? library_missing_list(list, n, NULL) : 0; /* n again: every header is read by now */
 	if (k > n)
 		k = n;
 	if (k > 0 && !covers_start(report_sd_root(), list, k)) {
 		games_fetching(g, 0, k);
-	} else {
-		games_fetched(g, n);
-		if (n > 0) { /* no memory or no thread */
-			report_line("ERROR Fetch covers not started: OUR-0403");
-			covers_summary(COVERS_NO_START, 0, 0, 0, 0, g_view.line, sizeof(g_view.line));
-		}
+	} else { /* no memory or no thread */
+		games_fetched(g);
+		report_line("ERROR Fetch covers not started: OUR-0403");
+		covers_summary(COVERS_NO_START, 0, 0, 0, 0, g_view.line, sizeof(g_view.line));
 	}
 	free(list);
 }
@@ -631,8 +631,8 @@ static void fetch_follow(games_ui *g)
 		library_cover_saved(id);
 }
 
-/* The fetch ended (stopped: B, HOME or closing): the thread joined,
- * the count of games still without a cover, and what happened under the header. */
+/* The fetch ended (stopped: B, HOME or closing): the thread joined, and
+ * what happened under the header. */
 static void fetch_end(games_ui *g, int stopped)
 {
 	covers_stop();
@@ -648,20 +648,37 @@ static void fetch_end(games_ui *g, int stopped)
 	else if (result == COVERS_CARD_FULL)
 		report_line("ERROR cover not written: OUR-0205");
 	covers_summary(result, stopped, saved, covers_not_found(), failed, g_view.line, sizeof(g_view.line));
-	games_fetched(g, library_missing_covers(NULL)); /* every header is read by now */
+	games_fetched(g);
 }
 
 /* Fetch covers on its own screen, laid out like the game loading screen
- * (Zach, 2026-11-04): the bar and "12 of 40" until it ends, or B or HOME
- * stops it; then the Games page with what happened under the header.
- * 1: HOME, and leaving was confirmed (or the pause menu asks), or closing. */
+ * (Zach, 2026-11-04): the games' headers not read yet first ("Reading your
+ * games: 80 of 200", the bar following), then the bar and "12 of 40" until it
+ * ends, or B or HOME stops it; then the Games page with what happened under
+ * the header. No game without a cover: straight back, "All games have
+ * covers.". 1: HOME, and leaving was confirmed (or the pause menu asks), or
+ * closing. */
 static int run_fetch(games_ui *g)
 {
 	g_view.line[0] = 0;
-	fetch_start(g);
-	if (!g->running)
-		return 0; /* nothing to fetch, or it couldn't start: the line says so */
-	g_view.screen = SETUP_FETCH;
+	g_view.screen = SETUP_FETCH; /* drawn only while headers are read, or a fetch runs */
+	g_read_stop = GACT_NONE;
+	const int n = library_missing_covers(reading_shown);
+	if (n <= 0) {
+		games_fetched(g);
+		g_view.screen = SETUP_GAMES;
+		if (player_closing())
+			return 1;
+		if (g_read_stop == GACT_HOME)
+			return home_ok(); /* the question over the Games page, Cancel stays on it */
+		covers_summary(COVERS_OK, n < 0, 0, 0, 0, g_view.line, sizeof(g_view.line)); /* "Stopped.", "All games have covers." */
+		return 0;
+	}
+	fetch_start(g, n);
+	if (!g->running) {
+		g_view.screen = SETUP_GAMES;
+		return 0; /* it couldn't start: the line says so */
+	}
 	frame_input f;
 	memset(&f, 0, sizeof(f));
 	int touching = 0, target = -1, home = 0;
@@ -698,10 +715,9 @@ static int run_fetch(games_ui *g)
 static int run_games(void)
 {
 	games_ui *g = &g_view.games;
-	games_open(g, library_folder_label(), GAMES_COUNTING);
+	games_open(g, library_folder_label()); /* no game read here: Fetch covers reads them */
 	g_view.screen = SETUP_GAMES;
 	g_view.line[0] = 0;
-	g->missing = count_missing(g);
 	frame_input f;
 	memset(&f, 0, sizeof(f));
 	int touching = 0, target = -1;
@@ -721,7 +737,6 @@ static int run_games(void)
 				const int home = run_browse();
 				g_view.screen = SETUP_GAMES;
 				snprintf(g->folder, sizeof(g->folder), "%s", library_folder_label());
-				games_fetched(g, count_missing(g)); /* the folder's games: read at once when it changed */
 				if (home)
 					return 1;
 				i = f.n; /* presses after A were the browser's */

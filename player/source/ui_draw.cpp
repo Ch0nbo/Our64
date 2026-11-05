@@ -1821,8 +1821,8 @@ void draw_mapping(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
-// Settings > Games: the ROM folder and Fetch covers, each with its value as
-// words at the right, in the room the row's name leaves.
+// Settings > Games: the ROM folder, with the folder as words at the right in
+// the room the row's name leaves, and Fetch covers.
 void draw_games(const setup_view & sv)
 {
 	const games_ui & g = sv.games;
@@ -1836,6 +1836,8 @@ void draw_games(const setup_view & sv)
 		text(r[0] + 20, r[1] + 12, name, 26, card_ink(sel, false));
 		char value[96];
 		games_value(&g, row, value, sizeof(value));
+		if (!value[0])
+			continue;
 		const int room = r[2] - 20 - text_width(name, 26) - 32 - 24;
 		const int px = fit(value, 22, 15, room);
 		text(r[0] + r[2] - 24, r[1] + 15, clipped(value, px, room).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
@@ -1847,13 +1849,14 @@ void draw_games(const setup_view & sv)
 }
 
 // Settings > Games > Fetch covers: the loading screen's layout, with the
-// title, one bar, "12 of 40" under it, and HOME or B to stop.
+// title, one bar, "Reading your games: 80 of 200" then "12 of 40" under it,
+// and HOME or B to stop.
 void draw_fetch(const setup_view & sv)
 {
 	const games_ui & g = sv.games;
 	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
 	text(UI_W / 2, 218, "Fetching covers", 32, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
-	char step[32];
+	char step[64];
 	games_fetch_step(&g, step, sizeof(step));
 	progress_bar(games_fetch_progress(&g), step);
 	pause_key keys[4];

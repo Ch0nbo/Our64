@@ -547,45 +547,44 @@ static void taps_select_a_row_then_change_it_and_switch_tabs_at_once(void)
 static void games_rows_and_fetch_progress(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms", 12);
+	games_open(&g, "SD card: wiiu/our64/roms");
 	CHECK(!strcmp(games_row_name(GAMES_FOLDER), "ROM folder") && !strcmp(games_row_name(GAMES_COVERS), "Fetch covers"));
 	char v[64];
 	games_value(&g, GAMES_FOLDER, v, sizeof(v));
 	CHECK(!strcmp(v, "SD card: wiiu/our64/roms"));
 	games_value(&g, GAMES_COVERS, v, sizeof(v));
-	CHECK(!strcmp(v, "12 missing"));
+	CHECK(!strcmp(v, "")); /* no count: opening the page reads no game */
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FOLDER);
 	games_event(&g, PEV_DOWN, -1);
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
+	games_reading(&g, 0, 200); /* the headers first, on the fetch screen */
+	games_fetch_step(&g, v, sizeof(v));
+	CHECK(!strcmp(v, "Reading your games: 0 of 200") && games_fetch_progress(&g) == 0.0f);
+	games_reading(&g, 80, 200);
+	games_fetch_step(&g, v, sizeof(v));
+	CHECK(!strcmp(v, "Reading your games: 80 of 200") && games_fetch_progress(&g) == 0.4f);
+	CHECK(games_event(&g, PEV_BACK, -1) == GACT_STOP);      /* B stops the reading too */
 	games_fetching(&g, 3, 12);
 	games_fetch_step(&g, v, sizeof(v)); /* the fetch screen's line under the bar */
 	CHECK(!strcmp(v, "3 of 12") && games_fetch_progress(&g) == 0.25f);
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);       /* already running */
 	CHECK(games_event(&g, PEV_UP, -1) == GACT_NONE && g.row == GAMES_COVERS); /* stays while it runs */
 	CHECK(games_event(&g, PEV_BACK, -1) == GACT_STOP);      /* B stops, does not leave */
-	games_fetched(&g, 9);
-	games_value(&g, GAMES_COVERS, v, sizeof(v));
-	CHECK(!strcmp(v, "9 missing"));
+	games_fetched(&g);
+	CHECK(!g.running && !g.reading);
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);       /* again, whenever asked */
 	CHECK(games_event(&g, PEV_BACK, -1) == GACT_BACK);
 }
 
-static void no_missing_covers_dims_fetch(void)
+static void fetch_covers_is_always_available(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms", 0);
-	char v[64];
-	games_value(&g, GAMES_COVERS, v, sizeof(v));
-	CHECK(!strcmp(v, "None missing"));
+	games_open(&g, "SD card: wiiu/our64/roms");
 	g.row = GAMES_COVERS;
-	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);
-	g.missing = GAMES_COUNTING; /* the headers still being read: nothing to fetch yet */
-	games_value(&g, GAMES_COVERS, v, sizeof(v));
-	CHECK(!strcmp(v, "Counting…"));
-	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);
-	g.missing = 0;
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
 	pause_key k[6];
 	int n = games_legend(&g, INPUT_PRO, k, 6);
-	CHECK(n == 4 && !strcmp(k[3].label, "OK") && k[3].dim);
+	CHECK(n == 4 && !strcmp(k[3].label, "OK") && !k[3].dim);
 	g.row = GAMES_FOLDER;
 	n = games_legend(&g, INPUT_PRO, k, 6);
 	CHECK(n == 4 && !k[3].dim);
@@ -594,7 +593,7 @@ static void no_missing_covers_dims_fetch(void)
 static void games_legend_and_lines_while_fetching(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms", 5);
+	games_open(&g, "SD card: wiiu/our64/roms");
 	CHECK(!strcmp(games_row_about(&g), "Where Our ROMs finds your games"));
 	g.row = GAMES_COVERS;
 	CHECK(!strcmp(games_row_about(&g), "Box art from the internet, for games without one"));
@@ -607,6 +606,9 @@ static void games_legend_and_lines_while_fetching(void)
 	int n = games_legend(&g, INPUT_PRO, k, 6);
 	CHECK(n == 2 && k[0].glyph == GLYPH_HOME && k[1].glyph == GLYPH_B && !strcmp(k[1].label, "Stop"));
 	CHECK(games_event(&g, PEV_HOME, -1) == GACT_HOME); /* the loop stops the fetch first */
+	games_reading(&g, 10, 50); /* while the headers are read: the same keys */
+	n = games_legend(&g, INPUT_PRO, k, 6);
+	CHECK(n == 2 && !strcmp(k[1].label, "Stop"));
 }
 
 static int tap_games(games_ui *g, int target)
@@ -618,7 +620,7 @@ static int tap_games(games_ui *g, int target)
 static void games_taps_select_then_act(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms", 3);
+	games_open(&g, "SD card: wiiu/our64/roms");
 	int r[4];
 	settings_row_rect(GAMES_COVERS, r);
 	const int t = games_hit(r[0] + 5, r[1] + 5);
@@ -801,7 +803,7 @@ int main(void)
 	RUN(each_controller_has_its_buttons_for_the_actions);
 	RUN(taps_select_a_row_then_change_it_and_switch_tabs_at_once);
 	RUN(games_rows_and_fetch_progress);
-	RUN(no_missing_covers_dims_fetch);
+	RUN(fetch_covers_is_always_available);
 	RUN(games_legend_and_lines_while_fetching);
 	RUN(games_taps_select_then_act);
 	RUN(browser_opens_drives_then_folders_and_uses_one);
