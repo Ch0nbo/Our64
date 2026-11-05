@@ -61,13 +61,15 @@ int  picture_hit(int x, int y);                  /* row * 8 + value + 1, or row 
 int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games (2026-11-04): where the ROMs are, and fetching
- * missing covers (only when asked). Both rows act on A; the value is text. ---- */
+ * missing covers (only when asked). Both rows act on A; the value is text.
+ * A fetch runs on its own screen, like the game loading screen: a bar,
+ * "12 of 40" under it, and HOME or B to stop (SETUP_FETCH). ---- */
 enum { GAMES_FOLDER, GAMES_COVERS, GAMES_ROWS };
 typedef struct {
 	int row;
 	char folder[96];      /* "SD card: wiiu/our64/roms", "USB GAMES: N64" */
 	int missing;          /* readable games without a cover; GAMES_COUNTING while the headers are read */
-	int running, done, total; /* a fetch in progress */
+	int running, done, total; /* a fetch in progress: SETUP_FETCH */
 	int touched;
 } games_ui;
 enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP };
@@ -79,8 +81,10 @@ void games_fetched(games_ui *g, int missing);   /* the fetch ended or stopped */
 const char *games_row_name(int row);
 void games_value(const games_ui *g, int row, char *out, unsigned size);
 const char *games_row_about(const games_ui *g);
+void games_fetch_step(const games_ui *g, char *out, unsigned size); /* under the bar: "12 of 40" */
+float games_fetch_progress(const games_ui *g);                    /* 0..1 */
 int  games_hit(int x, int y);                   /* row, or -1 */
-int  games_legend(const games_ui *g, int type, pause_key *keys, int max);
+int  games_legend(const games_ui *g, int type, pause_key *keys, int max); /* running: HOME, Stop */
 
 /* ---- Settings > Games > ROM folder (2026-11-04): drives, then folders.
  * A opens a folder; "Use this folder", the first row inside a drive, picks

@@ -620,7 +620,7 @@ static void fetch_follow(games_ui *g)
 		library_cover_saved(id);
 }
 
-/* The fetch ended (stopped: B, HOME, leaving or closing): the thread joined,
+/* The fetch ended (stopped: B, HOME or closing): the thread joined,
  * the count of games still without a cover, and what happened under the header. */
 static void fetch_end(games_ui *g, int stopped)
 {
@@ -640,6 +640,50 @@ static void fetch_end(games_ui *g, int stopped)
 	games_fetched(g, library_missing_covers(NULL)); /* every header is read by now */
 }
 
+/* Fetch covers on its own screen, laid out like the game loading screen
+ * (Zach, 2026-11-04): the bar and "12 of 40" until it ends, or B or HOME
+ * stops it; then the Games page with what happened under the header.
+ * 1: HOME, and leaving was confirmed (or the pause menu asks), or closing. */
+static int run_fetch(games_ui *g)
+{
+	g_view.line[0] = 0;
+	fetch_start(g);
+	if (!g->running)
+		return 0; /* nothing to fetch, or it couldn't start: the line says so */
+	g_view.screen = SETUP_FETCH;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1, home = 0;
+	while (g->running) {
+		if (!covers_running()) {
+			fetch_end(g, 0);
+			break;
+		}
+		fetch_follow(g);
+		show();
+		read_frame(&f, NULL, &touching, &target);
+		if (player_closing()) { /* the system waits for the game to stop: the fetch stops first */
+			fetch_end(g, 1);
+			g_view.screen = SETUP_GAMES;
+			return 1;
+		}
+		for (int i = 0; i < f.n && g->running; i++) {
+			switch (games_event(g, f.events[i], f.targets[i])) {
+			case GACT_STOP:
+				fetch_end(g, 1);
+				break;
+			case GACT_HOME:
+				fetch_end(g, 1);
+				g_view.screen = SETUP_GAMES; /* the question over the Games page, Cancel stays on it */
+				home = home_ok();
+				break;
+			}
+		}
+	}
+	g_view.screen = SETUP_GAMES;
+	return home;
+}
+
 static int run_games(void)
 {
 	games_ui *g = &g_view.games;
@@ -651,25 +695,14 @@ static int run_games(void)
 	memset(&f, 0, sizeof(f));
 	int touching = 0, target = -1;
 	for (;;) {
-		if (g->running) {
-			if (covers_running())
-				fetch_follow(g);
-			else
-				fetch_end(g, 0);
-		}
 		show();
 		read_frame(&f, games_hit, &touching, &target);
-		if (player_closing()) { /* the system waits for the game to stop: the fetch stops first */
-			if (g->running)
-				fetch_end(g, 1);
+		if (player_closing())
 			return 1;
-		}
 		for (int i = 0; i < f.n; i++) {
 			switch (games_event(g, f.events[i], f.targets[i])) {
-			case GACT_BACK: return 0; /* B while fetching is GACT_STOP: none runs here */
+			case GACT_BACK: return 0;
 			case GACT_HOME:
-				if (g->running)
-					fetch_end(g, 1);
 				if (home_ok())
 					return 1;
 				break;
@@ -684,11 +717,9 @@ static int run_games(void)
 				break;
 			}
 			case GACT_FETCH:
-				g_view.line[0] = 0;
-				fetch_start(g);
-				break;
-			case GACT_STOP:
-				fetch_end(g, 1);
+				if (run_fetch(g))
+					return 1;
+				i = f.n; /* presses after A were the fetch screen's */
 				break;
 			}
 		}

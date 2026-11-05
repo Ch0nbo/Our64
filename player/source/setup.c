@@ -311,7 +311,7 @@ int games_event(games_ui *g, int event, int target)
 	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
 		int e = tap(&g->touched, event, target, target == g->row);
 		if (g->running || e == -1)
-			return GACT_NONE; /* while a fetch runs the selection stays: B stops it */
+			return GACT_NONE; /* the fetch screen has no rows: B stops it */
 		if (e == -2) {
 			g->row = target;
 			return GACT_NONE;
@@ -342,8 +342,6 @@ void games_value(const games_ui *g, int row, char *out, unsigned size)
 {
 	if (row == GAMES_FOLDER)
 		snprintf(out, size, "%s", g->folder);
-	else if (g->running)
-		snprintf(out, size, "%d of %d", g->done, g->total);
 	else if (g->missing == GAMES_COUNTING)
 		snprintf(out, size, "Counting…");
 	else if (g->missing > 0)
@@ -356,7 +354,17 @@ const char *games_row_about(const games_ui *g)
 {
 	if (g->row == GAMES_FOLDER)
 		return "Where Our ROMs finds your games";
-	return g->running ? "B stops" : "Box art from the internet, for games without one";
+	return "Box art from the internet, for games without one";
+}
+
+void games_fetch_step(const games_ui *g, char *out, unsigned size)
+{
+	snprintf(out, size, "%d of %d", g->done, g->total);
+}
+
+float games_fetch_progress(const games_ui *g)
+{
+	return g->total > 0 ? (float)g->done / (float)g->total : 0.0f;
 }
 
 int games_hit(int x, int y)

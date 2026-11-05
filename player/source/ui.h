@@ -87,7 +87,7 @@ typedef struct {
 } loading_view;
 
 /* The setup screens (setup_wiiu.c fills it). */
-enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE };
+enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH };
 typedef struct {
 	int screen;              /* SETUP_ */
 	settings_ui settings;

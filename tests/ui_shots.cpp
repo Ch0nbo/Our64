@@ -694,8 +694,10 @@ void shots_setup()
 	shot("games-sd-fallback", v);
 	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	sv.games.row = GAMES_COVERS;
-	games_fetching(&sv.games, 3, 12);
+	sv.screen = SETUP_FETCH; // A on Fetch covers: its own screen, like the loading screen
+	games_fetching(&sv.games, 12, 40);
 	shot("games-fetching", v);
+	sv.screen = SETUP_GAMES;
 	games_fetched(&sv.games, 3); // the fetch ended: what it did, under the header
 	covers_summary(COVERS_OK, 0, 9, 3, 0, sv.line, sizeof(sv.line));
 	shot("games-fetched", v);

@@ -1341,6 +1341,17 @@ void draw_roms(const ui_view & v)
 
 // ---- Loading ----
 
+// The loading screen's bar, and the step under it (Fetch covers' too).
+static void progress_bar(float progress, const char * step)
+{
+	const float bx = 177, bw = 500;
+	box(bx, 278, bw, 22, rgb(T.bar.fill), 11);
+	const float p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
+	if (p > 0.02f)
+		box(bx, 278, bw * p, 22, rgb(T.lit), 11);
+	text(UI_W / 2, 316, step, 22, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
+}
+
 void draw_loading(const ui_view & v)
 {
 	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
@@ -1378,12 +1389,7 @@ void draw_loading(const ui_view & v)
 		return;
 	}
 	// One bar for the whole load; the words below say which step it is on.
-	const float bx = 177, bw = 500;
-	box(bx, 278, bw, 22, rgb(T.bar.fill), 11);
-	float p = l.progress < 0 ? 0 : l.progress > 1 ? 1 : l.progress;
-	if (p > 0.02f)
-		box(bx, 278, bw * p, 22, rgb(T.lit), 11);
-	text(UI_W / 2, 316, l.step, 22, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
+	progress_bar(l.progress, l.step);
 	if (v.legend[0]) {
 		keys[n++] = pause_key{ GLYPH_HOME, v.legend, 0 };
 		draw_keys(keys, n, nullptr);
@@ -1844,6 +1850,20 @@ void draw_games(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
+// Settings > Games > Fetch covers: the loading screen's layout, with the
+// title, one bar, "12 of 40" under it, and HOME or B to stop.
+void draw_fetch(const setup_view & sv)
+{
+	const games_ui & g = sv.games;
+	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
+	text(UI_W / 2, 218, "Fetching covers", 32, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
+	char step[32];
+	games_fetch_step(&g, step, sizeof(step));
+	progress_bar(games_fetch_progress(&g), step);
+	pause_key keys[4];
+	draw_keys(keys, games_legend(&g, sv.glyphs, keys, 4), nullptr);
+}
+
 // Settings > Games > ROM folder: the drives, then a drive's folders, with
 // "Use this folder" first; arrows in the margin when rows are out of view.
 void draw_browse(const setup_view & sv)
@@ -1890,6 +1910,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_SETTINGS: draw_settings(sv); break;
 	case SETUP_GAMES: draw_games(sv); break;
 	case SETUP_BROWSE: draw_browse(sv); break;
+	case SETUP_FETCH: draw_fetch(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;

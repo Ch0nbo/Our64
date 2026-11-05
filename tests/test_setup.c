@@ -558,8 +558,8 @@ static void games_rows_and_fetch_progress(void)
 	games_event(&g, PEV_DOWN, -1);
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
 	games_fetching(&g, 3, 12);
-	games_value(&g, GAMES_COVERS, v, sizeof(v));
-	CHECK(!strcmp(v, "3 of 12"));
+	games_fetch_step(&g, v, sizeof(v)); /* the fetch screen's line under the bar */
+	CHECK(!strcmp(v, "3 of 12") && games_fetch_progress(&g) == 0.25f);
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_NONE);       /* already running */
 	CHECK(games_event(&g, PEV_UP, -1) == GACT_NONE && g.row == GAMES_COVERS); /* stays while it runs */
 	CHECK(games_event(&g, PEV_BACK, -1) == GACT_STOP);      /* B stops, does not leave */
@@ -599,7 +599,10 @@ static void games_legend_and_lines_while_fetching(void)
 	g.row = GAMES_COVERS;
 	CHECK(!strcmp(games_row_about(&g), "Box art from the internet, for games without one"));
 	games_fetching(&g, 0, 5);
-	CHECK(!strcmp(games_row_about(&g), "B stops"));
+	CHECK(games_fetch_progress(&g) == 0.0f);
+	games_fetching(&g, 0, 0); /* no games: an empty bar, never a division by zero */
+	CHECK(games_fetch_progress(&g) == 0.0f);
+	games_fetching(&g, 0, 5);
 	pause_key k[6];
 	int n = games_legend(&g, INPUT_PRO, k, 6);
 	CHECK(n == 2 && k[0].glyph == GLYPH_HOME && k[1].glyph == GLYPH_B && !strcmp(k[1].label, "Stop"));
