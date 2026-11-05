@@ -596,7 +596,7 @@ static void games_legend_and_lines_while_fetching(void)
 	games_open(&g, "SD card: /wiiu/our64/roms");
 	CHECK(!strcmp(games_row_about(&g), "Where Our ROMs finds your games"));
 	g.row = GAMES_COVERS;
-	CHECK(!strcmp(games_row_about(&g), "Box art from the internet, for games without one"));
+	CHECK(!strcmp(games_row_about(&g), "Fetches box art from the internet. Requires Wi-Fi"));
 	games_fetching(&g, 0, 5);
 	CHECK(games_fetch_progress(&g) == 0.0f);
 	games_fetching(&g, 0, 0); /* no games: an empty bar, never a division by zero */

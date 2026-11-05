@@ -353,7 +353,7 @@ const char *games_row_about(const games_ui *g)
 {
 	if (g->row == GAMES_FOLDER)
 		return "Where Our ROMs finds your games";
-	return "Box art from the internet, for games without one";
+	return "Fetches box art from the internet. Requires Wi-Fi";
 }
 
 void games_fetch_step(const games_ui *g, char *out, unsigned size)
