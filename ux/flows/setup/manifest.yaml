@@ -157,28 +157,74 @@ screens:
         - "a button pressed on another controller: ignored; the dialog says \"Use the Pro Controller\""
   - id: settings
     title: "Settings"
-    entered_by: "Settings in the pause menu (new item between Controllers and Reset game), or + on the game list"
+    entered_by: "Settings in the pause menu, or + on the game list"
     spec:
       shows:
-        - what: "Headline SETTINGS with cat1.jpg framed beside it"
-          why: "Which screen, in the app's voice"
-        - what: "Rows with their values: Screen mode (TV only / TV + GamePad / GamePad only), Picture (4:3 / 16:9 stretched), Reset all settings (greyed when everything is at its default)"
-          why: "Few settings, all visible, values shown (recognition over recall)"
-        - what: "Under the selected row, one line on what it does: \"Which screens show the game; the prompt at each start asks too\", \"16:9 fills a wide TV and stretches the picture\""
-          why: "The effect is known before it is changed"
-        - what: "Legend: choose, left/right Change, (B) Back, (HOME) Back"
-          why: "Every button that acts is named"
+        - what: "Headline SETTINGS; four rows, each opening a page: Controllers, Picture, Games, Theme (2026-11-04)"
+          why: "Few rows, all visible; each page holds a few related settings"
+        - what: "Under the rows, one line on the selected row: \"Players, rumble and buttons\", \"Screens and shape\", \"Where the games are, and their covers\", \"Colors and how Our ROMs shows the games\""
+          why: "What a page holds is known before it is opened"
       actions:
-        - do: "Left/right on Screen mode or Picture"
-          result: "The value changes and applies at once (the paused frame behind the menu redraws in the new shape); written to config/settings.cfg at once"
-          undo: "Left/right again"
-        - do: "A on Reset all settings"
-          result: "confirm: \"Reset all settings?\" naming what changes (\"Screen mode back to TV + GamePad, picture back to 4:3. Your button mappings and saves stay.\"), Cancel focused"
+        - do: "A on a row"
+          result: "Its page opens; B there comes back to this row"
         - do: "B or HOME"
-          result: "Back to the pause menu (Settings still selected) or the game list"
-        - do: "Tap a row; tap a value"
-          result: "Selects the row; a tap on a value chooses it"
-          story: 2
+          result: "Back to the pause menu or the game list"
+  - id: picture
+    title: "Picture"
+    entered_by: "A on Picture in settings"
+    spec:
+      shows:
+        - what: "Rows with their values: Screen mode (TV only / TV + GamePad / GamePad only), Shape (4:3 / 16:9)"
+          why: "Values shown (recognition over recall)"
+        - what: "Under the rows: \"Which screens show the game. The prompt at each start begins on it.\" or \"4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.\""
+          why: "The effect is known before it is changed"
+      actions:
+        - do: "Left/right, then A"
+          result: "The value applies (Shape from a paused game: on Resume) and is written to config/settings.cfg"
       states:
-        - "GamePad only chosen with no GamePad connected: the value is greyed with \"GamePad not connected\", as on the prompt"
-        - "a write to the SD fails: a dialog with the cause, the fix and OUR-0203; the value on screen goes back"
+        - "GamePad only with no GamePad connected: greyed, as on the prompt"
+        - "a write to the SD fails: OUR-0203; the value on screen goes back"
+  - id: games
+    title: "Games"
+    entered_by: "A on Games in settings"
+    spec:
+      shows:
+        - what: "ROM folder, with the folder in use as a full path (\"SD card: /wiiu/our64/roms\", \"USB drive <label>: /ROMs/N64\"), and Fetch covers"
+          why: "Where the games come from is always visible"
+        - what: "Under the rows: \"Where Our ROMs finds your games\" or \"Fetches box art from the internet. Requires Wi-Fi\""
+          why: "Fetch covers needs the internet: said before A"
+        - what: "After a fetch, its result under the header (\"Fetched 6 covers.\", \"All games have covers.\", or a failure with OUR-0401, 0402, 0403 or 0205)"
+          why: "The outcome stays visible after the progress screen closes"
+      actions:
+        - do: "A on ROM folder"
+          result: "The folder picker opens"
+        - do: "A on Fetch covers"
+          result: "The fetch screen opens; it reads the games, fetches the missing covers, then comes back here"
+      states:
+        - "Opening this page reads no game: the reading is on the fetch screen"
+  - id: browse
+    title: "ROM folder picker"
+    entered_by: "A on ROM folder in games, or A on Our ROMs' \"No ROMs found.\" screen"
+    spec:
+      shows:
+        - what: "The drives first (SD card, then each FAT32 or exFAT partition of each USB drive as \"USB drive <label>\"), then a drive's folders, with \"Use this folder\" as the first row inside a drive"
+          why: "One list from the drive down; listed again each time it opens (no hot-plug)"
+        - what: "Legend: (HOME) Wii U Menu, (B) Back or Up, Choose, (A) OK"
+          why: "B goes up a level inside a drive"
+      actions:
+        - do: "A on Use this folder"
+          result: "Saved to config/settings.cfg (the folder, the drive's volume serial and label); Our ROMs lists that folder's games"
+      states:
+        - "a USB drive with no FAT32 or exFAT partition: a greyed row; an empty port: no row"
+  - id: fetch
+    title: "Fetching covers"
+    entered_by: "A on Fetch covers in games"
+    spec:
+      shows:
+        - what: "Full screen like the game loading screen: the title Fetching covers, one bar, under it \"Reading your games: 80 of 200\" then \"12 of 40\""
+          why: "Progress is visible; nothing else competes with it"
+        - what: "Legend: (HOME) Wii U Menu, (B) Stop"
+          why: "The way out is named"
+      actions:
+        - do: "B or HOME"
+          result: "Stops; covers saved so far stay; back to games with the result line"

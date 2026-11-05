@@ -75,6 +75,13 @@ Files Our64 writes, all under `sd:/wiiu/our64`:
 Error screens show a code such as `OUR-0104`. What each one means and how to fix it:
 [docs/errors.md](docs/errors.md).
 
+## Picture
+
+Settings > Picture:
+
+- **Screen mode:** TV only, TV + GamePad or GamePad only. The prompt at each start begins on this choice.
+- **Shape:** 4:3, the games' own shape, or 16:9, stretched to fill a wide TV.
+
 ## Reporting a problem
 
 Open an [issue](../../issues/new/choose) and attach `sd:/wiiu/our64/player-log.txt` from the SD card.
