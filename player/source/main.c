@@ -1780,8 +1780,7 @@ static int emu_thread(int argc, const char **argv)
 		snprintf(line, sizeof(line), "Our64 stopped unexpectedly last time. Your autosave is safe.");
 		report_line("CRASH: Our64 stopped while %s was running", crashed);
 	} else if (library_count() == 0) { /* the folder not found: Our ROMs' headline, in a sentence */
-		snprintf(line, sizeof(line), "A: Our ROMs. %s", library_missing() == ROMS_NO_DRIVE ? "USB drive not found."
-		                                                : library_missing() ? "ROM folder not found." : "No games yet.");
+		snprintf(line, sizeof(line), "A: Our ROMs. %s", library_missing() ? "No ROMs found." : "No games yet.");
 	}
 	if (s.last_game[0] && game < 0) {
 		char title[64];

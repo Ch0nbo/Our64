@@ -73,7 +73,7 @@ typedef struct {
 	time_t now;
 	int us;
 	int glyphs;
-	int missing;             /* ROMS_: the ROM folder can't be read, and why (OUR-0105) */
+	int missing;             /* ROMS_: the ROM folder can't be read, and why */
 	int usb;                 /* the ROM folder is on a USB drive: Delete is off */
 	char folder[ROMS_FOLDER_SHOWN * 4]; /* the folder in use, for people ("SD card: wiiu/our64/roms"), cut in the middle */
 } roms_view;

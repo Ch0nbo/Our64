@@ -565,6 +565,17 @@ static int run_browse(void)
 	}
 }
 
+int settings_pick_rom_folder(int glyphs)
+{
+	g_from_pause = 0; /* HOME asks "Exit to the Wii U Menu?" over the picker */
+	g_view.game[0] = 0;
+	g_view.glyphs = glyphs;
+	input_take_home();
+	const int home = run_browse();
+	input_withhold();
+	return home;
+}
+
 /* ---- Settings > Games: the ROM folder, and Fetch covers (covers_wiiu.c) ---- */
 
 /* The headers being read for the count, on this thread: the Games page

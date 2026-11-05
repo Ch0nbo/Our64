@@ -53,6 +53,9 @@ int  setup_save_settings(void);    /* 0 when written */
 /* Our Settings, from the pause menu or Our ROMs. HOME there: settings_take_home is 1 after. */
 void settings_run(int from_pause);
 int  settings_take_home(void);
+/* Our ROMs' A on a ROM folder not found: Settings > Games' ROM folder picker on
+ * its own. glyphs: the controller's (INPUT_). 1: HOME, and leaving was confirmed. */
+int  settings_pick_rom_folder(int glyphs);
 
 /* ---- library_wiiu.c: Our ROMs ---- */
 enum { LIB_PLAY, LIB_WIIU, LIB_SYSTEM };
@@ -67,7 +70,7 @@ void library_rescan(void);              /* Settings chose another ROM folder: it
 int  library_usb_rescan(void);          /* usbfs_rescan, the loader idle first, and the ROM folder's device found again */
 struct dirent;
 int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
-const char *library_folder_label(void); /* the ROM folder in use, for people: "SD card: wiiu/our64/roms", with "(USB drive not found)" after A on that screen */
+const char *library_folder_label(void); /* the ROM folder in settings.cfg, for people: "SD card: wiiu/our64/roms" */
 /* Readable games without a cover, one per game id. The headers not read yet
  * are read first; reading (or NULL) is told how far that got, about every 100 ms. */
 int  library_missing_covers(void (*reading)(int read, int total));

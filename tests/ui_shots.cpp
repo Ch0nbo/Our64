@@ -642,7 +642,7 @@ void shots_roms()
 	g_rv.usb = 1; // an empty folder on a USB drive
 	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB GAMES: Games/N64");
 	roms_shot("roms-empty-usb", LIBRARY_ALL, "", 0);
-	g_rv.missing = ROMS_NO_DRIVE; // the drive not plugged in: its name unknown (OUR-0105)
+	g_rv.missing = ROMS_NO_DRIVE; // the drive not plugged in: its name unknown; A opens the folder picker
 	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB drive: Games/N64");
 	roms_shot("roms-usb-missing", LIBRARY_ALL, "", 0);
 	theme_use_layout(LAYOUT_LIST);
@@ -690,8 +690,6 @@ void shots_setup()
 	sv.line[0] = 0;
 	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	shot("games", v);
-	games_open(&sv.games, "SD card: wiiu/our64/roms (USB drive not found)", 12); // A on USB DRIVE NOT FOUND
-	shot("games-sd-fallback", v);
 	games_open(&sv.games, "SD card: wiiu/our64/roms", 12);
 	sv.games.row = GAMES_COVERS;
 	sv.screen = SETUP_FETCH; // A on Fetch covers: its own screen, like the loading screen

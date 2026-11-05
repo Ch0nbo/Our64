@@ -47,7 +47,6 @@ static unsigned char *g_info;  /* header and saves read */
 static int g_count;
 static char g_root[256];
 static char g_roms[300];           /* the ROM folder, resolved at each scan; "" when it can't be reached */
-static int g_sd_only;              /* A on "USB DRIVE NOT FOUND": <root>/roms this session, the setting kept; why (ROMS_NO_DRIVE...) */
 static char g_favorites_path[300]; /* config/favorites.txt, beside settings.cfg */
 static roms_view g_view;
 static int g_deleted;              /* games deleted since the scan: still in g_games, for the loader's indices */
@@ -90,7 +89,7 @@ int library_scan(const char *root)
 			return 0;
 	}
 	/* settings.cfg's ROM folder (usbfs.h): only the default is made when it is not there */
-	const char *f = g_sd_only ? "" : setup_settings()->rom_folder;
+	const char *f = setup_settings()->rom_folder;
 	int vols;
 	const usbfs_volume *v = usbfs_volumes(&vols);
 	g_count = 0;
@@ -121,7 +120,7 @@ int library_scan(const char *root)
 	library_cut_middle(folder_label(f), ROMS_FOLDER_SHOWN, g_view.folder, sizeof(g_view.folder));
 	if (g_view.missing) {
 		report_line("OUR ROMS: can't read the ROM folder %s (%s)", f, g_roms[0] ? g_roms : "drive not found");
-		report_line("ERROR ROM folder missing: OUR-0105");
+		report_line("ERROR ROM folder not found");
 	}
 	library_sort(g_games, g_count);
 	memset(g_info, 0, MAX_GAMES);
@@ -178,14 +177,8 @@ static const char *folder_label(const char *f)
 	return label;
 }
 
-/* The folder in use: the SD card's after A on a folder not found, saying why */
-const char *library_folder_label(void)
-{
-	if (g_sd_only)
-		return g_sd_only == ROMS_NO_DRIVE ? "SD card: wiiu/our64/roms (USB drive not found)"
-		                                  : "SD card: wiiu/our64/roms (folder not found)";
-	return folder_label(setup_settings()->rom_folder);
-}
+/* The ROM folder in settings.cfg, for people */
+const char *library_folder_label(void) { return folder_label(setup_settings()->rom_folder); }
 
 int library_count(void) { return g_count; }
 int library_on_usb(void) { return g_view.usb; }
@@ -355,7 +348,7 @@ int library_usb_rescan(void)
 {
 	loader_wait(0);
 	const int n = usbfs_rescan();
-	if (g_view.usb && !g_sd_only) {
+	if (g_view.usb) {
 		char roms[sizeof(g_roms)];
 		int vols;
 		const usbfs_volume *v = usbfs_volumes(&vols);
@@ -666,7 +659,7 @@ static void delete_game(void)
 	v->pos = (float)v->sel;
 }
 
-/* After Settings > Games > ROM folder, or A on a folder not found: the games
+/* After a ROM folder is chosen (Settings > Games, or A on a folder not found): the games
  * listed again from nothing, in All, the game selected before still selected
  * when it is listed (by file name), else the first. The loader reads games by
  * index, so its job finishes first and its result is dropped, and the covers
@@ -692,15 +685,10 @@ static void rescan(void)
 	v->pos = (float)v->sel;
 }
 
-/* Settings > Games > ROM folder chose a folder: its games listed at once, so
- * Fetch covers counts them. From a paused game too: the game runs from
- * memory and nothing of it reads the list until it ends, when main.c finds
- * the game played again by its file name. */
-void library_rescan(void)
-{
-	g_sd_only = 0; /* a folder chosen: that one, not the SD card's for now */
-	rescan();
-}
+/* The ROM folder picker chose a folder: its games listed at once. From a
+ * paused game too: the game runs from memory and nothing of it reads the list
+ * until it ends, when main.c finds the game played again by its file name. */
+void library_rescan(void) { rescan(); }
 
 /* Our ROMs until A on a game (LIB_PLAY, *game its index), HOME (LIB_WIIU) or
  * the system closing (LIB_SYSTEM). *game in: the game to select. */
@@ -912,12 +900,17 @@ int library_run(int *game, const char *notice)
 				result = LIB_WIIU;
 			continue;
 		}
-		/* A on "USB DRIVE NOT FOUND": the SD card's wiiu/our64/roms until Our64
-		 * starts again; settings.cfg keeps the folder chosen */
+		/* A on "No ROMs found.": the ROM folder picker of Settings > Games. Use
+		 * this folder saves it and lists its games (library_rescan); B comes
+		 * back here, and the folder is looked for again, as after + */
 		if (ok && v->missing) {
-			report_line("OUR ROMS: the SD card's roms folder, this session only");
-			g_sd_only = v->missing;
-			rescan();
+			report_line("OUR ROMS: A on the folder not found: the ROM folder picker");
+			const int home = settings_pick_rom_folder(v->glyphs);
+			input_take_home();
+			if (v->missing && !home && !player_closing())
+				rescan();
+			if (home && !player_closing())
+				result = LIB_WIIU;
 			continue;
 		}
 		if (ok && v->count > 0) {

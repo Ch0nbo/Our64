@@ -1005,7 +1005,8 @@ const float PILL_X = ROW_BOX_W + 12, PILL_W = UI_W - 2 * PILL_X, PILL_Y = 402, P
 
 // The buttons one under another, small: only the game's own (Zach,
 // 2026-10-30: the d-pad and HOME work alike in every Wii U app).
-void draw_side_keys(const pause_key * keys, int n)
+// room: the keys' width, the box at the left unless nothing is drawn beside it.
+void draw_side_keys(const pause_key * keys, int n, float room = ROW_BOX_W)
 {
 	box(0, ROW_TOP, UI_W, UI_H - ROW_TOP, rgb(T.bar.fill));
 	const int size = 18, step = 25;
@@ -1014,7 +1015,7 @@ void draw_side_keys(const pause_key * keys, int n)
 		const PixelColor c = keys[i].dim ? off_ink() : rgb(T.bar.ink);
 		const float y = top + i * step;
 		const float g = key_glyph(16, y, keys[i].glyph, c, 20);
-		text(16 + g + 7, y + 1, keys[i].label, fit(keys[i].label, size, 15, int(ROW_BOX_W - 16 - g - 7 - 10)), c);
+		text(16 + g + 7, y + 1, keys[i].label, fit(keys[i].label, size, 15, int(room - 16 - g - 7 - 10)), c);
 	}
 }
 
@@ -1147,22 +1148,17 @@ void drawer_cover(const roms_view & rv, int at, float d)
 	}
 }
 
-// No games yet, or the ROM folder not found (OUR-0105), where the covers go:
-// a headline, and the folder in up to three lines. x is the left edge, or the
-// middle when centred.
+// No games yet, or the ROM folder not found, where the covers go: a headline,
+// and the folder in up to three lines. x is the left edge, or the middle when
+// centred.
 void draw_roms_none(const roms_view & rv, float x, float head_y, float body_y, int w, bool centred)
 {
 	const char * folder = rv.folder[0] ? rv.folder : "SD card: wiiu/our64/roms";
 	const char * head = "No games yet.";
 	char body[sizeof(rv.folder) + 100];
-	if (rv.missing == ROMS_NO_DRIVE) {
-		head = "USB DRIVE NOT FOUND";
-		snprintf(body, sizeof(body), "Our ROMs looks for your games on %s. Plug the drive in, then start Our64 again. OUR-0105",
-		         folder);
-	} else if (rv.missing) {
-		head = "ROM FOLDER NOT FOUND";
-		snprintf(body, sizeof(body), "Our ROMs looks for your games in %s. Choose another folder in Settings > Games. OUR-0105",
-		         folder);
+	if (rv.missing) { // a USB drive not plugged in, or a folder deleted: one message (Zach, 2026-11-04)
+		head = "No ROMs found.";
+		snprintf(body, sizeof(body), "Could not locate %s. Press A to select a new folder.", folder);
 	} else {
 		snprintf(body, sizeof(body), "Copy your .z64, .n64 or .v64 files to %s with a computer, then start Our64 again.", folder);
 	}
@@ -1175,10 +1171,10 @@ void draw_roms_none(const roms_view & rv, float x, float head_y, float body_y, i
 		text(x, body_y + i * (size + 8), lines[i].c_str(), size, rgb(T.screen.ink), align);
 }
 
-// A on a folder not found: the SD card's wiiu/our64/roms for now.
-pause_key use_sd_key(const roms_view & rv)
+// A on a folder not found: the ROM folder picker, as in Settings > Games.
+pause_key select_folder_key(const roms_view & rv)
 {
-	return pause_key{ rv.glyphs == INPUT_WIIMOTE ? GLYPH_2 : GLYPH_A, "Use the SD card", 0 };
+	return pause_key{ rv.glyphs == INPUT_WIIMOTE ? GLYPH_2 : GLYPH_A, "Select a new folder", 0 };
 }
 
 void draw_roms_list(const ui_view & v)
@@ -1196,7 +1192,7 @@ void draw_roms_list(const ui_view & v)
 	pause_key keys[7];
 	int n = 0;
 	if (rv.missing)
-		keys[n++] = use_sd_key(rv);
+		keys[n++] = select_folder_key(rv);
 	else
 		keys[n++] = pause_key{ GLYPH_DPAD, "Choose", rv.total == 0 };
 	keys[n++] = pause_key{ GLYPH_PLUS, "Settings", 0 };
@@ -1300,9 +1296,9 @@ void draw_roms(const ui_view & v)
 	if (rv.total == 0) {
 		draw_roms_none(rv, UI_W / 2, 150, 200, UI_W - 160, true);
 		if (rv.missing)
-			keys[n++] = use_sd_key(rv);
+			keys[n++] = select_folder_key(rv);
 		keys[n++] = pause_key{ GLYPH_PLUS, "Settings", 0 };
-		draw_side_keys(keys, n);
+		draw_side_keys(keys, n, rv.notice[0] ? ROW_BOX_W : UI_W - ROW_BOX_W); // no title: up to the count
 		if (rv.notice[0])
 			draw_title_pill(rv, nullptr);
 		draw_count_box(rv);
