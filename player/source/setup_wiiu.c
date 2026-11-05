@@ -536,15 +536,19 @@ static int run_browse(void)
 				break;
 			case BACT_USE: {
 				const our_settings keep = g_settings;
+				g_settings.rom_drive[0] = 0;
 				if (usbfs_volume_index(b->path) >= 0) { /* "usb1p1:/x" kept as "usb:<serial>/x" */
 					int n;
 					const usbfs_volume *v = usbfs_volumes(&n);
-					if (usbfs_store_path(v, n, b->path, g_settings.rom_folder, sizeof(g_settings.rom_folder))) {
+					const int at = usbfs_find(v, n, b->path);
+					if (at < 0 || usbfs_store_path(v, n, b->path, g_settings.rom_folder, sizeof(g_settings.rom_folder))) {
 						g_settings = keep;
 						report_line("ROM FOLDER: can't keep %s", b->path);
 						line("Couldn't use this folder.");
 						break;
 					}
+					/* its label too, so the folder reads in full while the drive is unplugged */
+					snprintf(g_settings.rom_drive, sizeof(g_settings.rom_drive), "%s", v[at].label);
 				} else {
 					snprintf(g_settings.rom_folder, sizeof(g_settings.rom_folder), "%s", b->path);
 				}
@@ -553,11 +557,11 @@ static int run_browse(void)
 					write_failed();
 					break;
 				}
-				report_line("ROM FOLDER: %s", g_settings.rom_folder);
+				report_line("ROM FOLDER: %s%s%s", g_settings.rom_folder, g_settings.rom_drive[0] ? ", drive " : "", g_settings.rom_drive);
 				library_rescan(); /* its games listed now */
 				char games[24];
 				browse_row_value(b, 0, games, sizeof(games)); /* Use this folder's: "No games", "1 game", "4 games" */
-				snprintf(g_view.line, sizeof(g_view.line), "ROM folder: %s (%s)", browse_title(b), games);
+				snprintf(g_view.line, sizeof(g_view.line), "ROM folder: %s (%s)", library_folder_label(), games);
 				return 0;
 			}
 			}

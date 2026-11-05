@@ -42,6 +42,7 @@ int settings_parse(const char *text, our_settings *s)
 		s->rumble[i] = 1;
 	memset(s->recent, 0, sizeof(s->recent));
 	s->rom_folder[0] = 0;
+	s->rom_drive[0] = 0;
 	int recent_line = 0;
 	int result = SETTINGS_MISSING;
 	char line[1024]; /* a full Recent games line is up to 5 x 131 bytes */
@@ -103,6 +104,14 @@ int settings_parse(const char *text, our_settings *s)
 		} else if (!strcasecmp(k, "ROM folder")) {
 			snprintf(s->rom_folder, sizeof(s->rom_folder), "%s", v);
 			found = 1;
+		} else if (!strcasecmp(k, "ROM drive")) {
+			size_t n = strlen(v); /* cut between UTF-8 characters, never inside one */
+			if (n >= sizeof(s->rom_drive))
+				for (n = sizeof(s->rom_drive) - 1; n > 0 && ((unsigned char)v[n] & 0xC0) == 0x80; n--)
+					;
+			memcpy(s->rom_drive, v, n);
+			s->rom_drive[n] = 0;
+			found = 1;
 		} else {
 			continue; /* a setting this Our64 does not know: kept by nobody, harmless */
 		}
@@ -155,9 +164,9 @@ int settings_format_all(char *out, unsigned size, const our_settings *s)
 	}
 	return snprintf(out, size, "# Our64 settings. Screen mode: TV only, TV + GamePad or GamePad only. "
 	                           "Picture: 4:3 or 16:9 stretched. Theme: Standard or Comrade. Our ROMs: Covers or List.\n"
-	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nROM folder = %s\nLast game = %s\nRecent games = %s\n"
+	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nROM folder = %s\nROM drive = %s\nLast game = %s\nRecent games = %s\n"
 	                           "Rumble = %s, %s, %s, %s\n",
-	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), s->rom_folder, s->last_game,
+	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), s->rom_folder, s->rom_drive, s->last_game,
 	                recent, s->rumble[0] ? "on" : "off", s->rumble[1] ? "on" : "off", s->rumble[2] ? "on" : "off",
 	                s->rumble[3] ? "on" : "off");
 }

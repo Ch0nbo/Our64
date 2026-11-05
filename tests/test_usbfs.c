@@ -182,6 +182,46 @@ static void the_rom_folder_resolves_or_is_missing(void)
 	CHECK(usbfs_sd_path(sd, "usb1p1:/x", out, sizeof(out)) == -1);
 }
 
+/* settings.cfg's ROM folder as a full path, for people (2026-11-04: the
+ * not-found message showed only "USB drive: ROMs/N64" with the drive unplugged). */
+static void the_rom_folder_reads_as_a_full_path(void)
+{
+	usbfs_volume v[1] = { {.drive = 1, .part = 2, .mounted = 1, .serial = 0x1A2B3C4D, .label = "OUR64 EXFAT"} };
+	char out[400];
+	usbfs_folder_label("", NULL, v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "SD card: /wiiu/our64/roms")); /* the default */
+	usbfs_folder_label("sd:/Games/N64", NULL, v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "SD card: /Games/N64"));
+	usbfs_folder_label("sd:/", NULL, v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "SD card: /"));
+	/* plugged in: the drive's own label, even when the kept one differs (renamed since) */
+	usbfs_folder_label("usb:1A2B3C4D/ROMs/N64", "OLD NAME", v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "USB drive OUR64 EXFAT: /ROMs/N64"));
+	usbfs_folder_label("usb:1a2b3c4d", NULL, v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "USB drive OUR64 EXFAT: /"));
+	/* unplugged: the label kept as it was picked, else none */
+	usbfs_folder_label("usb:1A2B3C4D/ROMs/N64", "OUR64 EXFAT", NULL, 0, out, sizeof(out));
+	CHECK(!strcmp(out, "USB drive OUR64 EXFAT: /ROMs/N64"));
+	usbfs_folder_label("usb:DEADBEEF/ROMs/N64", "USB GAMES", v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "USB GAMES: /ROMs/N64"));
+	usbfs_folder_label("usb:DEADBEEF/ROMs/N64", "", v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "USB drive: /ROMs/N64"));
+	usbfs_folder_label("usb:DEADBEEF/ROMs/N64", NULL, NULL, 0, out, sizeof(out));
+	CHECK(!strcmp(out, "USB drive: /ROMs/N64"));
+	/* a plugged-in partition without a label */
+	v[0].label[0] = 0;
+	usbfs_folder_label("usb:1A2B3C4D/ROMs", "OUR64 EXFAT", v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "USB drive 1, partition 2: /ROMs"));
+	/* a value no browser writes: as it is */
+	usbfs_folder_label("Games", NULL, v, 1, out, sizeof(out));
+	CHECK(!strcmp(out, "Games"));
+	/* cut to size between characters */
+	usbfs_folder_label("sd:/Pok\xC3\xA9mon", NULL, v, 1, out, 15);
+	CHECK(!strcmp(out, "SD card: /Pok"));
+	usbfs_folder_label("sd:/Pok\xC3\xA9mon", NULL, v, 1, out, 16);
+	CHECK(!strcmp(out, "SD card: /Pok\xC3\xA9"));
+}
+
 static void names_and_devices(void)
 {
 	usbfs_volume v[8];
@@ -189,7 +229,7 @@ static void names_and_devices(void)
 	CHECK(plug(IMG("disk.img"), NULL, 512));
 	CHECK(usbfs_mount_all(v, 8) == 2);
 	usbfs_name(&v[0], s, sizeof(s));
-	CHECK(!strcmp(s, "USB GAMES"));
+	CHECK(!strcmp(s, "USB drive GAMES")); /* labelled GAMES */
 	usbfs_device(&v[1], s, sizeof(s));
 	CHECK(!strcmp(s, "usb1p2"));
 	usbfs_volume plain = {.drive = 1, .part = 2, .mounted = 1};
@@ -204,15 +244,28 @@ static void names_and_devices(void)
 	strcpy(named.label, "usb stick");
 	usbfs_name(&named, s, sizeof(s));
 	CHECK(!strcmp(s, "usb stick"));
+	/* any other label gets "USB drive " in front */
+	strcpy(named.label, "OUR64 EXFAT");
+	usbfs_name(&named, s, sizeof(s));
+	CHECK(!strcmp(s, "USB drive OUR64 EXFAT"));
 	/* cut between characters, never inside one */
 	strcpy(named.label, "Pok\xC3\xA9mon");
-	usbfs_name(&named, s, 9);
-	CHECK(!strcmp(s, "USB Pok"));
-	usbfs_name(&named, s, 10);
-	CHECK(!strcmp(s, "USB Pok\xC3\xA9"));
+	usbfs_name(&named, s, 15);
+	CHECK(!strcmp(s, "USB drive Pok"));
+	usbfs_name(&named, s, 16);
+	CHECK(!strcmp(s, "USB drive Pok\xC3\xA9"));
 	strcpy(named.label, "\xE3\x82\xB2\xE3\x83\xBC\xE3\x83\xA0");
-	usbfs_name(&named, s, 12);
-	CHECK(!strcmp(s, "USB \xE3\x82\xB2\xE3\x83\xBC"));
+	usbfs_name(&named, s, 18);
+	CHECK(!strcmp(s, "USB drive \xE3\x82\xB2\xE3\x83\xBC"));
+	/* from a label alone (settings.cfg's ROM drive): none is "USB drive" */
+	usbfs_label_name("OUR64 EXFAT", s, sizeof(s));
+	CHECK(!strcmp(s, "USB drive OUR64 EXFAT"));
+	usbfs_label_name("USB GAMES", s, sizeof(s));
+	CHECK(!strcmp(s, "USB GAMES"));
+	usbfs_label_name("", s, sizeof(s));
+	CHECK(!strcmp(s, "USB drive"));
+	CHECK(usbfs_find(v, 2, "usb1p2:/Games") == 1 && usbfs_find(v, 2, "usb1p1") == 0);
+	CHECK(usbfs_find(v, 2, "usb2p1:/") == -1 && usbfs_find(v, 2, "sd:/Games") == -1);
 	CHECK(usbfs_volume_index("usb1p1") == 0);
 	CHECK(usbfs_volume_index("usb1p2:/Games") == 1);
 	CHECK(usbfs_volume_index("usb1p3") == -1);
@@ -331,6 +384,7 @@ int main(void)
 	RUN(stored_paths_name_the_serial);
 	RUN(the_first_of_two_volumes_with_one_serial_wins);
 	RUN(the_rom_folder_resolves_or_is_missing);
+	RUN(the_rom_folder_reads_as_a_full_path);
 	RUN(names_and_devices);
 	RUN(a_wii_u_formatted_drive_mounts_nothing);
 	RUN(a_stick_without_a_partition_table_is_partition_1);

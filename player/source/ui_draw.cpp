@@ -106,7 +106,23 @@ void text(float x, float y, const char * s, int px, PixelColor c, uint32_t justi
 		g_checks->text(x, y, s, px, fontSystem->getWidth(s), justify, c);
 }
 
-// Splits text into lines no wider than max_w, at spaces. Returns the count.
+// How much of a word too wide for one line goes on it: up to its last "/"
+// that fits (a folder path); 0 when no "/" fits (the word stays whole).
+static size_t word_part(const std::string & word, int px, int max_w)
+{
+	size_t slash = 0;
+	for (size_t i = 1; i < word.size(); i++)
+		if (word[i - 1] == '/') {
+			if (text_width(word.substr(0, i).c_str(), px) > max_w)
+				break;
+			slash = i;
+		}
+	return slash;
+}
+
+// Splits text into lines no wider than max_w, at spaces; a word wider than a
+// line (a long folder path) is split after a "/".
+// Returns the count.
 int wrap(const char * s, int px, int max_w, std::string * lines, int max_lines)
 {
 	int n = 0;
@@ -121,11 +137,37 @@ int wrap(const char * s, int px, int max_w, std::string * lines, int max_lines)
 		} else {
 			line = tried;
 		}
+		// the line is one word that is too wide: its start fills the line
+		while (n < max_lines && line == word && text_width(line.c_str(), px) > max_w) {
+			const size_t k = word_part(word, px, max_w);
+			if (k == 0)
+				break;
+			lines[n++] = word.substr(0, k);
+			line = word = word.substr(k);
+		}
 		s = sp ? sp + 1 : s + strlen(s);
 	}
 	if (!line.empty() && n < max_lines)
 		lines[n++] = line;
 	return n;
+}
+
+// s at px, its middle cut ("SD card: /Games/N…/USA") until it fits max_w:
+// for one line of a folder path.
+static std::string cut_to_fit(const char * s, int px, int max_w)
+{
+	if (text_width(s, px) <= max_w)
+		return s;
+	char out[512];
+	int chars = 0;
+	for (const char * c = s; *c; c++)
+		chars += (*c & 0xC0) != 0x80;
+	for (int keep = chars - 1; keep >= 3; keep--) {
+		library_cut_middle(s, keep, out, sizeof(out));
+		if (text_width(out, px) <= max_w)
+			return out;
+	}
+	return out;
 }
 
 // The largest size from px down to min_px at which s fits max_w (min_px if none).
@@ -1149,11 +1191,11 @@ void drawer_cover(const roms_view & rv, int at, float d)
 }
 
 // No games yet, or the ROM folder not found, where the covers go: a headline,
-// and the folder in up to three lines. x is the left edge, or the middle when
+// and the sentence with the folder's full path in up to four lines. x is the left edge, or the middle when
 // centred.
 void draw_roms_none(const roms_view & rv, float x, float head_y, float body_y, int w, bool centred)
 {
-	const char * folder = rv.folder[0] ? rv.folder : "SD card: wiiu/our64/roms";
+	const char * folder = rv.folder[0] ? rv.folder : "SD card: /wiiu/our64/roms";
 	const char * head = "No games yet.";
 	char body[sizeof(rv.folder) + 100];
 	if (rv.missing) { // a USB drive not plugged in, or a folder deleted: one message (Zach, 2026-11-04)
@@ -1164,9 +1206,10 @@ void draw_roms_none(const roms_view & rv, float x, float head_y, float body_y, i
 	}
 	const uint32_t align = centred ? GUI_TEXT_JUSTIFY_CENTER : GUI_TEXT_JUSTIFY_LEFT;
 	text(x, head_y, head, fit(head, 30, 22, w), rgb(T.screen.ink), align);
-	std::string lines[3];
+	// the folder whole, never cut: up to four lines, smaller type for a long path
+	std::string lines[4];
 	int size = 24;
-	int k = wrap_fit(body, size, 18, w, lines, 3);
+	int k = wrap_fit(body, size, 16, w, lines, 4);
 	for (int i = 0; i < k; i++)
 		text(x, body_y + i * (size + 8), lines[i].c_str(), size, rgb(T.screen.ink), align);
 }
@@ -1400,8 +1443,13 @@ void setup_header(const char * headline, const char * sub)
 {
 	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
 	draw_header(headline);
-	if (sub && *sub)
-		text(header_x(), 92, sub, fit(sub, 22, 15, int(UI_W - 40 - header_x())), rgb(T.screen.muted));
+	if (sub && *sub) { // a long folder path loses its middle
+		const int room = int(UI_W - 40 - header_x());
+		int px = 22;
+		while (px > 15 && text_width(sub, px) > room)
+			px--;
+		text(header_x(), 92, cut_to_fit(sub, px, room).c_str(), px, rgb(T.screen.muted));
+	}
 }
 
 // Rows of named values, Settings', Picture's and Theme's: a row that opens a
@@ -1834,13 +1882,16 @@ void draw_games(const setup_view & sv)
 		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
 		const char * name = games_row_name(row);
 		text(r[0] + 20, r[1] + 12, name, 26, card_ink(sel, false));
-		char value[96];
+		char value[sizeof(g.folder)];
 		games_value(&g, row, value, sizeof(value));
 		if (!value[0])
 			continue;
 		const int room = r[2] - 20 - text_width(name, 26) - 32 - 24;
-		const int px = fit(value, 22, 15, room);
-		text(r[0] + r[2] - 24, r[1] + 15, clipped(value, px, room).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+		int px = 22;
+		while (px > 15 && text_width(value, px) > room)
+			px--;
+		// one line: a long path loses its middle, so the drive and the last folder stay
+		text(r[0] + r[2] - 24, r[1] + 15, cut_to_fit(value, px, room).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
 	}
 	row_about(GAMES_ROWS, games_row_about(&g));
 	pause_key keys[6];

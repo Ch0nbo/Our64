@@ -247,8 +247,8 @@ static void rom_names_skip_a_macs_dot_underscore_files(void)
 static void a_long_folder_is_cut_in_the_middle(void)
 {
 	char out[64];
-	library_cut_middle("SD card: wiiu/our64/roms", 40, out, sizeof(out));
-	CHECK(!strcmp(out, "SD card: wiiu/our64/roms")); /* fits: as it is */
+	library_cut_middle("SD card: /wiiu/our64/roms", 40, out, sizeof(out));
+	CHECK(!strcmp(out, "SD card: /wiiu/our64/roms")); /* fits: as it is */
 	library_cut_middle("USB GAMES: Games/Nintendo 64/USA", 21, out, sizeof(out));
 	CHECK(!strcmp(out, "USB GAMES:\xE2\x80\xA6" "ndo 64/USA")); /* 10 before, 10 after: "…" is the 21st */
 	library_cut_middle("abcdefghij", 5, out, sizeof(out));

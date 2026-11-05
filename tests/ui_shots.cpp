@@ -581,7 +581,7 @@ void shots_roms()
 	g_rv.now = NOW;
 	g_rv.us = 1;
 	g_rv.glyphs = INPUT_PRO;
-	snprintf(g_rv.folder, sizeof(g_rv.folder), "SD card: wiiu/our64/roms");
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "SD card: /wiiu/our64/roms");
 	library_categories(g_games.data(), int(g_games.size()), g_rv.has);
 	roms_shot("roms-all", LIBRARY_ALL, "Majora", 0);
 	{ // the cover beside the portrait while the game loads (Zach, 2026-10-20)
@@ -640,18 +640,26 @@ void shots_roms()
 	g_rv.total = 0;
 	roms_shot("roms-empty", LIBRARY_ALL, "", 0);
 	g_rv.usb = 1; // an empty folder on a USB drive
-	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB GAMES: Games/N64");
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB drive OUR64 EXFAT: /ROMs/N64");
 	roms_shot("roms-empty-usb", LIBRARY_ALL, "", 0);
-	g_rv.missing = ROMS_NO_DRIVE; // the drive not plugged in: its name unknown; A opens the folder picker
-	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB drive: Games/N64");
+	g_rv.missing = ROMS_NO_DRIVE; // the drive not plugged in: named by the label kept as it was picked; A opens the picker
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB drive OUR64 EXFAT: /ROMs/N64");
 	roms_shot("roms-usb-missing", LIBRARY_ALL, "", 0);
 	theme_use_layout(LAYOUT_LIST);
 	roms_shot("roms-list-usb-missing", LIBRARY_ALL, "", 0);
 	theme_use_layout(LAYOUT_COVERS);
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "USB drive: /ROMs/N64"); // a settings.cfg from before the label was kept
+	roms_shot("roms-usb-missing-no-label", LIBRARY_ALL, "", 0);
+	// a path of 120 characters, few spaces: whole, wrapped after its slashes
+	snprintf(g_rv.folder, sizeof(g_rv.folder),
+	         "USB drive OUR64 EXFAT: /Emulation/Nintendo64/No-Intro_2026-10/Every_cartridge_we_own_by_year/USA_and_Europe/Complete");
+	roms_shot("roms-usb-missing-long", LIBRARY_ALL, "", 0);
+	theme_use_layout(LAYOUT_LIST);
+	roms_shot("roms-list-usb-missing-long", LIBRARY_ALL, "", 0);
+	theme_use_layout(LAYOUT_COVERS);
 	g_rv.usb = 0;
-	g_rv.missing = ROMS_NO_FOLDER; // an SD folder deleted on a computer; a long one loses its middle
-	library_cut_middle("SD card: Games/Nintendo 64/Every cartridge we own, by year/USA and Europe", ROMS_FOLDER_SHOWN,
-	                   g_rv.folder, sizeof(g_rv.folder));
+	g_rv.missing = ROMS_NO_FOLDER; // an SD folder deleted on a computer: its full path, whole
+	snprintf(g_rv.folder, sizeof(g_rv.folder), "SD card: /Games/Nintendo 64/Every cartridge we own, by year/USA and Europe");
 	roms_shot("roms-folder-missing", LIBRARY_ALL, "", 0);
 	theme_use_layout(LAYOUT_LIST);
 	roms_shot("roms-list-folder-missing", LIBRARY_ALL, "", 0);
@@ -684,8 +692,12 @@ void shots_setup()
 	sv.look.pick[LOOK_LAYOUT] = LAYOUT_LIST;
 	shot("theme-layout", v);
 	sv.screen = SETUP_GAMES; // Settings > Games: no game read as it opens
-	games_open(&sv.games, "SD card: wiiu/our64/roms");
+	games_open(&sv.games, "SD card: /wiiu/our64/roms");
 	shot("games", v);
+	// one line: a long path loses its middle, the drive and the last folder stay
+	games_open(&sv.games, "USB drive OUR64 EXFAT: /Emulation/Nintendo64/No-Intro_2026-10/Every_cartridge_we_own_by_year/USA");
+	shot("games-usb-long", v);
+	games_open(&sv.games, "SD card: /wiiu/our64/roms");
 	sv.games.row = GAMES_COVERS;
 	shot("games-covers", v);
 	sv.screen = SETUP_FETCH; // A on Fetch covers: its own screen, like the loading screen
@@ -705,7 +717,7 @@ void shots_setup()
 	sv.screen = SETUP_BROWSE; // Settings > Games > ROM folder
 	browse_open(&sv.browse);
 	browse_add(&sv.browse, "SD card", "sd:/", 0);
-	browse_add(&sv.browse, "USB GAMES", "usb1p1:/", 0);
+	browse_add(&sv.browse, "USB drive OUR64 EXFAT", "usb1p1:/", 0);
 	browse_add(&sv.browse, "USB drive 2: no FAT32 or exFAT partition", "", 1);
 	shot("browse-drives", v);
 	sv.browse.row = 2;

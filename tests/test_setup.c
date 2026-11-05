@@ -547,11 +547,11 @@ static void taps_select_a_row_then_change_it_and_switch_tabs_at_once(void)
 static void games_rows_and_fetch_progress(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms");
 	CHECK(!strcmp(games_row_name(GAMES_FOLDER), "ROM folder") && !strcmp(games_row_name(GAMES_COVERS), "Fetch covers"));
 	char v[64];
 	games_value(&g, GAMES_FOLDER, v, sizeof(v));
-	CHECK(!strcmp(v, "SD card: wiiu/our64/roms"));
+	CHECK(!strcmp(v, "SD card: /wiiu/our64/roms"));
 	games_value(&g, GAMES_COVERS, v, sizeof(v));
 	CHECK(!strcmp(v, "")); /* no count: opening the page reads no game */
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FOLDER);
@@ -579,7 +579,7 @@ static void games_rows_and_fetch_progress(void)
 static void fetch_covers_is_always_available(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms");
 	g.row = GAMES_COVERS;
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
 	pause_key k[6];
@@ -593,7 +593,7 @@ static void fetch_covers_is_always_available(void)
 static void games_legend_and_lines_while_fetching(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms");
 	CHECK(!strcmp(games_row_about(&g), "Where Our ROMs finds your games"));
 	g.row = GAMES_COVERS;
 	CHECK(!strcmp(games_row_about(&g), "Box art from the internet, for games without one"));
@@ -620,7 +620,7 @@ static int tap_games(games_ui *g, int target)
 static void games_taps_select_then_act(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms");
 	int r[4];
 	settings_row_rect(GAMES_COVERS, r);
 	const int t = games_hit(r[0] + 5, r[1] + 5);
@@ -658,6 +658,7 @@ static void browser_opens_drives_then_folders_and_uses_one(void)
 	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN && !strcmp(b.path, "usb1p1:/Games"));
 	browse_entered(&b, 0);
 	CHECK(b.depth == 2);
+	CHECK(!strcmp(browse_title(&b), "USB GAMES: /Games")); /* a full path, as Settings > Games shows it */
 	CHECK(browse_event(&b, PEV_OK, -1) == BACT_USE && !strcmp(b.path, "usb1p1:/Games"));
 	CHECK(browse_event(&b, PEV_BACK, -1) == BACT_UP && !strcmp(b.path, "usb1p1:/") && b.depth == 1);
 	browse_entered(&b, 4);
@@ -704,7 +705,7 @@ static void browser_titles_values_and_legend(void)
 	browse_event(&b, PEV_UP, -1);
 	CHECK(browse_event(&b, PEV_OK, -1) == BACT_OPEN);
 	browse_entered(&b, 1);
-	CHECK(!strcmp(browse_title(&b), "SD card"));
+	CHECK(!strcmp(browse_title(&b), "SD card: /"));
 	n = browse_legend(&b, INPUT_PRO, k, 6);
 	CHECK(!strcmp(k[1].label, "Up"));
 	char v[32];
@@ -726,7 +727,7 @@ static void browser_titles_values_and_legend(void)
 	browse_event(&b, PEV_DOWN, -1);
 	browse_event(&b, PEV_OK, -1);
 	browse_entered(&b, 12);
-	CHECK(!strcmp(browse_title(&b), "SD card: wiiu/our64/roms"));
+	CHECK(!strcmp(browse_title(&b), "SD card: /wiiu/our64/roms"));
 }
 
 /* A folder that couldn't be opened: Use this folder is greyed, with no count. */

@@ -36,7 +36,12 @@ int  usbfs_mount_all(usbfs_volume *out, int max);
 void usbfs_unmount_all(void);
 
 void usbfs_device(const usbfs_volume *v, char *out, unsigned size);   /* "usb1p2" */
-void usbfs_name(const usbfs_volume *v, char *out, unsigned size);     /* "USB GAMES", "USB drive 1, partition 2" */
+/* "USB GAMES", "USB drive OUR64 EXFAT", "USB drive 1, partition 2" (no label) */
+void usbfs_name(const usbfs_volume *v, char *out, unsigned size);
+/* A drive's name from its label alone, as usbfs_name: "" is "USB drive". */
+void usbfs_label_name(const char *label, char *out, unsigned size);
+/* The volume in v that "usb1p2" or "usb1p2:/x" is on: its index, or -1. */
+int  usbfs_find(const usbfs_volume *v, int n, const char *device_path);
 
 /* FatFs's logical drive for a mounted device ("usb1p2" or "usb1p2:..." -> 1,
  * opened as "1:/..."); -1 when that partition is not mounted. */
@@ -62,5 +67,14 @@ int  usbfs_sd_path(const char *sd, const char *path, char *out, unsigned size);
  * reached: its drive is not among v, the value is malformed, or out is too small. */
 int  usbfs_rom_folder(const char *folder, const char *root, const char *sd, const usbfs_volume *v, int n,
                       char *out, unsigned size);
+
+/* settings.cfg's ROM folder as a full path, for people: "" is "SD card:
+ * /wiiu/our64/roms", "sd:/Games" "SD card: /Games", "usb:<serial>/ROMs/N64"
+ * "USB drive OUR64 EXFAT: /ROMs/N64", named by the partition among v with that
+ * serial (plugged in), else by drive_label (settings.cfg's "ROM drive", the
+ * label when the folder was picked; NULL or "": "USB drive: /ROMs/N64"). Cut
+ * to size between UTF-8 characters. */
+void usbfs_folder_label(const char *folder, const char *drive_label, const usbfs_volume *v, int n,
+                        char *out, unsigned size);
 
 #endif

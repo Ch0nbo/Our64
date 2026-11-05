@@ -69,7 +69,7 @@ int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
 enum { GAMES_FOLDER, GAMES_COVERS, GAMES_ROWS };
 typedef struct {
 	int row;
-	char folder[96];      /* "SD card: wiiu/our64/roms", "USB GAMES: N64" */
+	char folder[400];     /* "SD card: /wiiu/our64/roms", "USB drive OUR64 EXFAT: /ROMs/N64" (usbfs_folder_label) */
 	int running, done, total; /* a fetch in progress: SETUP_FETCH */
 	int reading;          /* running, and done of total are headers read, not covers */
 	int touched;
@@ -113,7 +113,7 @@ int  browse_event(browse_ui *b, int event, int target);
 const char *browse_row_name(const browse_ui *b, int row);
 int  browse_row_off(const browse_ui *b, int row);     /* greyed: shown, A does nothing */
 void browse_row_value(const browse_ui *b, int row, char *out, unsigned size); /* "4 games", "1 game", "" */
-const char *browse_title(const browse_ui *b);         /* the line under the header: path shown, "Choose a drive" */
+const char *browse_title(const browse_ui *b);         /* the line under the header: "SD card: /Games", "Choose a drive" */
 void browse_row_rect(int shown, int r[4]);
 int  browse_hit(const browse_ui *b, int x, int y);    /* row, or -1 */
 int  browse_legend(const browse_ui *b, int type, pause_key *keys, int max);

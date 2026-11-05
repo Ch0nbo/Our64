@@ -104,19 +104,11 @@ void usbfs_device(const usbfs_volume *v, char *out, unsigned size)
 	snprintf(out, size, "usb%dp%d", v->drive, v->part);
 }
 
-/* A label that says USB already ("USB DISK") is shown as it is; any other
- * gets "USB " in front. Cut to size between UTF-8 characters, never inside one. */
-void usbfs_name(const usbfs_volume *v, char *out, unsigned size)
+/* s into out, cut between UTF-8 characters, never inside one. */
+static void copy_cut(const char *s, char *out, unsigned size)
 {
-	char s[64];
 	if (!size)
 		return;
-	if (!v->label[0])
-		snprintf(s, sizeof(s), "USB drive %d, partition %d", v->drive, v->part);
-	else if (!strncasecmp(v->label, "usb", 3))
-		snprintf(s, sizeof(s), "%s", v->label);
-	else
-		snprintf(s, sizeof(s), "USB %s", v->label);
 	size_t n = strlen(s);
 	if (n >= size) {
 		n = size - 1;
@@ -125,6 +117,30 @@ void usbfs_name(const usbfs_volume *v, char *out, unsigned size)
 	}
 	memcpy(out, s, n);
 	out[n] = 0;
+}
+
+void usbfs_label_name(const char *label, char *out, unsigned size)
+{
+	char s[64];
+	if (!label[0])
+		snprintf(s, sizeof(s), "USB drive");
+	else if (!strncasecmp(label, "usb", 3))
+		snprintf(s, sizeof(s), "%s", label);
+	else
+		snprintf(s, sizeof(s), "USB drive %s", label);
+	copy_cut(s, out, size);
+}
+
+/* A label that says USB already ("USB DISK") is shown as it is; any other
+ * gets "USB drive " in front. Cut to size between UTF-8 characters. */
+void usbfs_name(const usbfs_volume *v, char *out, unsigned size)
+{
+	char s[64];
+	if (!v->label[0])
+		snprintf(s, sizeof(s), "USB drive %d, partition %d", v->drive, v->part);
+	else
+		usbfs_label_name(v->label, s, sizeof(s));
+	copy_cut(s, out, size);
 }
 
 /* "usb<D>p<P>" at the start of s, D 1-2 and P 1-4: its length (6), else 0. */
@@ -213,6 +229,60 @@ int usbfs_sd_path(const char *sd, const char *path, char *out, unsigned size)
 	if (strncmp(path, "sd:/", 4))
 		return -1;
 	return path[4] ? fits(snprintf(out, size, "%s/%s", sd, path + 4), size) : copy(sd, out, size);
+}
+
+int usbfs_find(const usbfs_volume *v, int n, const char *device_path)
+{
+	int d, p;
+	if (!parse_device(device_path, &d, &p))
+		return -1;
+	for (int i = 0; i < n; i++)
+		if (v[i].mounted && v[i].drive == d && v[i].part == p)
+			return i;
+	return -1;
+}
+
+/* The partition with stored's serial, among v; -1 none (or not "usb:<8 hex>"). */
+static int with_serial(const usbfs_volume *v, int n, const char *stored)
+{
+	uint32_t serial = 0;
+	for (int i = 0; i < 8; i++) {
+		int h = hex(stored[4 + i]);
+		if (h < 0)
+			return -1;
+		serial = serial << 4 | (uint32_t)h;
+	}
+	for (int i = 0; i < n; i++)
+		if (v[i].mounted && v[i].serial == serial)
+			return i;
+	return -1;
+}
+
+void usbfs_folder_label(const char *folder, const char *drive_label, const usbfs_volume *v, int n,
+                        char *out, unsigned size)
+{
+	char name[64], s[400];
+	const char *rest;
+	if (!folder[0]) {
+		snprintf(name, sizeof(name), "SD card");
+		rest = "wiiu/our64/roms";
+	} else if (!strncmp(folder, "sd:/", 4)) {
+		snprintf(name, sizeof(name), "SD card");
+		rest = folder + 4;
+	} else if (!strncmp(folder, "usb:", 4)) {
+		const char *slash = strchr(folder + 4, '/');
+		rest = slash ? slash + 1 : "";
+		const int i = with_serial(v, n, folder);
+		if (i >= 0)
+			usbfs_name(&v[i], name, sizeof(name));
+		else
+			usbfs_label_name(drive_label ? drive_label : "", name, sizeof(name));
+	} else { /* no browser writes this: shown as it is */
+		copy_cut(folder, out, size);
+		return;
+	}
+	snprintf(s, sizeof(s), "%s: /%s", name, rest);
+	copy_cut(s, out, size);
 }
 
 int usbfs_rom_folder(const char *folder, const char *root, const char *sd, const usbfs_volume *v, int n,

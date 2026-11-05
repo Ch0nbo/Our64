@@ -70,7 +70,7 @@ void library_rescan(void);              /* Settings chose another ROM folder: it
 int  library_usb_rescan(void);          /* usbfs_rescan, the loader idle first, and the ROM folder's device found again */
 struct dirent;
 int  library_is_folder(const char *dir, const struct dirent *e); /* e, read from dir, is a folder (stat when unsaid) */
-const char *library_folder_label(void); /* the ROM folder in settings.cfg, for people: "SD card: wiiu/our64/roms" */
+const char *library_folder_label(void); /* the ROM folder in settings.cfg as a full path, for people: "SD card: /wiiu/our64/roms" */
 /* Readable games without a cover, one per game id. The headers not read yet
  * are read first; reading (or NULL) is told how far that got, about every
  * 100 ms, and stops it by returning nonzero: the count is -1 then. */

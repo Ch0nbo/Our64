@@ -163,6 +163,33 @@ static void rom_folder_round_trip(void)
 	CHECK(!strcmp(back.rom_folder, s.rom_folder));
 }
 
+/* The USB drive's label beside its folder (2026-11-04), so the folder reads in
+ * full while the drive is unplugged; a settings.cfg from before has none. */
+static void rom_drive_round_trips_and_may_be_missing(void)
+{
+	our_settings s;
+	CHECK(settings_parse("ROM folder = usb:1A2B3C4D/ROMs/N64\nROM drive = OUR64 EXFAT\n", &s) == 0);
+	CHECK(!strcmp(s.rom_drive, "OUR64 EXFAT"));
+	char text[2048];
+	settings_format_all(text, sizeof(text), &s);
+	CHECK(strstr(text, "\nROM drive = OUR64 EXFAT\n"));
+	our_settings back;
+	CHECK(settings_parse(text, &back) == 0 && !strcmp(back.rom_drive, "OUR64 EXFAT"));
+	CHECK(!strcmp(back.rom_folder, "usb:1A2B3C4D/ROMs/N64"));
+	/* an older settings.cfg: no ROM drive line, nothing damaged */
+	CHECK(settings_parse("ROM folder = usb:1A2B3C4D/ROMs/N64\n", &s) == 0);
+	CHECK(s.rom_drive[0] == 0);
+	/* written empty, read empty */
+	settings_format_all(text, sizeof(text), &s);
+	CHECK(strstr(text, "\nROM drive = \n") && settings_parse(text, &back) == 0 && back.rom_drive[0] == 0);
+	/* a label too long for it is cut between characters, never inside one */
+	char line[128] = "ROM drive = ";
+	for (int i = 0; i < 16; i++)
+		strcat(line, "\xC3\xA9"); /* 32 bytes */
+	strcat(line, "\xC3\xA9\n");
+	CHECK(settings_parse(line, &s) == 0 && strlen(s.rom_drive) == 32);
+}
+
 static void rom_folder_default(void)
 {
 	our_settings s;
@@ -178,12 +205,15 @@ static void a_long_recent_list_and_folder_still_fit(void)
 		memset(s.recent[i], 'a' + i, sizeof(s.recent[i]) - 1), s.recent[i][sizeof(s.recent[i]) - 1] = 0;
 	memset(s.rom_folder, 'f', sizeof(s.rom_folder) - 1);
 	s.rom_folder[sizeof(s.rom_folder) - 1] = 0;
+	memset(s.rom_drive, 'd', sizeof(s.rom_drive) - 1);
+	s.rom_drive[sizeof(s.rom_drive) - 1] = 0;
 	char text[2048];
 	int n = settings_format_all(text, sizeof(text), &s);
 	CHECK(n > 0 && n < (int)sizeof(text));
 	our_settings back;
 	settings_parse(text, &back);
 	CHECK(!strcmp(back.recent[4], s.recent[4]) && !strcmp(back.rom_folder, s.rom_folder));
+	CHECK(!strcmp(back.rom_drive, s.rom_drive));
 }
 
 /* 2026-10-16 21:40 and friends, as UTC. */
@@ -279,6 +309,7 @@ int main(void)
 	recent_games_keep_the_last_five_played_newest_first();
 	rom_folder_round_trip();
 	rom_folder_default();
+	rom_drive_round_trips_and_may_be_missing();
 	a_long_recent_list_and_folder_still_fit();
 	test_when();
 	test_title();

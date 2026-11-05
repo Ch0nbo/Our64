@@ -554,7 +554,7 @@ const char *browse_title(const browse_ui *b)
 		snprintf(drive, sizeof(drive), "SD card");
 	else
 		snprintf(drive, sizeof(drive), "%.*s", colon ? (int)(colon - b->path) : 0, b->path);
-	snprintf(title, sizeof(title), "%s%s%s", drive, rest[0] ? ": " : "", rest);
+	snprintf(title, sizeof(title), "%s: /%s", drive, rest); /* a full path, as Settings > Games shows it */
 	return title;
 }
 

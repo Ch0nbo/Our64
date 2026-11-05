@@ -117,7 +117,7 @@ int library_scan(const char *root)
 			}
 		closedir(d);
 	}
-	library_cut_middle(folder_label(f), ROMS_FOLDER_SHOWN, g_view.folder, sizeof(g_view.folder));
+	snprintf(g_view.folder, sizeof(g_view.folder), "%s", folder_label(f)); /* whole: its sentence wraps */
 	if (g_view.missing) {
 		report_line("OUR ROMS: can't read the ROM folder %s (%s)", f, g_roms[0] ? g_roms : "drive not found");
 		report_line("ERROR ROM folder not found");
@@ -135,45 +135,15 @@ int library_scan(const char *root)
 	return g_count;
 }
 
-/* "usb:<serial>/path" as "USB GAMES: path", the partition found by its
- * serial among those mounted now; "USB drive: path" when it is not. */
-static void usb_folder_label(const char *f, char *label, unsigned size)
-{
-	const char *rest = strchr(f + 4, '/');
-	rest = rest ? rest + 1 : "";
-	char name[64] = "USB drive", path[300], dev[8];
-	int n;
-	const usbfs_volume *v = usbfs_volumes(&n);
-	if (!usbfs_device_path(v, n, f, path, sizeof(path)))
-		for (int i = 0; i < n; i++) {
-			usbfs_device(&v[i], dev, sizeof(dev));
-			const size_t len = strlen(dev);
-			if (!strncmp(path, dev, len) && path[len] == ':') {
-				usbfs_name(&v[i], name, sizeof(name));
-				break;
-			}
-		}
-	snprintf(label, size, "%s%s%s", name, rest[0] ? ": " : "", rest);
-}
-
-/* settings.cfg's ROM folder: "" is the default, "sd:/path" a folder on the
- * SD card, "usb:<serial>/path" one on a USB drive's partition (Settings >
- * Games > ROM folder). */
+/* settings.cfg's ROM folder as a full path, for people (usbfs_folder_label):
+ * "SD card: /wiiu/our64/roms", "USB drive OUR64 EXFAT: /ROMs/N64", the drive
+ * named by its label when plugged in, else by the label kept as it was picked. */
 static const char *folder_label(const char *f)
 {
-	static char label[300];
-	if (!f[0])
-		return "SD card: wiiu/our64/roms";
-	if (!strncmp(f, "usb:", 4)) {
-		usb_folder_label(f, label, sizeof(label));
-		return label;
-	}
-	if (strncmp(f, "sd:/", 4))
-		return "USB drive";
-	if (f[4])
-		snprintf(label, sizeof(label), "SD card: %s", f + 4);
-	else
-		snprintf(label, sizeof(label), "SD card");
+	static char label[400];
+	int n;
+	const usbfs_volume *v = usbfs_volumes(&n);
+	usbfs_folder_label(f, setup_settings()->rom_drive, v, n, label, sizeof(label));
 	return label;
 }
 
