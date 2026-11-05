@@ -151,16 +151,29 @@ static void recent_games_keep_the_last_five_played_newest_first(void)
 	CHECK(settings_parse("Recent games = \nLast game = X.z64\n", &r) == 0 && !r.recent[0][0]); /* none played since */
 }
 
-static void rom_folder_round_trip(void)
+static void shader_and_rom_folder_round_trip(void)
 {
 	our_settings s;
-	CHECK(settings_parse("ROM folder = usb:1A2B-3C4D/Games/N64\n", &s) == 0);
+	CHECK(settings_parse("Shader = CRT Curved\nROM folder = usb:1A2B-3C4D/Games/N64\n", &s) == 0);
+	CHECK(s.shader == SHADER_CURVED);
 	CHECK(!strcmp(s.rom_folder, "usb:1A2B-3C4D/Games/N64"));
 	char text[2048];
 	settings_format_all(text, sizeof(text), &s);
 	our_settings back;
 	CHECK(settings_parse(text, &back) == 0);
-	CHECK(!strcmp(back.rom_folder, s.rom_folder));
+	CHECK(back.shader == SHADER_CURVED && !strcmp(back.rom_folder, s.rom_folder));
+}
+
+/* Smooth (GLideN64's FXAA) was dropped 2026-11-04: an older build's settings.cfg
+ * may say it. It reads as Off, the file is not damaged, and is written back as Off. */
+static void an_older_builds_smooth_reads_as_off(void)
+{
+	our_settings s;
+	CHECK(settings_parse("Shader = Smooth\nTheme = Comrade\n", &s) == 0);
+	CHECK(s.shader == SHADER_OFF && s.theme == THEME_COMRADE);
+	char text[2048];
+	settings_format_all(text, sizeof(text), &s);
+	CHECK(strstr(text, "Shader = Off\n") && !strstr(text, "Smooth"));
 }
 
 /* The USB drive's label beside its folder (2026-11-04), so the folder reads in
@@ -177,8 +190,8 @@ static void rom_drive_round_trips_and_may_be_missing(void)
 	CHECK(settings_parse(text, &back) == 0 && !strcmp(back.rom_drive, "OUR64 EXFAT"));
 	CHECK(!strcmp(back.rom_folder, "usb:1A2B3C4D/ROMs/N64"));
 	/* an older settings.cfg: no ROM drive line, nothing damaged */
-	CHECK(settings_parse("ROM folder = usb:1A2B3C4D/ROMs/N64\n", &s) == 0);
-	CHECK(s.rom_drive[0] == 0);
+	CHECK(settings_parse("ROM folder = usb:1A2B3C4D/ROMs/N64\nShader = CRT\n", &s) == 0);
+	CHECK(s.rom_drive[0] == 0 && s.shader == SHADER_CRT);
 	/* written empty, read empty */
 	settings_format_all(text, sizeof(text), &s);
 	CHECK(strstr(text, "\nROM drive = \n") && settings_parse(text, &back) == 0 && back.rom_drive[0] == 0);
@@ -190,11 +203,15 @@ static void rom_drive_round_trips_and_may_be_missing(void)
 	CHECK(settings_parse(line, &s) == 0 && strlen(s.rom_drive) == 32);
 }
 
-static void rom_folder_default(void)
+static void shader_and_rom_folder_defaults(void)
 {
 	our_settings s;
 	settings_parse("Screen mode = TV only\n", &s);
-	CHECK(s.rom_folder[0] == 0); /* "": sd:/wiiu/our64/roms */
+	CHECK(s.shader == SHADER_OFF && s.rom_folder[0] == 0); /* "": sd:/wiiu/our64/roms */
+	CHECK(settings_parse("Shader = Sepia\n", &s) == SETTINGS_DAMAGED && s.shader == SHADER_OFF);
+	CHECK(!strcmp(shader_name(SHADER_SCANLINES), "Scanlines") && !strcmp(shader_name(SHADER_CRT), "CRT"));
+	CHECK(!shader_tv_only(SHADER_OFF));
+	CHECK(shader_tv_only(SHADER_SCANLINES) && shader_tv_only(SHADER_CRT) && shader_tv_only(SHADER_CURVED));
 }
 
 static void a_long_recent_list_and_folder_still_fit(void)
@@ -307,9 +324,10 @@ int main(void)
 	test_settings();
 	test_settings_file();
 	recent_games_keep_the_last_five_played_newest_first();
-	rom_folder_round_trip();
-	rom_folder_default();
+	shader_and_rom_folder_round_trip();
+	shader_and_rom_folder_defaults();
 	rom_drive_round_trips_and_may_be_missing();
+	an_older_builds_smooth_reads_as_off();
 	a_long_recent_list_and_folder_still_fit();
 	test_when();
 	test_title();

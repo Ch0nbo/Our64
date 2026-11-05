@@ -1454,9 +1454,22 @@ void setup_header(const char * headline, const char * sub)
 
 // Rows of named values, Settings', Picture's and Theme's: a row that opens a
 // page has ">", a value row its values with the one in use ticked and the one
-// left/right is on in a thick light border.
+// left/right is on in a thick light border. A cycler row (Picture's Shader)
+// shows that one value between arrows, an arrow dimmed where nothing is further.
+void value_box(const int vr[4], const char * value, bool in_use, bool picked, bool dead)
+{
+	if (picked)
+		box(vr[0] - 3, vr[1] - 3, vr[2] + 6, vr[3] + 6, rgb(T.panel.fill), 24);
+	box(vr[0], vr[1], vr[2], vr[3], in_use ? rgb(T.panel.fill) : rgb(T.bar.fill), 21);
+	char label[48];
+	snprintf(label, sizeof(label), "%s%s", in_use ? "✓ " : "", value);
+	const our_surface & on = in_use ? T.panel : T.bar;
+	text(vr[0] + vr[2] / 2, vr[1] + 11, label, fit(label, 20, 14, vr[2] - 24), dead ? rgb(theme_off(&on)) : rgb(on.ink),
+	     GUI_TEXT_JUSTIFY_CENTER);
+}
+
 void value_rows(int rows, int sel, const char * (*name)(int), int (*values)(int), const char * (*value)(int, int),
-                const int * pick, const int * in_use, const bool * page, bool (*off)(int, int))
+                const int * pick, const int * in_use, const bool * page, bool (*off)(int, int), int (*cycler)(int))
 {
 	for (int row = 0; row < rows; row++) {
 		int r[4];
@@ -1467,18 +1480,25 @@ void value_rows(int rows, int sel, const char * (*name)(int), int (*values)(int)
 			text(r[0] + r[2] - 24, r[1] + 11, ">", 28, card_muted(sel == row), GUI_TEXT_JUSTIFY_RIGHT);
 			continue;
 		}
+		if (cycler != nullptr && cycler(row)) {
+			const int i = pick[row];
+			for (int right = 0; right < 2; right++) {
+				int ar[4];
+				picture_arrow_rect(row, right, ar);
+				const bool end = right ? i >= values(row) - 1 : i <= 0;
+				// at an end the arrow is in the off ink greyed values use: nothing further that way
+				const PixelColor ink = end ? rgb(theme_off(&surface_of(sel == row, false))) : card_ink(sel == row, false);
+				text(ar[0] + ar[2] / 2, ar[1] - 2, right ? "›" : "‹", 32, ink, GUI_TEXT_JUSTIFY_CENTER);
+			}
+			int vr[4];
+			picture_cycler_rect(row, vr);
+			value_box(vr, value(row, i), i == in_use[row], true, off != nullptr && off(row, i));
+			continue;
+		}
 		for (int i = 0; i < values(row); i++) {
 			int vr[4];
 			settings_value_rect(row, i, vr);
-			const bool picked = pick[row] == i, dead = off != nullptr && off(row, i);
-			if (picked)
-				box(vr[0] - 3, vr[1] - 3, vr[2] + 6, vr[3] + 6, rgb(T.panel.fill), 24);
-			box(vr[0], vr[1], vr[2], vr[3], i == in_use[row] ? rgb(T.panel.fill) : rgb(T.bar.fill), 21);
-			char label[48];
-			snprintf(label, sizeof(label), "%s%s", i == in_use[row] ? "✓ " : "", value(row, i));
-			const our_surface & on = i == in_use[row] ? T.panel : T.bar;
-			text(vr[0] + vr[2] / 2, vr[1] + 11, label, fit(label, 20, 14, vr[2] - 24), dead ? rgb(theme_off(&on)) : rgb(on.ink),
-			     GUI_TEXT_JUSTIFY_CENTER);
+			value_box(vr, value(row, i), i == in_use[row], pick[row] == i, off != nullptr && off(row, i));
 		}
 	}
 }
@@ -1499,7 +1519,7 @@ void draw_settings(const setup_view & sv)
 	bool page[SET_ROWS];
 	for (int row = 0; row < SET_ROWS; row++)
 		page[row] = true; // every row opens a page: no values to draw
-	value_rows(SET_ROWS, s.row, settings_row_name, nullptr, nullptr, nullptr, nullptr, page, nullptr);
+	value_rows(SET_ROWS, s.row, settings_row_name, nullptr, nullptr, nullptr, nullptr, page, nullptr, nullptr);
 	const char * about = settings_row_about(&s);
 	text(40, 384, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
 	pause_key keys[6];
@@ -1507,7 +1527,7 @@ void draw_settings(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
-// Settings > Picture: Screen mode and Shape.
+// Settings > Picture: Screen mode, Shape and Shader.
 const picture_ui * g_rows_picture; // for picture_greyed
 bool picture_greyed(int row, int i) { return picture_off(g_rows_picture, row, i) != 0; }
 
@@ -1520,7 +1540,8 @@ void draw_picture(const setup_view & sv)
 	for (int row = 0; row < PIC_ROWS; row++)
 		in_use[row] = picture_in_use(&p, row);
 	g_rows_picture = &p;
-	value_rows(PIC_ROWS, p.row, picture_row_name, picture_values, picture_value_name, p.pick, in_use, page, picture_greyed);
+	value_rows(PIC_ROWS, p.row, picture_row_name, picture_values, picture_value_name, p.pick, in_use, page, picture_greyed,
+	           picture_cycler);
 	row_about(PIC_ROWS, picture_row_about(&p));
 	pause_key keys[6];
 	int n = picture_legend(&p, sv.glyphs, keys, 6);
@@ -1536,7 +1557,7 @@ void draw_look(const setup_view & sv)
 	bool page[LOOK_ROWS] = {};
 	for (int row = 0; row < LOOK_ROWS; row++)
 		in_use[row] = look_in_use(&l, row);
-	value_rows(LOOK_ROWS, l.row, look_row_name, look_values, look_value_name, l.pick, in_use, page, nullptr);
+	value_rows(LOOK_ROWS, l.row, look_row_name, look_values, look_value_name, l.pick, in_use, page, nullptr, nullptr);
 	row_about(LOOK_ROWS, look_row_about(&l)); // under the last row, as Settings' sits under its own
 	pause_key keys[6];
 	int n = look_legend(&l, sv.glyphs, keys, 6);

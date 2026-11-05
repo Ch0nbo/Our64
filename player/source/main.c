@@ -1346,6 +1346,7 @@ static int play_game(int index)
 		goto teardown;
 	loading("Preparing graphics", 0.7f);
 	video_set_picture(s.picture == PICTURE_WIDE);
+	video_set_shader(s.shader);
 	if (video_start()) {
 		report_line("Graphics did not start.");
 		goto teardown;

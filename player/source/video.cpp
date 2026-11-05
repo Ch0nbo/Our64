@@ -40,6 +40,7 @@
 #include <GBI.h>
 
 #include "player.h"
+#include "prompt.h"
 #include "video_ui.h"
 #include "our64_at.h"
 extern "C" {
@@ -885,6 +886,8 @@ void stop_on_graphics_core(void *)
 	if (!g_started)
 		return;
 	RomClosed(); // the plugin stays up for the next game
+	tv_pass_game_stopped();
+	ui_gfx_game_stopped();
 	our64_gx2_present = nullptr;
 	g_started = false;
 	g_last_frame = nullptr;
@@ -1017,6 +1020,21 @@ extern "C" void video_set_picture(int wide)
 		call(wide ? picture_wide_on_graphics_core : picture_43_on_graphics_core, nullptr);
 	else
 		ui_gfx_set_picture_43(!wide);
+}
+
+namespace {
+// The TV-only shaders are drawn in ui_gfx_scan, on the graphics core.
+void shader_on_graphics_core(void * arg) { ui_gfx_set_shader(*static_cast<int *>(arg)); }
+} // namespace
+
+// Settings > Picture's Shader. Before the graphics core is up only the value is kept.
+extern "C" void video_set_shader(int shader)
+{
+	if (g_gfx_ok)
+		call(shader_on_graphics_core, &shader);
+	else
+		ui_gfx_set_shader(shader);
+	report_line("SHADER: %s", shader_name(shader));
 }
 
 extern "C" unsigned video_submit_task(void)

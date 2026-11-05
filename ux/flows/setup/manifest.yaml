@@ -174,15 +174,16 @@ screens:
     entered_by: "A on Picture in settings"
     spec:
       shows:
-        - what: "Rows with their values: Screen mode (TV only / TV + GamePad / GamePad only), Shape (4:3 / 16:9)"
+        - what: "Rows with their values: Screen mode (TV only / TV + GamePad / GamePad only), Shape (4:3 / 16:9), Shader (one value between arrows: Off, Scanlines, CRT, CRT Curved)"
           why: "Values shown (recognition over recall)"
         - what: "Under the rows: \"Which screens show the game. The prompt at each start begins on it.\" or \"4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.\""
           why: "The effect is known before it is changed"
       actions:
         - do: "Left/right, then A"
-          result: "The value applies (Shape from a paused game: on Resume) and is written to config/settings.cfg"
+          result: "The value applies (Shape and Shader from a paused game: on Resume) and is written to config/settings.cfg"
       states:
         - "GamePad only with no GamePad connected: greyed, as on the prompt"
+        - "Scanlines, CRT and CRT Curved: the line under the rows says \"TV only: Does not apply to GamePad\"; greyed in GamePad only mode"
         - "a write to the SD fails: OUR-0203; the value on screen goes back"
   - id: games
     title: "Games"

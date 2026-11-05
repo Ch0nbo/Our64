@@ -8,6 +8,7 @@
 // of GLideN64 when the game freezes, so it outlives GLideN64 for the
 // closing screen.
 #include <cstdio>
+#include <malloc.h>
 #include <cstring>
 #include <string>
 
@@ -39,6 +40,7 @@
 #include "ui.h"
 #include "ui_draw.h"
 #include "video_ui.h"
+#include "prompt.h"
 extern "C" {
 #include "player.h"
 #include "report.h"
@@ -494,6 +496,80 @@ static GX2ColorBuffer g_shaped;
 
 void ui_gfx_set_picture_43(bool on) { g_picture_43 = on; }
 
+// Settings > Picture's Shader (SHADER_, prompt.h). Scanlines, CRT and CRT
+// Curved are drawn for the TV only, at the TV's own size (tv_pass.cpp), into
+// g_tvfx: WHB's TV buffer size, 1920x1080 for a 1080i/p TV, 1280x720 for
+// 720p, 854x480 for 480i/p. 8 MB at 1080p, so it is only kept while one of
+// the three is chosen.
+static int g_shader;
+static GX2ColorBuffer g_tvfx;
+static int g_tvfx_shape = -1; // the Picture shape its black was drawn for, -1: none yet
+static bool g_tvfx_failed[SHADERS]; // the shader could not be built: not tried again this session
+
+static void free_tvfx()
+{
+	if (g_tvfx.surface.image == nullptr)
+		return;
+	GX2DrawDone(); // the last copy to the TV may still read it
+	MEMFreeToDefaultHeap(g_tvfx.surface.image);
+	g_tvfx.surface.image = nullptr;
+	g_tvfx_shape = -1;
+}
+
+void ui_gfx_set_shader(int shader)
+{
+	g_shader = shader;
+	if (!shader_tv_only(shader))
+		free_tvfx();
+}
+
+// A game ended: its 8 MB go back, and the next game's first frame allocates them again.
+void ui_gfx_game_stopped() { free_tvfx(); }
+
+// The TV's picture through the TV-only shader, from the unshaped frame (the
+// pass places the 4:3 or 16:9 picture itself), or nullptr: none chosen, the
+// TV shows the GamePad-only card, or the pass cannot run.
+static GX2ColorBuffer * tv_shaded(GX2ColorBuffer * frame)
+{
+	if (!shader_tv_only(g_shader) || g_mode == MODE_GAMEPAD || g_tvfx_failed[g_shader])
+		return nullptr;
+	const GX2ColorBuffer * tv = WHBGfxGetTVColourBuffer();
+	if (g_tvfx.surface.image != nullptr &&
+	    (g_tvfx.surface.width != tv->surface.width || g_tvfx.surface.height != tv->surface.height))
+		free_tvfx();
+	if (g_tvfx.surface.image == nullptr) {
+		static bool logged;
+		// the heap as the watchdog measures it (main.c), once per allocation:
+		// MEMAllocFromDefaultHeapEx is newlib's memalign under wut
+		const struct mallinfo before = mallinfo();
+		if (!alloc_color_buffer(g_tvfx, tv->surface.width, tv->surface.height)) {
+			g_tvfx.surface.image = nullptr;
+			if (!logged)
+				report_line("TV SHADER: no memory for a %ux%u picture, the TV shows the plain one; heap %u KB in use of %u KB "
+				            "taken from the system", unsigned(tv->surface.width), unsigned(tv->surface.height),
+				            unsigned(before.uordblks / 1024), unsigned(before.arena / 1024));
+			logged = true;
+			return nullptr;
+		}
+		const struct mallinfo after = mallinfo();
+		// the TV shaders' own share of "in use" (tv_pass_held_bytes), so
+		// growth between two of these lines can be told from the game's
+		report_line("TV SHADER: %ux%u picture, %u KB; heap %u KB in use of %u KB taken before, %u KB of %u KB after; "
+		            "the TV shaders hold %u KB",
+		            unsigned(tv->surface.width), unsigned(tv->surface.height), unsigned(g_tvfx.surface.imageSize / 1024),
+		            unsigned(before.uordblks / 1024), unsigned(before.arena / 1024), unsigned(after.uordblks / 1024),
+		            unsigned(after.arena / 1024), (tv_pass_held_bytes() + 1023) / 1024);
+		g_tvfx_shape = -1;
+	}
+	if (!tv_pass_draw(frame, &g_tvfx, g_shader, g_picture_43, g_tvfx_shape != int(g_picture_43))) {
+		g_tvfx_failed[g_shader] = true;
+		free_tvfx();
+		return nullptr;
+	}
+	g_tvfx_shape = g_picture_43;
+	return &g_tvfx;
+}
+
 static GX2ColorBuffer * shaped(GX2ColorBuffer * frame)
 {
 	const uint32_t w = frame->surface.width, h = frame->surface.height;
@@ -526,12 +602,14 @@ void ui_gfx_scan(GX2ColorBuffer * frame)
 		if (g_copy_ctx != nullptr)
 			GX2SetupContextStateEx(g_copy_ctx, TRUE);
 	}
-	if (g_copy_ctx != nullptr)
+	// The TV-only shaders draw the TV's picture; the GamePad keeps the plain one.
+	GX2ColorBuffer * tv = tv_shaded(frame);
+	if (g_copy_ctx != nullptr && (tv == nullptr || g_mode != MODE_TV))
 		frame = shaped(frame);
 	if (g_mode == MODE_GAMEPAD && g_tv_card_ok)
 		GX2CopyColorBufferToScanBuffer(&g_tv_card, GX2_SCAN_TARGET_TV);
 	else
-		GX2CopyColorBufferToScanBuffer(frame, GX2_SCAN_TARGET_TV);
+		GX2CopyColorBufferToScanBuffer(tv != nullptr ? tv : frame, GX2_SCAN_TARGET_TV);
 	if (g_mode != MODE_TV)
 		GX2CopyColorBufferToScanBuffer(frame, GX2_SCAN_TARGET_DRC);
 	GX2SwapScanBuffers();
