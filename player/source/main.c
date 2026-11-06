@@ -1364,7 +1364,6 @@ static int play_game(int index)
 	snprintf(g_title, sizeof(g_title), "%s", lg->title);
 	struct stat st;
 	unsigned size = stat(g_rom, &st) ? 0 : (unsigned)st.st_size;
-	ui_tv_title(g_title);
 	memset(&g_load, 0, sizeof(g_load));
 	{ /* the game's cover beside the portrait while it loads (Zach, 2026-10-20) */
 		extern const roms_view *library_view(void);
@@ -1725,7 +1724,6 @@ teardown:
 	g_in_game = 0;
 	input_start(report_sd_root(), NULL); /* Our ROMs edits the all-games buttons, never the last game's profile */
 	running_mark(NULL);
-	ui_tv_title("Our ROMs");
 	report_save();
 	return result == PLAY_BACK && g_closing ? PLAY_EXIT : result;
 }
@@ -2081,7 +2079,7 @@ static int emu_thread(int argc, const char **argv)
 		writer_stop();
 		return 0;
 	}
-	ui_set_mode(mode, "Our ROMs");
+	ui_set_mode(mode);
 	input_set_joining(1);
 	if (autostart >= 0) {
 		play_game(autostart);

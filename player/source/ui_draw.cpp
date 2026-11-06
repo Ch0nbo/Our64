@@ -349,24 +349,10 @@ void draw_paused(const ui_view & v)
 	legend(FONT_HOME " Pause menu");
 }
 
-// The TV's card in GamePad only mode: no glyphs, nothing that looks pressable.
-void draw_tv_card(const char * title)
-{
-	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
-	float y = 0; // Standard has no portrait: the words move up into its place
-	if (theme_comrade())
-		portrait(UI_W / 2 - 84, 50, 168);
-	else
-		y = -90;
-	text(UI_W / 2, 250 + y, "PLAYING ON THE GAMEPAD", 40, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
-	text(UI_W / 2, 302 + y, title, 30, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
-	std::string lines[3];
-	int size = 24;
-	int n = wrap_fit("To use the TV: press HOME on the GamePad (your progress is saved), start Our64 again and choose "
-	                 "TV only or TV + GamePad.", size, 18, UI_W - 2 * 70, lines, 3);
-	for (int i = 0; i < n; i++)
-		text(UI_W / 2, 352 + y + i * (size + 6), lines[i].c_str(), size, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
-}
+// The TV in GamePad only mode: black. A card that named the game and told
+// how to switch screens was dropped (Zach, 2026-11-06): it cost a full-size
+// copy each VI and said little.
+void draw_tv_black() { box(0, 0, UI_W, UI_H, {0, 0, 0, 255}); }
 
 // Notices at the top, centred, oldest first: grey, a warning dark with a
 // lavender edge, so both stand out on the blue screens and over the game.

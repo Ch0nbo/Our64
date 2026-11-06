@@ -706,7 +706,6 @@ int library_run(int *game, const char *notice)
 	input_menu m;
 	input_menu_state(&m);
 	v->glyphs = m.last_id >= 0 && m.type[m.last_id] >= 0 ? m.type[m.last_id] : INPUT_GAMEPAD;
-	ui_tv_title("Our ROMs");
 	player_paused(1);
 	input_take_home();
 	double held_since = -1, next_repeat = 0;

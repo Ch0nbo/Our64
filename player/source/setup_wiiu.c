@@ -354,7 +354,7 @@ static int run_look(void)
 
 static void apply_mode(int mode)
 {
-	ui_set_mode(mode, g_from_pause ? player_title() : "Our ROMs");
+	ui_set_mode(mode);
 }
 
 static int run_picture(void)

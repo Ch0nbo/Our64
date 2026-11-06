@@ -152,12 +152,11 @@ void ui_show_ask(const char *title, const char *body, const char *action, int fo
 void ui_redraw(void);           /* the last view again */
 void ui_resume(void);           /* the game runs again: its frames show, and the next freeze takes a new one */
 /* From the prompt's choice on: which screens light up and play sound. Before
- * it, both. TV only turns the GamePad screen off; GamePad only puts a card on
- * the TV saying where the game is. */
-void ui_set_mode(int mode, const char *title);
+ * it, both. TV only turns the GamePad screen off; GamePad only shows black on
+ * the TV. */
+void ui_set_mode(int mode);
 int  ui_mode(void);
 void ui_restore_screens(void);  /* leaving: the GamePad screen back on */
-void ui_tv_title(const char *title); /* GamePad only: the TV card names this ("Our ROMs", a game) */
 /* The frozen game's picture for a save state: its 4:3 middle, THUMB_W x
  * THUMB_H RGB565 (all zero when there is no frame). After a UI_PAUSE show. */
 void ui_thumbnail(uint16_t *out);

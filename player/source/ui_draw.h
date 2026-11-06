@@ -39,7 +39,7 @@ void unlock_notices();
 void * frozen_texture();                  // the paused game's last frame, nullptr when none
 
 void draw_screen(const ui_view & v);      // one screen, whole
-void draw_tv_card(const char * title);    // GamePad only: the TV's card
+void draw_tv_black();                     // GamePad only: the TV's black
 void draw_notices(bool paused);
 
 } // namespace our64ui

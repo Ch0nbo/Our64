@@ -97,9 +97,9 @@ GX2Texture g_frozen;         // the game's last frame, behind pauses and the clo
 bool g_frozen_ok;            // g_frozen holds a frame
 bool g_frozen_now;           // ... of the current freeze (cleared when the game runs again)
 GX2ColorBuffer g_overlay;    // a game frame with the notices on
-GX2ColorBuffer g_tv_card;    // GamePad only: what the TV shows
+GX2ColorBuffer g_tv_card;    // GamePad only: what the TV shows (black, small: the copy scales it)
 bool g_tv_card_ok;
-// GamePad only: the TV's card is copied to the TV's scan buffers until each
+// GamePad only: the TV's black is copied to the TV's scan buffers until each
 // holds it, then no more. A full-size copy every VI (8 MB at 1080p) was GPU
 // time the game's frames waited behind (frame test, 2026-11-06). Any other
 // swap in between (a menu, Our ROMs) or a new card or new scan buffers starts
@@ -110,7 +110,6 @@ uint32_t g_card_swap = ~0u; // the swap count after the last scan with the card
 GX2ContextState * g_copy_ctx;
 
 volatile int g_mode = MODE_BOTH; // before the prompt's choice both screens are on
-char g_mode_title[64];
 ui_view g_last;
 bool g_have_last;
 
@@ -370,7 +369,7 @@ void frame(const ui_view & v)
 	const bool chosen = v.screen != UI_PROMPT;
 	if (chosen && g_mode == MODE_GAMEPAD) {
 		g_video->setUiTargets(1u << unsigned(OutputTarget::TV));
-		draw_tv_card(g_mode_title);
+		draw_tv_black();
 		g_video->flushDrawQueue();
 		g_video->setUiTargets(1u << unsigned(OutputTarget::DRC));
 	} else if (chosen && g_mode == MODE_TV) {
@@ -425,14 +424,15 @@ void tv_card_on_graphics_core(void *)
 {
 	if (!ready())
 		return;
-	GX2ColorBuffer * tv = WHBGfxGetTVColourBuffer();
-	if (!g_tv_card_ok)
-		g_tv_card_ok = alloc_color_buffer(g_tv_card, tv->surface.width, tv->surface.height);
+	g_card_copies = 0; // each scan buffer gets the black again
+	if (g_tv_card_ok)
+		return;
+	g_tv_card_ok = alloc_color_buffer(g_tv_card, 64, 64);
 	if (!g_tv_card_ok)
 		return;
-	draw_tv_card(g_mode_title);
-	g_video->drawOverlay(&g_tv_card);
-	g_card_copies = 0; // a new card: each scan buffer gets it again
+	memset(g_tv_card.surface.image, 0, g_tv_card.surface.imageSize); // black (the scan copy leaves alpha out)
+	DCFlushRange(g_tv_card.surface.image, g_tv_card.surface.imageSize);
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU, g_tv_card.surface.image, g_tv_card.surface.imageSize);
 }
 
 void restore_on_graphics_core(void *)
@@ -635,7 +635,7 @@ void ui_gfx_scan(GX2ColorBuffer * frame)
 		if (g_card_copies < kCardCopies) {
 			GX2CopyColorBufferToScanBuffer(&g_tv_card, GX2_SCAN_TARGET_TV);
 			g_card_copies++;
-			our64_gx2_prof_mark("TV copy (GamePad only card)");
+			our64_gx2_prof_mark("TV copy (GamePad only black)");
 		}
 		g_card_swap = swaps + 1;
 	} else {
@@ -694,9 +694,8 @@ extern "C" void ui_redraw(void)
 
 extern "C" void ui_thumbnail(uint16_t * out) { video_call(thumb_on_graphics_core, out); }
 
-extern "C" void ui_set_mode(int mode, const char * title)
+extern "C" void ui_set_mode(int mode)
 {
-	snprintf(g_mode_title, sizeof(g_mode_title), "%s", title);
 	g_mode = mode;
 	audio_route(mode != MODE_GAMEPAD, mode != MODE_TV);
 	VPADSetLcdMode(VPAD_CHAN_0, mode == MODE_TV ? VPAD_LCD_OFF : VPAD_LCD_ON);
@@ -706,13 +705,6 @@ extern "C" void ui_set_mode(int mode, const char * title)
 }
 
 extern "C" int ui_mode(void) { return g_mode; }
-
-extern "C" void ui_tv_title(const char * title)
-{
-	snprintf(g_mode_title, sizeof(g_mode_title), "%s", title);
-	if (g_mode == MODE_GAMEPAD)
-		video_call(tv_card_on_graphics_core, nullptr);
-}
 
 extern "C" void ui_resume(void) { video_call(resume_on_graphics_core, nullptr); }
 
