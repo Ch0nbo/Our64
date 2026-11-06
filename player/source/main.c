@@ -513,6 +513,7 @@ static int g_count_switch;         /* sd:/wiiu/our64/count-per-op holds 1-4: eve
 static int g_build_shaders;        /* sd:/wiiu/our64/build-shaders exists: build every game's shaders, then stop */
 /* sd:/wiiu/our64/sweep exists: play every game for g_sweep_s seconds with nobody at the controls, then stop */
 static int g_sweep_s;
+static char g_game_fc[640];  /* the last game's pacing and frame check, for its sweep line */
 static double g_sweep_t0_us, g_sweep_low;  /* when the game started playing; its lowest 10 s VI/s (no menu in them) */
 static uint32_t g_sweep_vis0, g_sweep_tasks0, g_sweep_under0, g_sweep_yields0, g_sweep_links0;
 
@@ -818,6 +819,12 @@ void new_vi(void)
 	} else if (now - g_next_vi > 4 * g_vi_period)
 		g_next_vi = now;
 	g_vi_late = idle_us < 1000;
+	/* The controllers again after the wait, so the frame the game runs next
+	 * gets input from now, not from before the sleep: Smash slept ~6.7 ms a
+	 * VI between the read above (HOME, pauses) and its next frame (400 ms a
+	 * second, 2026-11-06). */
+	if (idle_us >= 1000)
+		input_read();
 
 	double t = report_now_us();
 	saves_poll(t);
@@ -1707,6 +1714,7 @@ static int play_game(int index)
 			g_fc_game_max_us = v.latency_max_us;
 		char fc[600];
 		frame_check_line("GAME: ", &g_fc_game, &v, g_fc_game_max_us, fc, sizeof(fc));
+		snprintf(g_game_fc, sizeof(g_game_fc), "%s; %s", g_tv_clock ? "TV clock" : "old pacing", fc + 6);
 		/* every game's line kept in sd:/wiiu/our64/frame-check.txt (the log keeps two launches) */
 		char path[256], id[64];
 		saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
@@ -1936,6 +1944,7 @@ static void build_shaders(void)
  * stopped and goes on. The console's auto power-down is off meanwhile. */
 static void sweep(void)
 {
+	g_game_fc[0] = 0;
 	char path[256];
 	struct stat st;
 	snprintf(path, sizeof(path), "%s/sweep-done", report_sd_root());
@@ -1979,7 +1988,8 @@ static void sweep(void)
 		report_restart(); /* each game's lines reach the card: the 256 KB buffer held only 24 games */
 		g_sweep_t0_us = 0;
 		const int r = play_game(i);
-		char line[400];
+		char line[1100];
+		g_game_fc[0] = 0;
 		if (!g_sweep_t0_us) {
 			snprintf(line, sizeof(line), "%s: did not start (could not read it, or graphics did not start)  CHECK", file);
 		} else {
@@ -1998,6 +2008,8 @@ static void sweep(void)
 			snprintf(line, sizeof(line), "%s (%.20s): %.0f s, %.1f VI/s%s, %.1f graphics tasks/s, %u underruns, %u yields, "
 			         "%u shaders compiled%s", file, (const char *)ROM_HEADER.Name, s, vis, low, tasks, under, yields,
 			         our64_gx2_links - g_sweep_links0, check ? "  CHECK" : "");
+			if (g_game_fc[0]) /* the pacing and frame check: games that do worse on the TV clock than the old pacing */
+				snprintf(line + strlen(line), sizeof(line) - strlen(line), " | %s", g_game_fc);
 			checks += check;
 		}
 		build_note("sweep-results.txt", "a", line);
