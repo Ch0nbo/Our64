@@ -107,6 +107,8 @@ void input_init(void);            /* at launch: controllers are read from here o
 int  input_start(const char *root, const char *game_id); /* the game's mappings */
 void input_read(void);
 uint32_t input_keys(int port);    /* BUTTONS.Value for N64 port 0-3 */
+void input_age_reset(void);       /* input delay: the reading's age at the game's polls (issue #19) */
+unsigned input_age_stats(double *median, double *p95, double *p99, double *most);
 int  input_waiting_port(void);    /* a port whose controller is gone, or -1 */
 int  input_take_home(void);       /* HOME was pressed on any controller since the last call */
 void input_set_joining(int on);   /* off while the prompt runs: presses put no controller in a port */

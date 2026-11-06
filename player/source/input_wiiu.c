@@ -437,9 +437,43 @@ void input_game_start(void)
 	            g_ports.owner[2], g_ports.owner[3]);
 }
 
+/* Input delay (issue #19): how old the controllers' reading is when the game
+ * asks for port 1's buttons, in 0.25 ms steps up to 50 ms. With the game's
+ * own frames (the same as on an N64: one emulated VI per TV vsync) and the
+ * time from its VI to the screen (the frame check), that is all the delay
+ * Our64 adds before the TV or GamePad. */
+static OSTime g_read_t;
+static unsigned g_age_hist[201], g_age_n;
+
+void input_age_reset(void)
+{
+	memset(g_age_hist, 0, sizeof(g_age_hist));
+	g_age_n = 0;
+}
+
+/* The share of polls at or below each step: median, 95%, 99% and the most, in ms. */
+unsigned input_age_stats(double *median, double *p95, double *p99, double *most)
+{
+	*median = *p95 = *p99 = *most = 0;
+	if (g_age_n == 0)
+		return 0;
+	unsigned seen = 0;
+	int m = 0, a = 0, b = 0;
+	for (int i = 0; i <= 200; i++) {
+		if (g_age_hist[i])
+			*most = i * 0.25;
+		seen += g_age_hist[i];
+		if (!m && seen * 2 >= g_age_n) { *median = i * 0.25; m = 1; }
+		if (!a && seen * 20 >= g_age_n * 19) { *p95 = i * 0.25; a = 1; }
+		if (!b && seen * 100 >= g_age_n * 99) { *p99 = i * 0.25; b = 1; }
+	}
+	return g_age_n;
+}
+
 void input_read(void)
 {
 	static input_raw raw[INPUT_CONTROLLERS];
+	g_read_t = OSGetSystemTime();
 	for (int id = 0; id < INPUT_CONTROLLERS; id++) {
 		uint32_t home = 0;
 		int type = INPUT_GAMEPAD;
@@ -612,7 +646,16 @@ void input_menu_state(input_menu *m)
 	m->touch_y = g_touch_y;
 }
 
-uint32_t input_keys(int port) { return port >= 0 && port < INPUT_PORTS ? g_keys[port] : 0; }
+uint32_t input_keys(int port)
+{
+	if (port == 0 && g_read_t) {
+		const OSTime age = OSGetSystemTime() - g_read_t;
+		const unsigned step = (unsigned)(OSTicksToMicroseconds(age) / 250);
+		g_age_hist[step > 200 ? 200 : step]++;
+		g_age_n++;
+	}
+	return port >= 0 && port < INPUT_PORTS ? g_keys[port] : 0;
+}
 int input_waiting_port(void) { return input_ports_waiting(&g_ports); }
 
 int input_take_home(void)

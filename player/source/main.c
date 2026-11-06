@@ -384,9 +384,14 @@ static int ft_write(int done)
 	if (!f)
 		return 0;
 	const unsigned measured = g_bench.vis - g_ft_vi0 - FT_SETTLE_VIS;
-	int ok = fprintf(f, "game %s\nrun %d\npacing %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s", g_ft_name,
+	double am, a95, a99, amost;
+	const unsigned polls = input_age_stats(&am, &a95, &a99, &amost);
+	char age[200];
+	snprintf(age, sizeof(age), "input age at the game's polls: median %.2f ms, 95%% %.2f, 99%% %.2f, most %.2f (%u polls)\n",
+	         am, a95, a99, amost, polls);
+	int ok = fprintf(f, "game %s\nrun %d\npacing %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s%s", g_ft_name,
 	                 g_ft_run, g_ft_fix ? "TV clock" : "old", measured, FT_MEASURE_VIS,
-	                 audio_underruns() - g_ft_under0, fc, gpu, done ? "COMPLETE\n" : "") > 0;
+	                 audio_underruns() - g_ft_under0, fc, age, gpu, done ? "COMPLETE\n" : "") > 0;
 	ok = fclose(f) == 0 && ok;
 	return ok;
 }
@@ -405,6 +410,7 @@ static void ft_tick(void)
 		g_ft_under0 = audio_underruns();
 		video_pace_start();
 		video_gpu_profile(1);
+		input_age_reset();
 		g_ft_state = 1;
 		if (!ft_write(0))
 			ft_notice("Frame test: could not write", "to sd:/wiiu/our64/frametest");
