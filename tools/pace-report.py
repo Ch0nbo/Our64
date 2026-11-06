@@ -43,11 +43,11 @@ def main():
         elif k == "S":
             swaps.setdefault(a, t)
         elif k == "F":
-            flips.append((t, b))
+            flips.append((t, b, c))
         elif k == "R":
-            flips.append((t, 0))  # the frame check started over: nothing measured across it
+            flips.append((t, 0, 0))  # the frame check started over: nothing measured across it
         elif k == "T":
-            flips.append((t, -1))  # a still screen's swap left out: the next skip is not seen
+            flips.append((t, -1, 0))  # a still screen's swap left out: the next skip is not seen
     if not marks:
         print("no VIs recorded (an old pace.bin?)")
         return
@@ -69,19 +69,23 @@ def main():
     latency = []
     prev = None
     excused = 0
-    for t, vi in flips:
+    pslot = None
+    for t, vi, fslot in flips:
         if vi == -1:
             excused += 1
             continue
         if vi == 0 or vi not in marks:
             excused = 0
             prev = None
+            pslot = None
             continue
-        latency.append(ms(t - marks[vi][0]))
+        if prev is None or prev[1] != vi:  # a VI's first flip (one due two vsyncs is swapped twice)
+            latency.append(ms(t - marks[vi][0]))
         if prev is not None:
             pt, pvi = prev
             vsyncs = int(round((t - pt) / PERIOD))
-            due_vsyncs = slots[vi] - slots[pvi] if slots.get(vi) and slots.get(pvi) else vi - pvi
+            # the swap's own slot (a VI due two vsyncs is swapped twice), else its VI's
+            due_vsyncs = (fslot - pslot) if fslot and pslot else (slots[vi] - slots[pvi] if slots.get(vi) and slots.get(pvi) else vi - pvi)
             d = due_vsyncs - vsyncs
             while d > 0 and excused:
                 d -= 1
@@ -125,6 +129,7 @@ def main():
                 if n > 1:
                     never += n - 1
         prev = (t, vi)
+        pslot = fslot
         excused = 0
     print("TV flips %d; VIs skipped %d, repeated %d; game frames never shown %d" % (sum(1 for f in flips if f[1] > 0), skipped, repeated, never))
     if latency:

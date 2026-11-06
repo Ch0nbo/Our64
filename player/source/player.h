@@ -85,7 +85,8 @@ void video_gpu_profile_report(char *out, unsigned size); /* its line (blocks unt
 void video_set_tv_clock(int on); /* the VI clock is the TV's vsync (video.cpp, main.c new_vi) */
 int video_tv_is_60hz(void);
 unsigned video_tv_period_ns(void); /* the TV's refresh: 16683333 or 20000000 */
-void video_vi_hold(unsigned hold); /* the VI just numbered stays hold vsyncs (PAL cadence), for the frame check */      /* the TV runs at 59.94 Hz (not 576i's 50) */ /* the flip record (sd:/wiiu/our64/pace or the flip queue): pace-<game>.bin (video.cpp) */
+void video_set_pal_cadence(int on); /* a PAL game on a 59.94 Hz TV: every fifth VI due two vsyncs */
+unsigned video_last_vi_hold(void); /* vsyncs the VI just numbered is due on the TV */      /* the TV runs at 59.94 Hz (not 576i's 50) */ /* the flip record (sd:/wiiu/our64/pace or the flip queue): pace-<game>.bin (video.cpp) */
 double video_busy_s(unsigned *cmd); /* how long the current command has run; 0 when idle */
 void video_backtrace(char *out, unsigned size); /* the graphics core's PC and return addresses, for the log */
 

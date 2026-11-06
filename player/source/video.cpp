@@ -168,7 +168,7 @@ struct Queued {
 // (GX2GetSwapStatus), from what each swap showed (Conker judders at a steady
 // 30 frames a second, 2026-11-02).
 unsigned g_presents;        // VIs presented, this core's count
-struct SwapInfo { uint32_t swap; unsigned vi; uint32_t origin; };
+struct SwapInfo { uint32_t swap; unsigned vi; uint32_t origin; uint32_t slot; }; // slot: the vsync it is for (see ViMark)
 SwapInfo g_swap_info[16];   // by swap count: what each swap showed (swap: the count it was written for)
 
 // Frame check (2026-11-05): does the TV show each VI when the N64 would?
@@ -180,14 +180,18 @@ SwapInfo g_swap_info[16];   // by swap count: what each swap showed (swap: the c
 // one VIs repeated (shown late). A game frame (a run of VIs with one origin)
 // none of whose VIs reached the TV was dropped. Testers saw frames skipped
 // at full speed in Conker, the Banjos and GoldenEye.
-// slot: the TV vsync the VI is due at, counted from any start: one more than
-// the last VI's, or two after the VI a PAL game's cadence holds two vsyncs
-// (video_vi_hold). The frame check compares slots, so one rule covers NTSC
-// (one VI a vsync) and PAL on a 59.94 Hz TV (5 VIs in 6 vsyncs).
-struct ViMark { uint32_t origin; OSTime t; uint32_t slot; };
+// slot: the TV vsync the VI is due at, counted from any start: the last VI's
+// plus its hold. A PAL game on a 59.94 Hz TV holds every fifth VI two vsyncs
+// (5 VIs in 6, video_set_pal_cadence), and that VI is swapped twice, so a swap
+// waits at every vsync as with NTSC: holding it by sending nothing left the
+// queue almost empty, and a late frame showed (89-475 times a minute in four
+// PAL games, 2026-11-06). The frame check compares slots, so one rule covers
+// NTSC (one VI a vsync) and PAL.
+struct ViMark { uint32_t origin; OSTime t; uint32_t slot; uint32_t hold; }; // hold: vsyncs it is due on the TV
 constexpr uint32_t kViMarks = 1024;
 ViMark g_vi_marks[kViMarks];        // VI n's at n % kViMarks
-volatile uint32_t g_vi_next_hold = 1; // CPU core: vsyncs the last numbered VI stays (video_vi_hold)
+bool g_pal_cadence;                 // a PAL game on a 59.94 Hz TV (video_set_pal_cadence)
+uint32_t g_cadence_n;               // CPU core: VIs numbered since it was set
 volatile uint32_t g_vi_marked;      // CPU core: VIs numbered
 volatile uint32_t g_vis_unpresented; // CPU core: VIs never given to the graphics core (it still had one)
 volatile uint32_t g_game_frames;    // CPU core: VIs with a new origin
@@ -207,7 +211,7 @@ volatile double g_fc_latency_us, g_fc_latency_max_us; // VI to TV: sum, and the 
 volatile unsigned g_fc_latency_n;
 bool g_fc_have_prev, g_fc_have_frame, g_fc_off;
 unsigned g_fc_excused;  // swaps left out on still screens since the last flip: no skip to count
-uint32_t g_fc_prev_vi, g_fc_frame_start;
+uint32_t g_fc_prev_vi, g_fc_prev_slot, g_fc_frame_start;
 OSTime g_fc_prev_t, g_fc_frame_t;
 // GPU flip queue (GamePad: hold L and R, press minus; dev build): each VI's
 // picture is copied and swapped as soon as GLideN64 presents it, repeats too,
@@ -247,7 +251,7 @@ bool g_triple;
 // decodes on instead of waiting: waiting there took 550 ms of each second and
 // Banjo-Kazooie drew 20 frames a second instead of 29 (2026-11-05).
 constexpr int kKeptMax = 4;
-struct Kept { int picture; unsigned vi; uint32_t origin; };
+struct Kept { int picture; unsigned vi; uint32_t origin; unsigned rep; };
 Kept g_kept[kKeptMax];
 int g_kept_n;
 GX2ColorBuffer g_kept_pictures[kKeptMax + 1];
@@ -289,13 +293,14 @@ void drop_queued(int i)
 
 // To the screens the screen mode uses (ui_wiiu.cpp).
 void pace_note(char kind, OSTime t, OSTime x, uint32_t a, uint32_t b, uint32_t c);
-void show(GX2ColorBuffer * screen, unsigned vi, uint32_t origin, OSTime vsync)
+uint32_t mark_slot(uint32_t vi);
+void show(GX2ColorBuffer * screen, unsigned vi, uint32_t origin, OSTime vsync, unsigned rep = 0)
 {
 	ui_gfx_scan(screen);
 	uint32_t swaps = 0, flips = 0;
 	OSTime last_flip, last_vsync;
 	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
-	g_swap_info[swaps & 15] = {swaps, vi, origin};
+	g_swap_info[swaps & 15] = {swaps, vi, origin, mark_slot(vi) + rep};
 	pace_note('S', OSGetSystemTime(), vsync, vi, origin, swaps);
 }
 
@@ -366,6 +371,7 @@ void on_vsync(GX2EventType, void *)
 
 uint32_t mark_origin(uint32_t vi) { return g_vi_marks[vi % kViMarks].origin; }
 uint32_t mark_slot(uint32_t vi) { return g_vi_marks[vi % kViMarks].slot; }
+uint32_t mark_hold(uint32_t vi) { return g_vi_marks[vi % kViMarks].hold; }
 // VI vi's mark is still there (the CPU core has not numbered kViMarks VIs since).
 bool marked(uint32_t vi) { return vi != 0 && int32_t(g_vi_marked - vi) >= 0 && g_vi_marked - vi < kViMarks - 16; }
 
@@ -391,7 +397,7 @@ void check_flip(uint32_t flips, OSTime t)
 {
 	const SwapInfo info = g_swap_info[flips & 15];
 	const bool known = info.swap == flips && marked(info.vi) && !g_hold && !g_fc_off;
-	pace_note('F', t, 0, flips, known ? info.vi : 0, 0);
+	pace_note('F', t, 0, flips, known ? info.vi : 0, known ? info.slot : 0);
 	if (!known) { // one of Our64's own screens, a VI too long ago, or a PAL game
 		frame_check_reset();
 		return;
@@ -408,7 +414,7 @@ void check_flip(uint32_t flips, OSTime t)
 	uint32_t start = 0;
 	if (g_fc_have_prev) {
 		const int32_t vsyncs = int32_t((t - g_fc_prev_t + period / 2) / period);
-		int32_t d = int32_t(mark_slot(vi) - mark_slot(g_fc_prev_vi)) - vsyncs;
+		int32_t d = int32_t(info.slot - g_fc_prev_slot) - vsyncs;
 		while (d > 0 && g_fc_excused > 0) { // a still screen's left-out swap: not seen
 			d--;
 			g_fc_excused--;
@@ -450,6 +456,7 @@ void check_flip(uint32_t flips, OSTime t)
 		g_fc_have_frame = true;
 	}
 	g_fc_prev_vi = vi;
+	g_fc_prev_slot = info.slot;
 	g_fc_prev_t = t;
 	g_fc_have_prev = true;
 }
@@ -585,12 +592,77 @@ void show_tv_kept(bool outside_frame)
 		for (int i = 0; i + 1 < g_kept_n; i++)
 			g_kept[i] = g_kept[i + 1];
 		g_kept_n--;
-		show(&g_kept_pictures[k.picture], k.vi, k.origin, 0);
+		show(&g_kept_pictures[k.picture], k.vi, k.origin, 0, k.rep);
 		g_frames_shown++;
 		shown = true;
 	}
 	if (shown && outside_frame)
 		gx2::restoreState();
+}
+
+// TV clock: one swap of the VI GLideN64 presents (rep: its second, for a VI
+// due two vsyncs).
+void present_tv(GX2ColorBuffer * frame, bool same, unsigned rep)
+{
+	uint32_t swaps = 0, flips = 0;
+	OSTime last_flip, last_vsync;
+	show_tv_kept(false);
+	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+	const uint32_t depth = swaps - flips + uint32_t(g_kept_n);
+	g_tv_pending_sum = g_tv_pending_sum + depth;
+	g_tv_pending_n = g_tv_pending_n + 1;
+	if (depth < g_depth_min)
+		g_depth_min = depth;
+	if (++g_depth_n == kDepthWindow) {
+		if (g_depth_min >= 2 && g_tv_slips_asked == g_tv_slips_done) {
+			g_tv_slips_asked = g_tv_slips_asked + 1;
+			g_tv_trimmed = g_tv_trimmed + 1;
+			pace_note('D', OSGetSystemTime(), 0, g_screen_vi, g_depth_min, 0);
+		}
+		g_depth_n = 0;
+		g_depth_min = ~0u;
+	}
+	if (g_kept_n == 0 && swaps - flips < kTvAhead) {
+		show(frame, g_screen_vi, g_regs.vi[1], 0, rep);
+		g_frames_shown++;
+		frame_check();
+		return;
+	}
+	if (g_kept_n == kKeptMax) { // four kept already: this core waits after all
+		g_tv_waited = g_tv_waited + 1;
+		wait_for_room(kTvAhead);
+		show_tv_kept(false);
+	}
+	// A repeat of the last kept picture shares it; anything else is copied
+	// into a picture no kept present uses.
+	int picture = -1;
+	if (same && g_kept_n > 0)
+		picture = g_kept[g_kept_n - 1].picture;
+	for (int p = 0; p <= kKeptMax && picture < 0; p++) {
+		bool used = false;
+		for (int i = 0; i < g_kept_n; i++)
+			used = used || g_kept[i].picture == p;
+		if (!used)
+			picture = p;
+	}
+	if (g_kept_n == kKeptMax || picture < 0 ||
+	    (!(same && g_kept_n > 0 && picture == g_kept[g_kept_n - 1].picture) &&
+	     !ui_gfx_copy_frame(frame, &g_kept_pictures[picture]))) {
+		// no room or no memory: the kept ones first, then this one, waiting here
+		for (int tries = 0; g_kept_n > 0 && tries < 8; tries++) {
+			wait_for_room(kTvAhead);
+			show_tv_kept(false);
+		}
+		wait_for_room(kTvAhead);
+		show(frame, g_screen_vi, g_regs.vi[1], 0, rep);
+		g_frames_shown++;
+		frame_check();
+		return;
+	}
+	our64_gx2_prof_mark("kept copy");
+	g_kept[g_kept_n++] = {picture, g_screen_vi, g_regs.vi[1], rep};
+	frame_check();
+	return;
 }
 
 // Each VI GLideN64 presents: queued (see above). Controller notices go on a
@@ -627,64 +699,9 @@ void present(GX2ColorBuffer * screen)
 		report_line("VIDEO: GPU flip queue %s at VI %u", g_flipq_was ? "on" : "off", g_presents);
 	}
 	if (g_tv_clock) {
-		uint32_t swaps = 0, flips = 0;
-		OSTime last_flip, last_vsync;
-		show_tv_kept(false);
-		GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
-		const uint32_t depth = swaps - flips + uint32_t(g_kept_n);
-		g_tv_pending_sum = g_tv_pending_sum + depth;
-		g_tv_pending_n = g_tv_pending_n + 1;
-		if (depth < g_depth_min)
-			g_depth_min = depth;
-		if (++g_depth_n == kDepthWindow) {
-			if (g_depth_min >= 2 && g_tv_slips_asked == g_tv_slips_done) {
-				g_tv_slips_asked = g_tv_slips_asked + 1;
-				g_tv_trimmed = g_tv_trimmed + 1;
-				pace_note('D', OSGetSystemTime(), 0, g_screen_vi, g_depth_min, 0);
-			}
-			g_depth_n = 0;
-			g_depth_min = ~0u;
-		}
-		if (g_kept_n == 0 && swaps - flips < kTvAhead) {
-			show(frame, g_screen_vi, g_regs.vi[1], 0);
-			g_frames_shown++;
-			frame_check();
-			return;
-		}
-		if (g_kept_n == kKeptMax) { // four kept already: this core waits after all
-			g_tv_waited = g_tv_waited + 1;
-			wait_for_room(kTvAhead);
-			show_tv_kept(false);
-		}
-		// A repeat of the last kept picture shares it; anything else is copied
-		// into a picture no kept present uses.
-		int picture = -1;
-		if (same && g_kept_n > 0)
-			picture = g_kept[g_kept_n - 1].picture;
-		for (int p = 0; p <= kKeptMax && picture < 0; p++) {
-			bool used = false;
-			for (int i = 0; i < g_kept_n; i++)
-				used = used || g_kept[i].picture == p;
-			if (!used)
-				picture = p;
-		}
-		if (g_kept_n == kKeptMax || picture < 0 ||
-		    (!(same && g_kept_n > 0 && picture == g_kept[g_kept_n - 1].picture) &&
-		     !ui_gfx_copy_frame(frame, &g_kept_pictures[picture]))) {
-			// no room or no memory: the kept ones first, then this one, waiting here
-			for (int tries = 0; g_kept_n > 0 && tries < 8; tries++) {
-				wait_for_room(kTvAhead);
-				show_tv_kept(false);
-			}
-			wait_for_room(kTvAhead);
-			show(frame, g_screen_vi, g_regs.vi[1], 0);
-			g_frames_shown++;
-			frame_check();
-			return;
-		}
-		our64_gx2_prof_mark("kept copy");
-		g_kept[g_kept_n++] = {picture, g_screen_vi, g_regs.vi[1]};
-		frame_check();
+		const uint32_t hold = marked(g_screen_vi) && mark_hold(g_screen_vi) == 2 ? 2 : 1;
+		for (uint32_t rep = 0; rep < hold; rep++)
+			present_tv(frame, same || rep > 0, rep);
 		return;
 	}
 	if (g_flipq) {
@@ -1472,8 +1489,9 @@ extern "C" void video_update_screen(void)
 {
 	// Numbered first, shown or not (the frame check, see g_vi_marks).
 	const uint32_t vi = g_vi_marked + 1, origin = *g_mem.vi[1];
-	g_vi_marks[vi % kViMarks] = {origin, OSGetSystemTime(), g_vi_marks[(vi - 1) % kViMarks].slot + g_vi_next_hold};
-	g_vi_next_hold = 1;
+	const ViMark & last = g_vi_marks[(vi - 1) % kViMarks];
+	const uint32_t hold = g_pal_cadence && ++g_cadence_n % 5 == 0 ? 2 : 1;
+	g_vi_marks[vi % kViMarks] = {origin, OSGetSystemTime(), last.slot + (last.hold ? last.hold : 1), hold};
 	if (origin != g_last_marked_origin) {
 		g_last_marked_origin = origin;
 		g_game_frames = g_game_frames + 1;
@@ -1613,9 +1631,10 @@ extern "C" void video_gpu_profile_report(char * out, unsigned size)
 // its mode (576i is 50 Hz). The mode alone is not enough: the 50 Hz HD modes
 // homebrew can set have no GX2 value of their own (tv-clock-other-regions plan,
 // 2026-11-06).
-// The VI just numbered stays on the TV for hold vsyncs (main.c new_vi: 2 for
-// every fifth VI of a PAL game on a 59.94 Hz TV), for the frame check.
-extern "C" void video_vi_hold(unsigned hold) { g_vi_next_hold = hold; }
+// A PAL game on a 59.94 Hz TV: every fifth VI is due two vsyncs (see ViMark).
+extern "C" void video_set_pal_cadence(int on) { g_pal_cadence = on != 0; g_cadence_n = 0; }
+// The vsyncs the VI just numbered is due on the TV: main.c's schedule steps by it.
+extern "C" unsigned video_last_vi_hold(void) { return g_vi_marks[g_vi_marked % kViMarks].hold; }
 extern "C" unsigned video_tv_period_ns(void) { return video_tv_is_60hz() ? 16683333u : 20000000u; }
 
 extern "C" int video_tv_is_60hz(void)

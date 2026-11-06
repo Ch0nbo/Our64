@@ -286,7 +286,6 @@ static uint32_t g_pause_at_vi;
  * for comparing. */
 static int g_tv_clock;
 static int g_tv_cadence;       /* a PAL game on a 59.94 Hz TV: every fifth VI two vsyncs */
-static unsigned g_cadence_n;
 
 /* ---- frame test (2026-11-05): the folder sd:/wiiu/our64/frametest exists.
  * Each NTSC game's run measures the pacing it plays with (the TV clock, or
@@ -775,9 +774,7 @@ void new_vi(void)
 		 * the next of its own. Behind by more than two: the schedule moves (the
 		 * game runs slower, the TV keeps pictures longer; nothing is skipped). */
 		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
-		const unsigned hold = g_tv_cadence && ++g_cadence_n % 5 == 0 ? 2 : 1; /* the VI just run stays this many vsyncs */
-		g_tv_vi_k += hold;
-		video_vi_hold(hold);
+		g_tv_vi_k += video_last_vi_hold(); /* the VI just run is due this many vsyncs: 2 for a PAL game's every fifth */
 		g_tv_vi_k += video_tv_slip(); /* the TV's queue is deep: one vsync more, unseen */
 		/* Behind by up to two vsyncs the CPU core catches up (TV_LEAD_MAX below
 		 * bounds the delay that adds); more, and the schedule moves. Moving it
@@ -1646,7 +1643,7 @@ static int play_game(int index)
 		const int tv60 = video_tv_is_60hz();
 		g_tv_clock = !old && !racer && (is_pal() || tv60);
 		g_tv_cadence = g_tv_clock && is_pal() && tv60;
-		g_cadence_n = 0;
+		video_set_pal_cadence(g_tv_cadence);
 		ft_begin();
 		if (g_tv_clock) {
 			g_vi_period = OSNanosecondsToTicks(video_tv_period_ns()); /* the TV's 59.94 or 50 Hz */
