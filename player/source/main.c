@@ -755,9 +755,11 @@ void new_vi(void)
 		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
 		g_tv_vi_k++;
 		g_tv_vi_k += video_tv_slip(); /* the TV's queue is deep: one vsync more, unseen */
-		/* Behind by more than a vsync: the schedule moves instead of catching up,
-		 * which only queued pictures and delay (Banjo-Tooie, 2026-11-05). */
-		if ((int32_t)(k_now - g_tv_vi_k) > 1 || (int32_t)(g_tv_vi_k - k_now) > 4)
+		/* Behind by up to two vsyncs the CPU core catches up (TV_LEAD_MAX below
+		 * bounds the delay that adds); more, and the schedule moves. Moving it
+		 * after one vsync starved audio where Conker is CPU-bound: 10 underruns
+		 * a minute instead of 1 (2026-11-05). */
+		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4)
 			g_tv_vi_k = k_now;
 		g_next_vi = vs_t + (OSTime)(int32_t)(g_tv_vi_k - vs_count) * g_vi_period;
 		if (g_next_vi > now) {
