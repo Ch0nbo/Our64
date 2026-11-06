@@ -157,7 +157,7 @@ static void put_code(PowerPC_func *f, unsigned int size)
 
 /* On the CPU core, before cpu_deinit frees the compiled code. The alarm goes:
  * a periodic one left behind hung the next launches (replay app). */
-void cpuprof_save(void)
+void cpuprof_save(const char *name)
 {
 	g_active = 0;
 	if (g_alarm_set) {
@@ -170,7 +170,14 @@ void cpuprof_save(void)
 	const char *root = report_sd_root();
 	snprintf(path, sizeof(path), "%s/profile", root ? root : "");
 	mkdir(path, 0777);
-	snprintf(path, sizeof(path), "%s/profile/player-cpu.prof", root ? root : "");
+	/* One file a run, never one written over: profile/cpu-<name>-<k>.prof, k
+	 * the first number free (one fixed name lost every game but the last). */
+	struct stat st;
+	for (int k = 1; k < 1000; k++) {
+		snprintf(path, sizeof(path), "%s/profile/cpu-%s-%d.prof", root ? root : "", name, k);
+		if (stat(path, &st) != 0)
+			break;
+	}
 	g_out = fopen(path, "wb");
 	if (!g_out)
 		return;

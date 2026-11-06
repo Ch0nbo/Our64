@@ -38,7 +38,7 @@ void video_task_result(unsigned task, uint32_t *sp_set, uint32_t *sp_clear, int 
 int video_signal_ucode(void);     /* the last task's microcode waits on SP signals mid-task (ZSortBOSS) */
 void video_set_signal_ucode(int on); /* the game is known to use one, before its first task is decoded */
 void cpuprof_start(const char *root, volatile int *paused); /* sd:/wiiu/our64/profile-cpu (cpuprof.c) */
-void cpuprof_save(void);          /* before cpu_deinit */
+void cpuprof_save(const char *name); /* before cpu_deinit: profile/cpu-<name>-<k>.prof */
 void cpuprof_restart(void);       /* a reset: the samples so far are dropped */
 int  video_wait_task(unsigned task, double timeout_us); /* < 0: no timeout; 1 when decoded */
 void video_sync(void);            /* waits until the graphics core is idle */

@@ -364,12 +364,12 @@ static int ft_begin(void)
 /* The run's text file, rewritten whole each time. 0 when it could not be written. */
 static int ft_write(int done)
 {
-	char path[420], fc[600], gpu[700] = "";
+	char path[420], fc[600], gpu[1600] = "";
 	video_stats_t v;
 	video_stats(&v);
 	frame_check_line("", &g_ft_from, &v, 0, fc, sizeof(fc));
 	if (done) { /* the run's GPU profile: read once, at the end (it waits for the graphics core) */
-		video_gpu_profile_report(gpu, sizeof(gpu));
+		video_gpu_profile_report(gpu, sizeof(gpu) - 2); /* room for the newline: a cut line ran into COMPLETE */
 		video_gpu_profile(0);
 		report_line("FRAME TEST: %s", gpu);
 		strncat(gpu, "\n", sizeof(gpu) - strlen(gpu) - 1);
@@ -1717,7 +1717,12 @@ teardown:
 	}
 	saves_stop();
 	states_stop();
-	cpuprof_save();
+	{ /* the run's CPU profile, named for the game and the VI clock */
+		char id[64], name[80];
+		saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
+		snprintf(name, sizeof(name), "%s%s", id, g_tv_clock ? "-tv" : "");
+		cpuprof_save(name);
+	}
 	if (cpu_up)
 		cpu_deinit();
 	free_memory();
