@@ -1617,7 +1617,12 @@ static int play_game(int index)
 		struct stat st;
 		snprintf(path, sizeof(path), "%s/old-pacing", report_sd_root() ? report_sd_root() : "");
 		const int old = report_sd_root() && !stat(path, &st);
-		g_tv_clock = !old && !is_pal() && video_tv_is_60hz();
+		/* Racer keeps the old pacing: on the TV clock its graphics core waits
+		 * ~400 ms a second for the GPU and the game slows to 55-58 VI/s with
+		 * choppy sound; the old pacing holds 60 by leaving frames unshown
+		 * (Zach, 2026-11-06; the GPU stall is to be studied). */
+		const int racer = !strncmp((const char *)ROM_HEADER.Name, "STAR WARS EP1 RACER", 19);
+		g_tv_clock = !old && !racer && !is_pal() && video_tv_is_60hz();
 		ft_begin();
 		if (g_tv_clock) {
 			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */
@@ -1626,7 +1631,7 @@ static int play_game(int index)
 			g_tv_vi_k = video_tv_vsync(&c, &t) ? c : 0;
 			report_line("VIDEO: the TV's vsync is the VI clock, audio follows");
 		} else
-			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : is_pal() ? "a PAL game" : "a 50 Hz TV");
+			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : racer ? "Racer" : is_pal() ? "a PAL game" : "a 50 Hz TV");
 		video_set_tv_clock(g_tv_clock);
 		video_set_frame_check(!is_pal());
 		audio_set_unpaced(g_tv_clock);
