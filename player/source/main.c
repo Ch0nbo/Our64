@@ -501,16 +501,14 @@ static void wait_for_controller(void)
 static OSTime g_next_vi;    /* when the next VI is due */
 static OSTime g_vi_period;
 static uint32_t g_tv_vi_k; /* TV clock: the vsync the current VI is due at */
-static unsigned g_tv_lead_waits; /* TV clock: VIs that waited for the TV to catch up (TV_LEAD_MAX) */
 extern int video_tv_vsync(uint32_t *count, OSTime *t); /* video.cpp */
 extern int video_tv_slip(void);
-extern unsigned video_tv_lead(void);
-#define TV_LEAD_MAX 4 /* VIs the CPU core may run past the one on the TV (new_vi) */
+extern unsigned video_tv_lead_dropped(void);
 static double g_stats_from_us;
 static double g_vi_wait_us;
 /* TV clock pacing in the last 10 s (the stats line "TV clock pacing"): sleeps to the VI's vsync, waits for
- * the TV (TV_LEAD_MAX), schedule moves when behind or ahead, slips, VIs due 2+ vsyncs on, the oldest vsync seen */
-static struct { double sched_us, lead_us, vs_age_max_us; unsigned behind, ahead, slips, far, n; } g_tvp;
+ * the TV (none since VIs are dropped instead, video_update_screen), schedule moves when behind or ahead, slips, VIs due 2+ vsyncs on, the oldest vsync seen */
+static struct { double sched_us, vs_age_max_us; unsigned behind, ahead, slips, far, n, dropped0; } g_tvp;
 static unsigned long g_threads_at; /* sd:/wiiu/our64/threads.txt: the game's __osActiveQueue, in hex */
 static int g_interpreter;          /* sd:/wiiu/our64/interpreter exists: pure interpreter, no recompiler */
 static int g_sync_gfx;             /* the CPU waits for each graphics task: this game needs it, or the switch */
@@ -566,9 +564,9 @@ static void frame_check_line(const char *prefix, const video_stats_t *a, const v
 	char tv[224] = "";
 	if (g_tv_clock)
 		snprintf(tv, sizeof(tv), "; TV clock: swaps waiting %.2f a present, %u extra vsyncs (delay back), %u waits, "
-		         "%u CPU waits for the TV (total)",
+		         "%u VIs dropped for the TV (total)",
 		         pend_n ? (double)(b->tv_pending_sum - a->tv_pending_sum) / pend_n : 0.0, b->tv_trimmed - a->tv_trimmed,
-		         b->tv_waited - a->tv_waited, g_tv_lead_waits);
+		         b->tv_waited - a->tv_waited, video_tv_lead_dropped());
 	snprintf(out, size, "%sframe check: %u N64 VIs (%u game frames), %u TV vsyncs, %u flips; TV skipped %u VIs, repeated %u; "
 	            "game frames never shown %u, held wrong %u of %u (short %u, long %u); VIs not presented %u; "
 	            "VI to TV %.1f ms (most %.1f)%s",
@@ -715,11 +713,12 @@ static void stats(double t)
 	for (int i = 0; i < 4; i++)
 		wait_part[i] = v.cpu_wait_part_us[i];
 	if (g_tv_clock)
-		report_line("  TV clock pacing: %u VIs, sleeping to the vsync %.0f, waiting for the TV %.0f; schedule moved "
+		report_line("  TV clock pacing: %u VIs, sleeping to the vsync %.0f, %u dropped for the TV; schedule moved "
 		            "%u behind, %u ahead; %u slips; %u due 2+ vsyncs on; oldest vsync %.1f ms",
-		            g_tvp.n, g_tvp.sched_us * ms, g_tvp.lead_us * ms, g_tvp.behind, g_tvp.ahead, g_tvp.slips, g_tvp.far,
-		            g_tvp.vs_age_max_us / 1e3);
+		            g_tvp.n, g_tvp.sched_us * ms, video_tv_lead_dropped() - g_tvp.dropped0, g_tvp.behind, g_tvp.ahead,
+		            g_tvp.slips, g_tvp.far, g_tvp.vs_age_max_us / 1e3);
 	memset(&g_tvp, 0, sizeof(g_tvp));
+	g_tvp.dropped0 = video_tv_lead_dropped();
 	g_vi_wait_us = 0;
 	g_stats_from_us = t;
 }
@@ -790,8 +789,8 @@ void new_vi(void)
 		g_tvp.slips += slip;
 		if (now > vs_t && OSTicksToMicroseconds(now - vs_t) > g_tvp.vs_age_max_us)
 			g_tvp.vs_age_max_us = OSTicksToMicroseconds(now - vs_t);
-		/* Behind by up to two vsyncs the CPU core catches up (TV_LEAD_MAX below
-		 * bounds the delay that adds); more, and the schedule moves. Moving it
+		/* Behind by up to two vsyncs the CPU core catches up (kTvLeadMax in
+		 * video.cpp bounds the delay that adds); more, and the schedule moves. Moving it
 		 * after one vsync starved audio where Conker is CPU-bound: 10 underruns
 		 * a minute instead of 1 (2026-11-05). */
 		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4) {
@@ -806,21 +805,6 @@ void new_vi(void)
 			g_tvp.sched_us += OSTicksToMicroseconds(g_next_vi - now);
 			g_vi_wait_us += OSTicksToMicroseconds(g_next_vi - now);
 			idle_us += OSTicksToMicroseconds(g_next_vi - now);
-		}
-		/* At most TV_LEAD_MAX VIs past the one on the TV: when the GPU falls
-		 * behind, the game slows (as on Not64) instead of the delay growing to
-		 * 130 ms (Banjo-Tooie, 2026-11-05). */
-		if (video_tv_lead() > TV_LEAD_MAX) {
-			const OSTime t0 = OSGetSystemTime(), until = t0 + OSMillisecondsToTicks(100);
-			while (video_tv_lead() > TV_LEAD_MAX && OSGetSystemTime() < until)
-				OSSleepTicks(OSMicrosecondsToTicks(500));
-			const OSTime t1 = OSGetSystemTime();
-			g_vi_wait_us += OSTicksToMicroseconds(t1 - t0);
-			g_tvp.lead_us += OSTicksToMicroseconds(t1 - t0);
-			idle_us += OSTicksToMicroseconds(t1 - t0);
-			g_tv_lead_waits++;
-			if (video_tv_vsync(&vs_count, &vs_t)) /* the schedule goes on from now */
-				g_tv_vi_k = vs_count + (uint32_t)(t1 > vs_t ? (t1 - vs_t) / g_vi_period : 0);
 		}
 	} else if (audio_paces()) {
 		/* Audio sets the pace only while it blocks: a game sending a trickle
@@ -1651,17 +1635,15 @@ static int play_game(int index)
 		struct stat st;
 		snprintf(path, sizeof(path), "%s/old-pacing", report_sd_root() ? report_sd_root() : "");
 		const int old = report_sd_root() && !stat(path, &st);
-		/* Racer keeps the old pacing: on the TV clock its graphics core waits
-		 * ~400 ms a second for the GPU and the game slows to 55-58 VI/s with
-		 * choppy sound; the old pacing holds 60 by leaving frames unshown
-		 * (Zach, 2026-11-06; the GPU stall is to be studied). */
-		const int racer = !strncmp((const char *)ROM_HEADER.Name, "STAR WARS EP1 RACER", 19);
+		/* Racer kept the old pacing (5ef8a2e) while the CPU core waited for the
+		 * TV: 55-58 VI/s and choppy sound. VIs are now dropped instead
+		 * (video_update_screen), so it is on the TV clock again, to be checked. */
 		/* PAL games too (2026-11-06, plans/2026-11-06-tv-clock-other-regions.md):
 		 * on a 59.94 Hz TV every fifth VI stays two vsyncs (5 VIs in 6 vsyncs,
 		 * 49.95 VI/s, 0.06% fast against a PAL N64's 49.92); on a 50 Hz TV
 		 * (576i) one VI a vsync. An NTSC game on a 50 Hz TV keeps the old pacing. */
 		const int tv60 = video_tv_is_60hz();
-		g_tv_clock = !old && !racer && (is_pal() || tv60);
+		g_tv_clock = !old && (is_pal() || tv60);
 		g_tv_cadence = g_tv_clock && is_pal() && tv60;
 		video_set_pal_cadence(g_tv_cadence);
 		ft_begin();
@@ -1673,7 +1655,7 @@ static int play_game(int index)
 			report_line("VIDEO: the TV's vsync is the VI clock, audio follows%s",
 			            g_tv_cadence ? " (a PAL game on a 59.94 Hz TV: every fifth VI two vsyncs)" : is_pal() ? " (a PAL game on a 50 Hz TV)" : "");
 		} else
-			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : racer ? "Racer" : "an NTSC game on a 50 Hz TV");
+			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : "an NTSC game on a 50 Hz TV");
 		video_set_tv_clock(g_tv_clock);
 		video_set_frame_check(!is_pal() || g_tv_clock);
 		audio_set_unpaced(g_tv_clock);

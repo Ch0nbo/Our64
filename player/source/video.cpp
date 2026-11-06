@@ -203,6 +203,8 @@ constexpr uint32_t kFlipMarks = 64;
 FlipMark g_flip_marks[kFlipMarks];  // written by the flip callback
 volatile uint32_t g_flip_marks_n;
 volatile uint32_t g_vsyncs;         // vsync callback: the TV's own count
+volatile uint32_t g_tv_swaps, g_tv_flips; // TV clock: GX2's swap count after this core's last swap, its flip count at the last flip
+volatile uint32_t g_vis_lead_dropped; // CPU core: VIs not given to the graphics core because the TV was too far behind
 volatile uint32_t g_vi_on_tv;       // flip callback: the game VI the TV shows (0: none yet)
 uint32_t g_flip_marks_done, g_flips_polled;
 
@@ -238,6 +240,7 @@ volatile bool g_tv_clock;
 // instead of 29 (2026-11-05). With three, one swap may wait for free.
 constexpr uint32_t kTvAhead = 2;          // a present waits (on this core) while this many swaps wait
 constexpr uint32_t kScreensInFlight = 3;
+constexpr uint32_t kTvLeadMax = 4; // TV clock: pictures the TV may be behind before a VI is dropped (video_update_screen)
 // The depth: swaps waiting at each present. Something late leaves it one
 // deeper (a vsync more delay). When it stayed at 2 or more for kDepthWindow
 // presents, the CPU core waits one vsync more once (new_vi): the TV takes the
@@ -301,6 +304,7 @@ void show(GX2ColorBuffer * screen, unsigned vi, uint32_t origin, OSTime vsync, u
 	OSTime last_flip, last_vsync;
 	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
 	g_swap_info[swaps & 15] = {swaps, vi, origin, mark_slot(vi) + rep};
+	g_tv_swaps = swaps;
 	pace_note('S', OSGetSystemTime(), vsync, vi, origin, swaps);
 }
 
@@ -340,6 +344,7 @@ void on_flip(GX2EventType, void *)
 	const SwapInfo & info = g_swap_info[flips & 15];
 	if (info.swap == flips && info.vi != 0)
 		g_vi_on_tv = info.vi;
+	g_tv_flips = flips;
 	__sync_synchronize();
 	g_flip_marks_n = n + 1;
 }
@@ -1483,6 +1488,8 @@ void reset_rsp_on_graphics_core(void *)
 
 extern "C" void video_reset_rsp(void) { if (g_gfx_ok) call(reset_rsp_on_graphics_core, nullptr); }
 
+extern "C" unsigned video_tv_lead(void);
+
 // A VI. While the graphics core still has one to show, this one is dropped:
 // a graphics core that falls behind skips VIs instead of stalling the CPU.
 extern "C" void video_update_screen(void)
@@ -1500,6 +1507,14 @@ extern "C" void video_update_screen(void)
 	g_vi_marked = vi;
 	if (g_screens_posted - g_screens_run >= (g_tv_clock ? kScreensInFlight : 1u)) {
 		g_vis_unpresented = g_vis_unpresented + 1;
+		return;
+	}
+	/* TV clock: the TV more than kTvLeadMax pictures behind (the graphics core or the GPU slower than the
+	 * VIs: NASCAR 2000, Lode Runner 3D): this VI is not shown, so the game keeps its speed and the delay
+	 * stays bounded. The CPU core waiting instead slowed those games to 30-44 VI/s (sweep, 2026-11-06). */
+	if (g_tv_clock && video_tv_lead() > kTvLeadMax) {
+		g_vis_unpresented = g_vis_unpresented + 1;
+		g_vis_lead_dropped = g_vis_lead_dropped + 1;
 		return;
 	}
 	g_screens_posted = g_screens_posted + 1;
@@ -1656,13 +1671,19 @@ extern "C" void video_set_tv_clock(int on)
 		call(triple_buffers, nullptr);
 }
 
-// How many VIs the CPU core has numbered past the one on the TV; 0 when not
-// known (none shown yet, or one from long ago: a pause, the last game).
+// How many pictures the TV is behind: screens the graphics core has still to
+// run, swaps the GPU has still to flip, and kept presents. Counted in pictures,
+// not VI numbers: VIs never shown (no new picture, or dropped here) must not
+// count, or the count never falls. 0 when not known (none shown yet).
 extern "C" unsigned video_tv_lead(void)
 {
-	const uint32_t on_tv = g_vi_on_tv, lead = g_vi_marked - on_tv;
-	return on_tv == 0 || lead > 60 ? 0 : lead;
+	if (g_vi_on_tv == 0)
+		return 0;
+	const uint32_t lead = (g_screens_posted - g_screens_run) + (g_tv_swaps - g_tv_flips) +
+	                      uint32_t(*(volatile int *)&g_kept_n);
+	return lead > 60 ? 0 : lead;
 }
+extern "C" unsigned video_tv_lead_dropped(void) { return g_vis_lead_dropped; }
 
 // The CPU core's one extra vsync, when the graphics core asked for it (see kDepthWindow).
 extern "C" int video_tv_slip(void)
