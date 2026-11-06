@@ -2675,14 +2675,9 @@ private:
 			logOnce(m_loggedLayout, "program and draw use different vertex layouts (skipped)\n");
 			return nullptr;
 		}
-		// The profile splits a draw's setup from the draw (traceBegin/End):
-		// each mark names the GPU work since the one before.
-		profMark("work before a draw (untraced)");
-		profTop();
 		if (refreshDepthTextures(*p)) {
 			restoreAfterClear();
 			profMark("depth buffer to texture refresh");
-			profTop();
 		}
 		GX2ColorBuffer * cb = drawColorBuffer();
 		if (cb == nullptr)
@@ -2704,14 +2699,10 @@ private:
 			m_hasDepth = db != nullptr && db->surface.width >= cb->surface.width && db->surface.height >= cb->surface.height;
 			m_targetDirty = false;
 			m_dirty = true;
-			profMark("draw setup: render target");
-			profTop();
 		}
 		if (m_dirty) {
 			applyState(cb);
 			m_dirty = false;
-			profMark("draw setup: render state");
-			profTop();
 		}
 		if (p != m_lastProgram) {
 			// DB_SHADER_CONTROL debug variants: "latez" sets Z_ORDER to LATE_Z,
@@ -2726,17 +2717,11 @@ private:
 			GX2SetPixelShader(p->ps);
 			p->vsDirty = p->psDirty = true;
 			m_lastProgram = p;
-			profMark("draw setup: shader switch");
-			profTop();
 		}
 		if (p->vsDirty && !p->vsRegs.empty())
 			GX2SetVertexUniformReg(0, p->vsRegs.size(), p->vsRegs.data());
 		if (p->psDirty && !p->psRegs.empty())
 			GX2SetPixelUniformReg(0, p->psRegs.size(), p->psRegs.data());
-		if (p->vsDirty || p->psDirty) {
-			profMark("draw setup: uniform upload");
-			profTop();
-		}
 		p->vsDirty = p->psDirty = false;
 		for (const SamplerBinding & s : p->samplers) {
 			Texture * t = s.unit < 8 ? texture(ObjectHandle(m_units[s.unit])) : nullptr;
@@ -2760,10 +2745,6 @@ private:
 				GX2SetPixelTexture(&t->tex, s.location);
 				GX2SetPixelSampler(&t->sampler, s.location);
 			}
-		}
-		if (!p->samplers.empty()) {
-			profMark("draw setup: textures");
-			profTop();
 		}
 		return p;
 	}
