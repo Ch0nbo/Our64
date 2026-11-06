@@ -193,6 +193,7 @@ constexpr uint32_t kFlipMarks = 64;
 FlipMark g_flip_marks[kFlipMarks];  // written by the flip callback
 volatile uint32_t g_flip_marks_n;
 volatile uint32_t g_vsyncs;         // vsync callback: the TV's own count
+volatile uint32_t g_vi_on_tv;       // flip callback: the game VI the TV shows (0: none yet)
 uint32_t g_flip_marks_done, g_flips_polled;
 
 volatile unsigned g_fc_flips, g_fc_skipped, g_fc_repeated, g_fc_never, g_fc_frames, g_fc_short, g_fc_long;
@@ -321,6 +322,9 @@ void on_flip(GX2EventType, void *)
 	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
 	const uint32_t n = g_flip_marks_n;
 	g_flip_marks[n % kFlipMarks] = {flips, last_flip ? last_flip : OSGetSystemTime()};
+	const SwapInfo & info = g_swap_info[flips & 15];
+	if (info.swap == flips && info.vi != 0)
+		g_vi_on_tv = info.vi;
 	__sync_synchronize();
 	g_flip_marks_n = n + 1;
 }
@@ -1566,6 +1570,14 @@ extern "C" void video_set_tv_clock(int on)
 	g_tv_slips_done = g_tv_slips_asked;
 	if (g_tv_clock && g_gfx_ok)
 		call(triple_buffers, nullptr);
+}
+
+// How many VIs the CPU core has numbered past the one on the TV; 0 when not
+// known (none shown yet, or one from long ago: a pause, the last game).
+extern "C" unsigned video_tv_lead(void)
+{
+	const uint32_t on_tv = g_vi_on_tv, lead = g_vi_marked - on_tv;
+	return on_tv == 0 || lead > 60 ? 0 : lead;
 }
 
 // The CPU core's one extra vsync, when the graphics core asked for it (see kDepthWindow).

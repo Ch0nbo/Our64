@@ -481,8 +481,11 @@ static void wait_for_controller(void)
 static OSTime g_next_vi;    /* when the next VI is due */
 static OSTime g_vi_period;
 static uint32_t g_tv_vi_k; /* TV clock: the vsync the current VI is due at */
+static unsigned g_tv_lead_waits; /* TV clock: VIs that waited for the TV to catch up (TV_LEAD_MAX) */
 extern int video_tv_vsync(uint32_t *count, OSTime *t); /* video.cpp */
 extern int video_tv_slip(void);
+extern unsigned video_tv_lead(void);
+#define TV_LEAD_MAX 4 /* VIs the CPU core may run past the one on the TV (new_vi) */
 static double g_stats_from_us;
 static double g_vi_wait_us;
 static unsigned long g_threads_at; /* sd:/wiiu/our64/threads.txt: the game's __osActiveQueue, in hex */
@@ -536,11 +539,12 @@ static void frame_check_line(const char *prefix, const video_stats_t *a, const v
 {
 	unsigned lat_n = b->latency_n - a->latency_n;
 	unsigned pend_n = b->tv_pending_n - a->tv_pending_n;
-	char tv[128] = "";
+	char tv[224] = "";
 	if (g_tv_clock)
-		snprintf(tv, sizeof(tv), "; TV clock: swaps waiting %.2f a present, %u extra vsyncs (delay back), %u waits",
+		snprintf(tv, sizeof(tv), "; TV clock: swaps waiting %.2f a present, %u extra vsyncs (delay back), %u waits, "
+		         "%u CPU waits for the TV (total)",
 		         pend_n ? (double)(b->tv_pending_sum - a->tv_pending_sum) / pend_n : 0.0, b->tv_trimmed - a->tv_trimmed,
-		         b->tv_waited - a->tv_waited);
+		         b->tv_waited - a->tv_waited, g_tv_lead_waits);
 	snprintf(out, size, "%sframe check: %u N64 VIs (%u game frames), %u TV vsyncs, %u flips; TV skipped %u VIs, repeated %u; "
 	            "game frames never shown %u, held wrong %u of %u (short %u, long %u); VIs not presented %u; "
 	            "VI to TV %.1f ms (most %.1f)%s",
@@ -751,13 +755,29 @@ void new_vi(void)
 		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
 		g_tv_vi_k++;
 		g_tv_vi_k += video_tv_slip(); /* the TV's queue is deep: one vsync more, unseen */
-		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4)
+		/* Behind by more than a vsync: the schedule moves instead of catching up,
+		 * which only queued pictures and delay (Banjo-Tooie, 2026-11-05). */
+		if ((int32_t)(k_now - g_tv_vi_k) > 1 || (int32_t)(g_tv_vi_k - k_now) > 4)
 			g_tv_vi_k = k_now;
 		g_next_vi = vs_t + (OSTime)(int32_t)(g_tv_vi_k - vs_count) * g_vi_period;
 		if (g_next_vi > now) {
 			OSSleepTicks(g_next_vi - now);
 			g_vi_wait_us += OSTicksToMicroseconds(g_next_vi - now);
 			idle_us += OSTicksToMicroseconds(g_next_vi - now);
+		}
+		/* At most TV_LEAD_MAX VIs past the one on the TV: when the GPU falls
+		 * behind, the game slows (as on Not64) instead of the delay growing to
+		 * 130 ms (Banjo-Tooie, 2026-11-05). */
+		if (video_tv_lead() > TV_LEAD_MAX) {
+			const OSTime t0 = OSGetSystemTime(), until = t0 + OSMillisecondsToTicks(100);
+			while (video_tv_lead() > TV_LEAD_MAX && OSGetSystemTime() < until)
+				OSSleepTicks(OSMicrosecondsToTicks(500));
+			const OSTime t1 = OSGetSystemTime();
+			g_vi_wait_us += OSTicksToMicroseconds(t1 - t0);
+			idle_us += OSTicksToMicroseconds(t1 - t0);
+			g_tv_lead_waits++;
+			if (video_tv_vsync(&vs_count, &vs_t)) /* the schedule goes on from now */
+				g_tv_vi_k = vs_count + (uint32_t)(t1 > vs_t ? (t1 - vs_t) / g_vi_period : 0);
 		}
 	} else if (audio_paces()) {
 		/* Audio sets the pace only while it blocks: a game sending a trickle
