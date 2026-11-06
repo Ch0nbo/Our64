@@ -6,7 +6,8 @@ a cause for every VI the TV skipped or repeated.
 
 The N64 shows VI n's frame buffer for one VI. k vsyncs after one flip, the
 TV should show the VI k later. Entries (big-endian >QQIIII t, x, kind, a, b, c):
-  M  an emulated VI: t its time on the CPU core, a its number, b its origin
+  M  an emulated VI: t its time on the CPU core, a its number, b its origin,
+     c its slot (the vsync it is due at; PAL on a 59.94 Hz TV: 5 VIs in 6; 0 in old files)
   P  a present: x the VI's time, a the VI, b its origin, c fresh
   S  a swap: x the vsync it was meant for, a the VI, b its origin, c swaps after
   F  a TV flip: t its time, a flips, b the VI it showed (0 unknown)
@@ -31,11 +32,12 @@ def main():
     events = [struct.unpack(">QQIIII", data[o:o + 32]) for o in range(0, len(data) - 31, 32)]
     kinds = collections.Counter(chr(e[2]) for e in events)
     print("events:", dict(kinds))
-    marks, presents, swaps, flips = {}, {}, {}, []
+    marks, presents, swaps, flips, slots = {}, {}, {}, [], {}
     for t, x, kind, a, b, c in events:
         k = chr(kind)
         if k == "M":
             marks[a] = (t, b)
+            slots[a] = c
         elif k == "P":
             presents.setdefault(a, (t, c))
         elif k == "S":
@@ -79,7 +81,8 @@ def main():
         if prev is not None:
             pt, pvi = prev
             vsyncs = int(round((t - pt) / PERIOD))
-            d = (vi - pvi) - vsyncs
+            due_vsyncs = slots[vi] - slots[pvi] if slots.get(vi) and slots.get(pvi) else vi - pvi
+            d = due_vsyncs - vsyncs
             while d > 0 and excused:
                 d -= 1
                 excused -= 1
@@ -88,7 +91,7 @@ def main():
                 # one vsync after the last flip, at the latency the last flip had.
                 # this flip's VI came late: it was due (vi - pvi) vsyncs after the last flip
                 nxt = vi
-                due = pt + PERIOD * (vi - pvi)
+                due = pt + PERIOD * due_vsyncs
                 if d > 0:
                     skipped += d
                     why = []

@@ -285,6 +285,8 @@ static uint32_t g_pause_at_vi;
  * (plans/2026-11-05-frame-pacing.md). sd:/wiiu/our64/old-pacing turns it off,
  * for comparing. */
 static int g_tv_clock;
+static int g_tv_cadence;       /* a PAL game on a 59.94 Hz TV: every fifth VI two vsyncs */
+static unsigned g_cadence_n;
 
 /* ---- frame test (2026-11-05): the folder sd:/wiiu/our64/frametest exists.
  * Each NTSC game's run measures the pacing it plays with (the TV clock, or
@@ -319,7 +321,7 @@ static int ft_begin(void)
 	g_ft_on = 0;
 	video_gpu_profile(0);
 	const char *root = report_sd_root();
-	if (!root || is_pal())
+	if (!root || (is_pal() && !g_tv_clock))
 		return 0;
 	char dir[256], id[64], path[512];
 	snprintf(dir, sizeof(dir), "%s/frametest", root);
@@ -773,7 +775,9 @@ void new_vi(void)
 		 * the next of its own. Behind by more than two: the schedule moves (the
 		 * game runs slower, the TV keeps pictures longer; nothing is skipped). */
 		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
-		g_tv_vi_k++;
+		const unsigned hold = g_tv_cadence && ++g_cadence_n % 5 == 0 ? 2 : 1; /* the VI just run stays this many vsyncs */
+		g_tv_vi_k += hold;
+		video_vi_hold(hold);
 		g_tv_vi_k += video_tv_slip(); /* the TV's queue is deep: one vsync more, unseen */
 		/* Behind by up to two vsyncs the CPU core catches up (TV_LEAD_MAX below
 		 * bounds the delay that adds); more, and the schedule moves. Moving it
@@ -1635,18 +1639,26 @@ static int play_game(int index)
 		 * choppy sound; the old pacing holds 60 by leaving frames unshown
 		 * (Zach, 2026-11-06; the GPU stall is to be studied). */
 		const int racer = !strncmp((const char *)ROM_HEADER.Name, "STAR WARS EP1 RACER", 19);
-		g_tv_clock = !old && !racer && !is_pal() && video_tv_is_60hz();
+		/* PAL games too (2026-11-06, plans/2026-11-06-tv-clock-other-regions.md):
+		 * on a 59.94 Hz TV every fifth VI stays two vsyncs (5 VIs in 6 vsyncs,
+		 * 49.95 VI/s, 0.06% fast against a PAL N64's 49.92); on a 50 Hz TV
+		 * (576i) one VI a vsync. An NTSC game on a 50 Hz TV keeps the old pacing. */
+		const int tv60 = video_tv_is_60hz();
+		g_tv_clock = !old && !racer && (is_pal() || tv60);
+		g_tv_cadence = g_tv_clock && is_pal() && tv60;
+		g_cadence_n = 0;
 		ft_begin();
 		if (g_tv_clock) {
-			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */
+			g_vi_period = OSNanosecondsToTicks(video_tv_period_ns()); /* the TV's 59.94 or 50 Hz */
 			uint32_t c;
 			OSTime t;
 			g_tv_vi_k = video_tv_vsync(&c, &t) ? c : 0;
-			report_line("VIDEO: the TV's vsync is the VI clock, audio follows");
+			report_line("VIDEO: the TV's vsync is the VI clock, audio follows%s",
+			            g_tv_cadence ? " (a PAL game on a 59.94 Hz TV: every fifth VI two vsyncs)" : is_pal() ? " (a PAL game on a 50 Hz TV)" : "");
 		} else
-			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : racer ? "Racer" : is_pal() ? "a PAL game" : "a 50 Hz TV");
+			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : racer ? "Racer" : "an NTSC game on a 50 Hz TV");
 		video_set_tv_clock(g_tv_clock);
-		video_set_frame_check(!is_pal());
+		video_set_frame_check(!is_pal() || g_tv_clock);
 		audio_set_unpaced(g_tv_clock);
 	}
 	g_stats_from_us = report_now_us();

@@ -180,9 +180,14 @@ SwapInfo g_swap_info[16];   // by swap count: what each swap showed (swap: the c
 // one VIs repeated (shown late). A game frame (a run of VIs with one origin)
 // none of whose VIs reached the TV was dropped. Testers saw frames skipped
 // at full speed in Conker, the Banjos and GoldenEye.
-struct ViMark { uint32_t origin; OSTime t; };
+// slot: the TV vsync the VI is due at, counted from any start: one more than
+// the last VI's, or two after the VI a PAL game's cadence holds two vsyncs
+// (video_vi_hold). The frame check compares slots, so one rule covers NTSC
+// (one VI a vsync) and PAL on a 59.94 Hz TV (5 VIs in 6 vsyncs).
+struct ViMark { uint32_t origin; OSTime t; uint32_t slot; };
 constexpr uint32_t kViMarks = 1024;
 ViMark g_vi_marks[kViMarks];        // VI n's at n % kViMarks
+volatile uint32_t g_vi_next_hold = 1; // CPU core: vsyncs the last numbered VI stays (video_vi_hold)
 volatile uint32_t g_vi_marked;      // CPU core: VIs numbered
 volatile uint32_t g_vis_unpresented; // CPU core: VIs never given to the graphics core (it still had one)
 volatile uint32_t g_game_frames;    // CPU core: VIs with a new origin
@@ -249,6 +254,9 @@ GX2ColorBuffer g_kept_pictures[kKeptMax + 1];
 volatile unsigned g_tv_trimmed, g_tv_waited, g_tv_pending_sum, g_tv_pending_n;
 volatile uint32_t g_vs_seq, g_vs_t_hi, g_vs_t_lo; // the last vsync's time, for any core (video_tv_vsync)
 volatile uint32_t g_vs_period_ns; // the TV's measured refresh period, 0 until measured
+// The TV's refresh period: 59.94 Hz or 50 Hz, from the measured one (video_tv_is_60hz).
+extern "C" int video_tv_is_60hz(void);
+OSTime tv_period() { return OSNanosecondsToTicks(video_tv_is_60hz() ? 16683333 : 20000000); }
 volatile unsigned g_flipq_skipped, g_flipq_waited;
 Queued g_queue[kQueue];
 int g_queued;
@@ -357,6 +365,7 @@ void on_vsync(GX2EventType, void *)
 }
 
 uint32_t mark_origin(uint32_t vi) { return g_vi_marks[vi % kViMarks].origin; }
+uint32_t mark_slot(uint32_t vi) { return g_vi_marks[vi % kViMarks].slot; }
 // VI vi's mark is still there (the CPU core has not numbered kViMarks VIs since).
 bool marked(uint32_t vi) { return vi != 0 && int32_t(g_vi_marked - vi) >= 0 && g_vi_marked - vi < kViMarks - 16; }
 
@@ -387,7 +396,7 @@ void check_flip(uint32_t flips, OSTime t)
 		frame_check_reset();
 		return;
 	}
-	const OSTime period = OSNanosecondsToTicks(16683333);
+	const OSTime period = tv_period();
 	const uint32_t vi = info.vi;
 	g_fc_flips++;
 	const double us = double(OSTicksToMicroseconds(t - g_vi_marks[vi % kViMarks].t));
@@ -399,7 +408,7 @@ void check_flip(uint32_t flips, OSTime t)
 	uint32_t start = 0;
 	if (g_fc_have_prev) {
 		const int32_t vsyncs = int32_t((t - g_fc_prev_t + period / 2) / period);
-		int32_t d = int32_t(vi - g_fc_prev_vi) - vsyncs;
+		int32_t d = int32_t(mark_slot(vi) - mark_slot(g_fc_prev_vi)) - vsyncs;
 		while (d > 0 && g_fc_excused > 0) { // a still screen's left-out swap: not seen
 			d--;
 			g_fc_excused--;
@@ -428,7 +437,8 @@ void check_flip(uint32_t flips, OSTime t)
 			uint32_t end = g_fc_frame_start + 1;
 			while (end != start && mark_origin(end) == mark_origin(g_fc_frame_start))
 				end++;
-			const uint32_t held = uint32_t((t - g_fc_frame_t + period / 2) / period), vis = end - g_fc_frame_start;
+			const uint32_t held = uint32_t((t - g_fc_frame_t + period / 2) / period),
+			               vis = mark_slot(end) - mark_slot(g_fc_frame_start); // vsyncs it was due for
 			g_fc_frames++;
 			if (held < vis)
 				g_fc_short++;
@@ -461,7 +471,7 @@ void frame_check()
 			g_marks_noted = marked_now - kViMarks / 2;
 		while (g_marks_noted != marked_now) {
 			const uint32_t v = ++g_marks_noted;
-			pace_note('M', g_vi_marks[v % kViMarks].t, 0, v, mark_origin(v), 0);
+			pace_note('M', g_vi_marks[v % kViMarks].t, 0, v, mark_origin(v), mark_slot(v));
 		}
 	}
 	const uint32_t n = g_flip_marks_n;
@@ -506,7 +516,7 @@ void show_queued(bool outside_frame)
 	if (swaps > flips)
 		return;
 	// The vsync that began this interval, counted on from the last one known.
-	const OSTime period = OSNanosecondsToTicks(16683333), now = OSGetSystemTime();
+	const OSTime period = tv_period(), now = OSGetSystemTime();
 	const OSTime vsync = now > last_vsync ? last_vsync + (now - last_vsync) / period * period : last_vsync;
 	if (vsync < g_used_vsync + period / 2)
 		return;
@@ -1462,7 +1472,8 @@ extern "C" void video_update_screen(void)
 {
 	// Numbered first, shown or not (the frame check, see g_vi_marks).
 	const uint32_t vi = g_vi_marked + 1, origin = *g_mem.vi[1];
-	g_vi_marks[vi % kViMarks] = {origin, OSGetSystemTime()};
+	g_vi_marks[vi % kViMarks] = {origin, OSGetSystemTime(), g_vi_marks[(vi - 1) % kViMarks].slot + g_vi_next_hold};
+	g_vi_next_hold = 1;
 	if (origin != g_last_marked_origin) {
 		g_last_marked_origin = origin;
 		g_game_frames = g_game_frames + 1;
@@ -1602,6 +1613,11 @@ extern "C" void video_gpu_profile_report(char * out, unsigned size)
 // its mode (576i is 50 Hz). The mode alone is not enough: the 50 Hz HD modes
 // homebrew can set have no GX2 value of their own (tv-clock-other-regions plan,
 // 2026-11-06).
+// The VI just numbered stays on the TV for hold vsyncs (main.c new_vi: 2 for
+// every fifth VI of a PAL game on a 59.94 Hz TV), for the frame check.
+extern "C" void video_vi_hold(unsigned hold) { g_vi_next_hold = hold; }
+extern "C" unsigned video_tv_period_ns(void) { return video_tv_is_60hz() ? 16683333u : 20000000u; }
+
 extern "C" int video_tv_is_60hz(void)
 {
 	const uint32_t p = g_vs_period_ns;
