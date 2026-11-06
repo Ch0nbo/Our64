@@ -987,17 +987,8 @@ void run(Slot & s)
 			lastFromRdram = fromRdram;
 		}
 		g_screen_vi = s.task; // the VI's number (video_update_screen)
-		if (g_started) {
-			const uint32_t presents = g_presents;
+		if (g_started)
 			UpdateScreen();
-			/* TV clock: a VI GLideN64 did not present (its swap mode presents only a new
-			 * origin or color image) repeats the last frame, so one swap a VI keeps the
-			 * TV's queue full. Without it Gretzky 3D Hockey and California Speed (30 fps)
-			 * swapped every second VI into an empty queue, just before the vsync, and
-			 * 37-89 frames a minute missed it (frame test, 2026-11-06). */
-			if (g_tv_clock && g_presents == presents && g_last_frame != nullptr)
-				present(g_last_frame);
-		}
 		g_screen_vi = 0; // presents outside a VI show no VI
 		if (g_started && g_dump_left > 0)
 			dump_screen();
