@@ -1519,8 +1519,15 @@ static int play_game(int index)
 		 * addresses too: unlinked, Indy ran at 34 VI/s, linked at 60 (Zach,
 		 * 2026-10-26). Perfect Dark: 46-52 VI/s unlinked (a third of the CPU
 		 * core's emulation in the dispatcher), 59-60 linked, resume included
-		 * (2026-10-27). Japan's Perfect Dark names itself in capitals. */
+		 * (2026-10-27). Japan's Perfect Dark names itself in capitals.
+		 * Conker and GoldenEye: unlinked, the dispatcher took about a third
+		 * of Conker's busy CPU core and 45% of GoldenEye's (7% linked); linked,
+		 * Conker played 15 minutes over three runs with a resume, no missed
+		 * timer and its best frame test (2026-11-06). Conker's crash with
+		 * links on 2026-10-20 was GLideN64's mip tile bug (be7206d). */
 		our64_tlb_links = g_tlb_links_switch || !strncmp((const char *)ROM_HEADER.Name, "GAUNTLET LEGENDS", 16) ||
+		                  !strncmp((const char *)ROM_HEADER.Name, "CONKER BFD", 10) ||
+		                  !strncmp((const char *)ROM_HEADER.Name, "GOLDENEYE", 9) ||
 		                  !strncmp((const char *)ROM_HEADER.Name, "Indiana Jones", 13) ||
 		                  !strncmp((const char *)ROM_HEADER.Name, "Battle for Naboo", 16) ||
 		                  !strncasecmp((const char *)ROM_HEADER.Name, "Perfect Dark", 12);
