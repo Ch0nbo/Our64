@@ -277,11 +277,17 @@ void player_left(int where, int warned)
  * once the first frames are on screen, so the frozen frame is the game's. */
 static uint32_t g_pause_at_vi;
 
+/* sd:/wiiu/our64/tv-clock (a test, 2026-11-05): one VI per TV vsync (new_vi);
+ * audio follows instead of pacing. */
+static int g_tv_clock;
+
 /* The flip record, if one runs, as pace-<game id>.bin (video.cpp). */
 static void pace_write(void)
 {
 	char id[64];
 	saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
+	if (g_tv_clock)
+		strncat(id, "-tv", sizeof(id) - strlen(id) - 1);
 	video_pace_write(id);
 }
 
@@ -341,6 +347,8 @@ static void wait_for_controller(void)
 
 static OSTime g_next_vi;    /* when the next VI is due */
 static OSTime g_vi_period;
+static uint32_t g_tv_vi_k; /* TV clock: the vsync the current VI is due at */
+extern int video_tv_vsync(uint32_t *count, OSTime *t); /* video.cpp */
 static double g_stats_from_us;
 static double g_vi_wait_us;
 static unsigned long g_threads_at; /* sd:/wiiu/our64/threads.txt: the game's __osActiveQueue, in hex */
@@ -389,18 +397,26 @@ static void save_log(void) { report_save(); }
  * show every emulated VI for one vsync, as the N64 would? */
 static video_stats_t g_fc_window, g_fc_game; /* at the last stats line; at the game's start */
 static double g_fc_game_max_us;
-static void frame_check_line(const char *prefix, const video_stats_t *a, const video_stats_t *b, double max_us)
+static void frame_check_line(const char *prefix, const video_stats_t *a, const video_stats_t *b, double max_us,
+                             char *out, unsigned size)
 {
 	unsigned lat_n = b->latency_n - a->latency_n;
-	report_line("%sframe check: %u N64 VIs (%u game frames), %u TV vsyncs, %u flips; TV skipped %u VIs, repeated %u; "
+	unsigned pend_n = b->tv_pending_n - a->tv_pending_n;
+	char tv[128] = "";
+	if (g_tv_clock)
+		snprintf(tv, sizeof(tv), "; TV clock: swaps waiting %.2f a present, %u left out on still screens, %u waits",
+		         pend_n ? (double)(b->tv_pending_sum - a->tv_pending_sum) / pend_n : 0.0, b->tv_trimmed - a->tv_trimmed,
+		         b->tv_waited - a->tv_waited);
+	snprintf(out, size, "%sframe check: %u N64 VIs (%u game frames), %u TV vsyncs, %u flips; TV skipped %u VIs, repeated %u; "
 	            "game frames never shown %u, held wrong %u of %u (short %u, long %u); VIs not presented %u; "
-	            "VI to TV %.1f ms (most %.1f)",
+	            "VI to TV %.1f ms (most %.1f)%s",
 	            prefix, b->vis_marked - a->vis_marked, b->game_frames - a->game_frames, b->tv_vsyncs - a->tv_vsyncs,
 	            b->fc_flips - a->fc_flips, b->fc_skipped - a->fc_skipped, b->fc_repeated - a->fc_repeated,
 	            b->fc_never - a->fc_never, (b->frames_short - a->frames_short) + (b->frames_long - a->frames_long),
 	            b->frames_new - a->frames_new, b->frames_short - a->frames_short, b->frames_long - a->frames_long,
 	            b->vis_unpresented - a->vis_unpresented,
-	            lat_n ? (b->latency_us - a->latency_us) / lat_n / 1e3 : 0.0, max_us / 1e3);
+	            lat_n ? (b->latency_us - a->latency_us) / lat_n / 1e3 : 0.0, max_us / 1e3, tv);
+	report_line("%s", out);
 }
 
 /* Where the time went, per second of the last STATS_EVERY_S seconds. What
@@ -456,7 +472,8 @@ static void stats(double t)
 	            copies_now - copies, OSTicksToMicroseconds(copy_now - copy_ticks) * ms);
 	copy_ticks = copy_now;
 	copies = copies_now;
-	frame_check_line("  ", &g_fc_window, &v, v.latency_max_us);
+	char fc[600];
+	frame_check_line("  ", &g_fc_window, &v, v.latency_max_us, fc, sizeof(fc));
 	if (v.latency_max_us > g_fc_game_max_us)
 		g_fc_game_max_us = v.latency_max_us;
 	g_fc_window = v;
@@ -591,7 +608,23 @@ void new_vi(void)
 	audio_waited += idle_us;
 	g_audio_wait_per_vi += (idle_us - g_audio_wait_per_vi) / 16;
 	OSTime now = OSGetSystemTime();
-	if (audio_paces()) {
+	uint32_t vs_count;
+	OSTime vs_t;
+	if (g_tv_clock && video_tv_vsync(&vs_count, &vs_t)) {
+		/* The vsync now, counted on from the last one known; this VI is due at
+		 * the next of its own. Behind by more than two: the schedule moves (the
+		 * game runs slower, the TV keeps pictures longer; nothing is skipped). */
+		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
+		g_tv_vi_k++;
+		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4)
+			g_tv_vi_k = k_now;
+		g_next_vi = vs_t + (OSTime)(int32_t)(g_tv_vi_k - vs_count) * g_vi_period;
+		if (g_next_vi > now) {
+			OSSleepTicks(g_next_vi - now);
+			g_vi_wait_us += OSTicksToMicroseconds(g_next_vi - now);
+			idle_us += OSTicksToMicroseconds(g_next_vi - now);
+		}
+	} else if (audio_paces()) {
 		/* Audio sets the pace only while it blocks: a game sending a trickle
 		 * (Perfect Dark and Conker loading, 2,000 frames/s of 22,000) never
 		 * fills the queue, and VIs ran at 250-320/s. A VI clock 1.25 times
@@ -1402,6 +1435,22 @@ static int play_game(int index)
 
 	g_vi_period = OSSecondsToTicks(1) / (is_pal() ? 50 : 60);
 	g_next_vi = OSGetSystemTime();
+	{ /* the TV clock test: NTSC games only (a PAL game's 50 VIs cannot follow a 59.94 Hz TV) */
+		char path[256];
+		struct stat st;
+		snprintf(path, sizeof(path), "%s/tv-clock", report_sd_root() ? report_sd_root() : "");
+		g_tv_clock = report_sd_root() && !stat(path, &st) && !is_pal();
+		if (g_tv_clock) {
+			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */
+			uint32_t c;
+			OSTime t;
+			g_tv_vi_k = video_tv_vsync(&c, &t) ? c : 0;
+			report_line("TEST: the TV's vsync is the VI clock, audio follows (tv-clock)");
+		}
+		video_set_tv_clock(g_tv_clock);
+		video_set_frame_check(!is_pal());
+		audio_set_unpaced(g_tv_clock);
+	}
 	g_stats_from_us = report_now_us();
 	g_sweep_t0_us = g_stats_from_us;
 	g_sweep_low = 1e9;
@@ -1471,7 +1520,18 @@ static int play_game(int index)
 		video_stats(&v);
 		if (v.latency_max_us > g_fc_game_max_us)
 			g_fc_game_max_us = v.latency_max_us;
-		frame_check_line("GAME: ", &g_fc_game, &v, g_fc_game_max_us);
+		char fc[600];
+		frame_check_line("GAME: ", &g_fc_game, &v, g_fc_game_max_us, fc, sizeof(fc));
+		/* every game's line kept in sd:/wiiu/our64/frame-check.txt (the log keeps two launches) */
+		char path[256], id[64];
+		saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
+		snprintf(path, sizeof(path), "%s/frame-check.txt", report_sd_root() ? report_sd_root() : "");
+		FILE *f = report_sd_root() ? fopen(path, "a") : NULL;
+		if (f) {
+			fprintf(f, "%s%s, %.1f min: %s\n", id, g_tv_clock ? " (tv-clock)" : "",
+			        (report_now_us() - g_sweep_t0_us) / 60e6, fc + 6);
+			fclose(f);
+		}
 	}
 	timeline_write();
 	audio_dump_write();

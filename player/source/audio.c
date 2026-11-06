@@ -54,6 +54,7 @@ static int g_ready;
 static volatile unsigned g_underruns;
 static unsigned g_pushed, g_dropped;  /* stereo frames given to audio_push, and those thrown away */
 static OSTime g_wait_ticks;
+static int g_unpaced;           /* the TV clock paces the game (main.c): pushes never wait */
 
 static void set_rate(unsigned rate)
 {
@@ -248,7 +249,7 @@ void audio_push(const uint32_t *frames, unsigned count)
 	 * is down to FULL_MS, as the N64's two-buffer AI queue would take it. */
 	const uint32_t limit = count + g_full > g_ahead ? count + g_ahead : g_ahead;
 	OSTime give_up = g_last_push + OSMillisecondsToTicks(200), now = g_last_push;
-	while (g_playing && g_wr - g_rd + count > limit && now < give_up) {
+	while (!g_unpaced && g_playing && g_wr - g_rd + count > limit && now < give_up) {
 		OSSleepTicks(OSMicrosecondsToTicks(500));
 		now = OSGetSystemTime();
 	}
@@ -332,7 +333,11 @@ int audio_ring_full(void)
 	return g_playing && g_wr - g_rd >= g_full;
 }
 
+/* The TV clock paces the game (sd:/wiiu/our64/tv-clock): audio follows, the
+ * playback rate keeping the ring's fill (rate_for). */
+void audio_set_unpaced(int on) { g_unpaced = on; }
+
 int audio_paces(void)
 {
-	return g_ready && OSGetSystemTime() - g_last_push < OSMillisecondsToTicks(100) && g_last_count <= g_rate / 20;
+	return !g_unpaced && g_ready && OSGetSystemTime() - g_last_push < OSMillisecondsToTicks(100) && g_last_count <= g_rate / 20;
 }

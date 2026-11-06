@@ -58,6 +58,9 @@ typedef struct {
 	unsigned frames_trimmed; /* queued VIs dropped because the queue never emptied for a second (video.cpp) */
 	unsigned frames_new, frames_short, frames_long; /* game frames on the TV; of them, held fewer or more vsyncs than the game's VIs */
 	/* The frame check (video.cpp g_vi_marks): totals since the app started. */
+	unsigned tv_trimmed;      /* TV clock: repeats left unswapped on a still screen (latency back) */
+	unsigned tv_waited;       /* TV clock: presents that waited for a flip (the queue full) */
+	unsigned tv_pending_sum, tv_pending_n; /* TV clock: swaps waiting at each present, summed */
 	unsigned vis_marked;      /* emulated VIs */
 	unsigned vis_unpresented; /* of them, never given to the graphics core (it still had one) */
 	unsigned game_frames;     /* VIs with a new origin */
@@ -73,7 +76,9 @@ typedef struct {
 	unsigned vis_taken;      /* queued VIs the TV took */
 } video_stats_t;
 void video_stats(video_stats_t *s);
-void video_pace_write(const char *id); /* the flip record (sd:/wiiu/our64/pace or the flip queue): pace-<game>.bin (video.cpp) */
+void video_pace_write(const char *id);
+void video_set_frame_check(int on); /* off for PAL games (video.cpp check_flip) */
+void video_set_tv_clock(int on); /* sd:/wiiu/our64/tv-clock: the VI clock is the TV's vsync (video.cpp, main.c new_vi) */ /* the flip record (sd:/wiiu/our64/pace or the flip queue): pace-<game>.bin (video.cpp) */
 double video_busy_s(unsigned *cmd); /* how long the current command has run; 0 when idle */
 void video_backtrace(char *out, unsigned size); /* the graphics core's PC and return addresses, for the log */
 
@@ -83,6 +88,7 @@ void audio_stop(void);
 void audio_set_rate(unsigned rate);                    /* N64 output rate, Hz */
 void audio_push(const uint32_t *frames, unsigned count); /* stereo frames, left in the high half */
 int  audio_paces(void);           /* the game sent audio lately: audio_push sets the pace */
+void audio_set_unpaced(int on);   /* the TV clock paces the game: audio_push never waits */
 int  audio_ring_full(void);       /* the audio ring holds FULL_MS or more */
 unsigned audio_underruns(void);   /* times the ring ran dry and the voices stopped */
 void audio_smoothing(int *lowest_pm, int *highest_pm, unsigned *dips); /* playback rate range since last call, volume dips */

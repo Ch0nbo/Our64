@@ -9,7 +9,9 @@ TV should show the VI k later. Entries (big-endian >QQIIII t, x, kind, a, b, c):
   M  an emulated VI: t its time on the CPU core, a its number, b its origin
   P  a present: x the VI's time, a the VI, b its origin, c fresh
   S  a swap: x the vsync it was meant for, a the VI, b its origin, c swaps after
-  F  a TV flip: t its time, a flips, b the VI it showed (0 unknown)"""
+  F  a TV flip: t its time, a flips, b the VI it showed (0 unknown)
+  T  a repeat's swap left out on a still screen (TV clock): a the VI
+  R  the frame check started over"""
 import collections
 import struct
 import sys
@@ -40,6 +42,10 @@ def main():
             swaps.setdefault(a, t)
         elif k == "F":
             flips.append((t, b))
+        elif k == "R":
+            flips.append((t, 0))  # the frame check started over: nothing measured across it
+        elif k == "T":
+            flips.append((t, -1))  # a still screen's swap left out: the next skip is not seen
     if not marks:
         print("no VIs recorded (an old pace.bin?)")
         return
@@ -60,8 +66,13 @@ def main():
     faults = []
     latency = []
     prev = None
+    excused = 0
     for t, vi in flips:
+        if vi == -1:
+            excused += 1
+            continue
         if vi == 0 or vi not in marks:
+            excused = 0
             prev = None
             continue
         latency.append(ms(t - marks[vi][0]))
@@ -69,6 +80,9 @@ def main():
             pt, pvi = prev
             vsyncs = int(round((t - pt) / PERIOD))
             d = (vi - pvi) - vsyncs
+            while d > 0 and excused:
+                d -= 1
+                excused -= 1
             if d:
                 # What kept the VI after the last one shown from its vsync: it was due
                 # one vsync after the last flip, at the latency the last flip had.
@@ -107,7 +121,8 @@ def main():
                 if n > 1:
                     never += n - 1
         prev = (t, vi)
-    print("TV flips %d; VIs skipped %d, repeated %d; game frames never shown %d" % (len(flips), skipped, repeated, never))
+        excused = 0
+    print("TV flips %d; VIs skipped %d, repeated %d; game frames never shown %d" % (sum(1 for f in flips if f[1] > 0), skipped, repeated, never))
     if latency:
         latency.sort()
         print("VI to TV: median %.1f ms, 5%% %.1f, 95%% %.1f, most %.1f" %
