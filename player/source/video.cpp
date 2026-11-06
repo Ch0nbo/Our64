@@ -121,7 +121,6 @@ const int g_aspect = 1;   // GLideN64's AspectRatio, force 4:3: its 640x480 wind
 double now_us() { return double(OSTicksToMicroseconds(OSGetSystemTime())); }
 
 volatile unsigned g_frames_shown, g_frames_late, g_frames_dropped, g_frames_trimmed;
-volatile unsigned g_frames_new, g_frames_short, g_frames_long; // game frames measured; held fewer, more vsyncs than VIs
 
 volatile double g_queue_wait_us; // time VIs waited in the queue, summed over the VIs taken
 volatile unsigned g_vis_taken;    // queued VIs the TV took (shown or repeated)
@@ -165,12 +164,40 @@ struct Queued {
 // (GX2GetSwapStatus), from what each swap showed (Conker judders at a steady
 // 30 frames a second, 2026-11-02).
 unsigned g_presents;        // VIs presented, this core's count
-struct SwapInfo { unsigned vi; uint32_t origin; };
-SwapInfo g_swap_info[16];   // by swap count: what each swap showed
-OSTime g_tv_flip;           // the flip that showed the current game frame, 0: none to measure from
-unsigned g_tv_vi;
-uint32_t g_tv_origin;
-uint32_t g_flips_counted;
+struct SwapInfo { uint32_t swap; unsigned vi; uint32_t origin; };
+SwapInfo g_swap_info[16];   // by swap count: what each swap showed (swap: the count it was written for)
+
+// Frame check (2026-11-05): does the TV show each VI when the N64 would?
+// The N64 shows VI n's frame buffer (the VI origin then) for one VI. Each
+// emulated VI is numbered on the CPU core (video_update_screen) with its
+// origin and time, each swap carries the number of the VI it shows, and each
+// TV flip (GX2's flip callback) is checked: k vsyncs after the last flip the
+// TV should show the VI k later. A later one means VIs skipped, an earlier
+// one VIs repeated (shown late). A game frame (a run of VIs with one origin)
+// none of whose VIs reached the TV was dropped. Testers saw frames skipped
+// at full speed in Conker, the Banjos and GoldenEye.
+struct ViMark { uint32_t origin; OSTime t; };
+constexpr uint32_t kViMarks = 1024;
+ViMark g_vi_marks[kViMarks];        // VI n's at n % kViMarks
+volatile uint32_t g_vi_marked;      // CPU core: VIs numbered
+volatile uint32_t g_vis_unpresented; // CPU core: VIs never given to the graphics core (it still had one)
+volatile uint32_t g_game_frames;    // CPU core: VIs with a new origin
+uint32_t g_last_marked_origin;
+uint32_t g_screen_vi;               // graphics core: the VI the current screen command is
+
+struct FlipMark { uint32_t flips; OSTime t; };
+constexpr uint32_t kFlipMarks = 64;
+FlipMark g_flip_marks[kFlipMarks];  // written by the flip callback
+volatile uint32_t g_flip_marks_n;
+volatile uint32_t g_vsyncs;         // vsync callback: the TV's own count
+uint32_t g_flip_marks_done, g_flips_polled;
+
+volatile unsigned g_fc_flips, g_fc_skipped, g_fc_repeated, g_fc_never, g_fc_frames, g_fc_short, g_fc_long;
+volatile double g_fc_latency_us, g_fc_latency_max_us; // VI to TV: sum, and the most since video_stats
+volatile unsigned g_fc_latency_n;
+bool g_fc_have_prev, g_fc_have_frame;
+uint32_t g_fc_prev_vi, g_fc_frame_start, g_fc_frame_origin;
+OSTime g_fc_prev_t, g_fc_frame_t;
 // GPU flip queue (GamePad: hold L and R, press minus; dev build): each VI's
 // picture is copied and swapped as soon as GLideN64 presents it, repeats too,
 // so the swap sits in the GPU's command stream right after that frame's own
@@ -219,21 +246,24 @@ void show(GX2ColorBuffer * screen, unsigned vi, uint32_t origin, OSTime vsync)
 	uint32_t swaps = 0, flips = 0;
 	OSTime last_flip, last_vsync;
 	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
-	g_swap_info[swaps & 15] = {vi, origin};
+	g_swap_info[swaps & 15] = {swaps, vi, origin};
 	pace_note('S', OSGetSystemTime(), vsync, vi, origin, swaps);
 }
 
-// A record of every present, show and flip seen, from the first time the
-// flip queue is switched on (dev: L + R + minus), for tools/pace-report.py;
-// written to sd:/wiiu/our64/pace.bin at HOME (video_pace_write). P: present
-// (VI, origin, fresh), S: show (vsync, the VI shown, its origin, swaps
-// after), F: a flip seen (its time, flips, swaps). This core writes; the file
-// is written while a pause holds it.
+// The record (sd:/wiiu/our64/pace, or the flip queue switched on in the dev
+// build), for tools/pace-report.py, written to sd:/wiiu/our64/pace-<game>.bin at
+// HOME and when the game stops (video_pace_write). Entries are big-endian
+// >QQIIII: t, x, kind, a, b, c. M: an emulated VI (t its time on the CPU
+// core, a its number, b its origin). P: a present (t now, x the VI's time,
+// a the VI, b its origin, c fresh). S: a swap (t now, x the vsync it was
+// meant for, a the VI, b its origin, c swaps after). F: a TV flip (t its
+// time, a flips, b the VI it showed, 0 unknown). This core writes; the file
+// is written while a pause holds it or after the game.
 struct PaceEntry { uint64_t t, x; uint32_t kind, a, b, c; };
-constexpr unsigned kPaceN = 32768;
+constexpr unsigned kPaceN = 65536;
 PaceEntry * g_pace_log;
 volatile unsigned g_pace_n;
-uint32_t g_flips_seen;
+uint32_t g_marks_noted; // VIs recorded as M
 
 void pace_note(char kind, OSTime t, OSTime x, uint32_t a, uint32_t b, uint32_t c)
 {
@@ -243,33 +273,130 @@ void pace_note(char kind, OSTime t, OSTime x, uint32_t a, uint32_t b, uint32_t c
 	g_pace_n = g_pace_n + 1;
 }
 
-// Each flip seen: recorded, and a new game frame's hold counted. Two flips
-// between looks leave the first one's time unknown: no hold counted across it.
-void pace_flips()
+// GX2's callbacks, on this core: each flip with its time, and each vsync.
+void on_flip(GX2EventType, void *)
 {
+	uint32_t swaps = 0, flips = 0;
+	OSTime last_flip = 0, last_vsync = 0;
+	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+	const uint32_t n = g_flip_marks_n;
+	g_flip_marks[n % kFlipMarks] = {flips, last_flip ? last_flip : OSGetSystemTime()};
+	__sync_synchronize();
+	g_flip_marks_n = n + 1;
+}
+
+void on_vsync(GX2EventType, void *) { g_vsyncs = g_vsyncs + 1; }
+
+uint32_t mark_origin(uint32_t vi) { return g_vi_marks[vi % kViMarks].origin; }
+// VI vi's mark is still there (the CPU core has not numbered kViMarks VIs since).
+bool marked(uint32_t vi) { return vi != 0 && int32_t(g_vi_marked - vi) >= 0 && g_vi_marked - vi < kViMarks - 16; }
+
+// The first VI of the game frame VI vi belongs to.
+uint32_t run_start(uint32_t vi)
+{
+	uint32_t v = vi;
+	while (vi - v < 512 && marked(v - 1) && mark_origin(v - 1) == mark_origin(v))
+		v--;
+	return v;
+}
+
+void frame_check_reset() { g_fc_have_prev = g_fc_have_frame = false; }
+
+// One TV flip, in order: which VI it showed, against which it should have.
+void check_flip(uint32_t flips, OSTime t)
+{
+	const SwapInfo info = g_swap_info[flips & 15];
+	const bool known = info.swap == flips && marked(info.vi) && !g_hold;
+	pace_note('F', t, 0, flips, known ? info.vi : 0, 0);
+	if (!known) { // one of Our64's own screens, or a VI too long ago
+		frame_check_reset();
+		return;
+	}
+	const OSTime period = OSNanosecondsToTicks(16683333);
+	const uint32_t vi = info.vi;
+	g_fc_flips++;
+	const double us = double(OSTicksToMicroseconds(t - g_vi_marks[vi % kViMarks].t));
+	g_fc_latency_us += us;
+	g_fc_latency_n++;
+	if (us > g_fc_latency_max_us)
+		g_fc_latency_max_us = us;
+	if (g_fc_have_prev) {
+		const int32_t vsyncs = int32_t((t - g_fc_prev_t + period / 2) / period);
+		const int32_t d = int32_t(vi - g_fc_prev_vi) - vsyncs;
+		if (d > 0)
+			g_fc_skipped += d;
+		else
+			g_fc_repeated += -d;
+		// Game frames that began after the last flip's VI, and ended before this one's.
+		const uint32_t span = vi - g_fc_prev_vi;
+		if (span > 1 && span < kViMarks / 2 && marked(g_fc_prev_vi)) {
+			unsigned starts = 0;
+			for (uint32_t v = g_fc_prev_vi + 1; v != vi + 1; v++)
+				starts += mark_origin(v) != mark_origin(v - 1);
+			if (starts > 1)
+				g_fc_never += starts - 1;
+		}
+	}
+	// A new game frame on the TV: the one before stayed for as many vsyncs as the N64 kept it?
+	const uint32_t start = run_start(vi);
+	if (!g_fc_have_frame || start != g_fc_frame_start) {
+		if (g_fc_have_frame && int32_t(start - g_fc_frame_start) > 0 && marked(g_fc_frame_start)) {
+			uint32_t end = g_fc_frame_start + 1;
+			while (end != start && mark_origin(end) == mark_origin(g_fc_frame_start))
+				end++;
+			const uint32_t held = uint32_t((t - g_fc_frame_t + period / 2) / period), vis = end - g_fc_frame_start;
+			g_fc_frames++;
+			if (held < vis)
+				g_fc_short++;
+			else if (held > vis)
+				g_fc_long++;
+		}
+		g_fc_frame_start = start;
+		g_fc_frame_t = t;
+		g_fc_have_frame = true;
+	}
+	g_fc_prev_vi = vi;
+	g_fc_prev_t = t;
+	g_fc_have_prev = true;
+}
+
+// Every flip since the last look: from the flip callback, or polled (then a
+// look that finds two flips cannot tell when the first came).
+void frame_check()
+{
+	const uint32_t marked_now = g_vi_marked;
+	__sync_synchronize();
+	if (g_pace_log != nullptr) {
+		if (marked_now - g_marks_noted > kViMarks / 2)
+			g_marks_noted = marked_now - kViMarks / 2;
+		while (g_marks_noted != marked_now) {
+			const uint32_t v = ++g_marks_noted;
+			pace_note('M', g_vi_marks[v % kViMarks].t, 0, v, mark_origin(v), 0);
+		}
+	}
+	const uint32_t n = g_flip_marks_n;
+	__sync_synchronize();
+	if (n != 0) {
+		if (n - g_flip_marks_done > kFlipMarks) {
+			g_flip_marks_done = n - kFlipMarks;
+			frame_check_reset();
+		}
+		while (g_flip_marks_done != n) {
+			const FlipMark m = g_flip_marks[g_flip_marks_done % kFlipMarks];
+			g_flip_marks_done++;
+			check_flip(m.flips, m.t);
+		}
+		return;
+	}
 	uint32_t swaps = 0, flips = 0;
 	OSTime last_flip, last_vsync;
 	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
-	if (flips == g_flips_seen)
+	if (flips == g_flips_polled)
 		return;
-	const bool exact = flips - g_flips_seen == 1;
-	g_flips_seen = flips;
-	pace_note('F', last_flip, 0, flips, swaps, 0);
-	const SwapInfo info = g_swap_info[flips & 15];
-	if (info.origin == g_tv_origin)
-		return;
-	const OSTime period = OSNanosecondsToTicks(16683333);
-	if (g_tv_flip != 0 && exact) {
-		const unsigned held = unsigned((last_flip - g_tv_flip + period / 2) / period), vis = info.vi - g_tv_vi;
-		g_frames_new++;
-		if (held < vis)
-			g_frames_short++;
-		else if (held > vis)
-			g_frames_long++;
-	}
-	g_tv_flip = exact ? last_flip : 0;
-	g_tv_vi = info.vi;
-	g_tv_origin = info.origin;
+	if (flips - g_flips_polled != 1)
+		frame_check_reset();
+	g_flips_polled = flips;
+	check_flip(flips, last_flip);
 }
 
 // Shows the next queued VI once the TV has flipped to the one before and a
@@ -277,7 +404,7 @@ void pace_flips()
 // so its GPU state needs giving back.
 void show_queued(bool outside_frame)
 {
-	pace_flips();
+	frame_check();
 	if (g_queued == 0 || g_hold)
 		return;
 	uint32_t swaps = 0, flips = 0;
@@ -331,17 +458,15 @@ void present(GX2ColorBuffer * screen)
 	OUR64_AT();
 	g_last_frame = screen;
 	g_presents++;
-	if (g_hold) { // a pause or the closing screen is up: it keeps the screens
-		g_tv_flip = 0;
+	if (g_hold) // a pause or the closing screen is up: it keeps the screens
 		return;
-	}
 	OUR64_AT();
 	GX2ColorBuffer * frame = ui_gfx_overlay(screen);
 	OUR64_AT();
 	if (g_present_waits) {
 		g_frames_shown++;
 		g_shown_picture = -1;
-		show(frame, g_presents, g_regs.vi[1], 0);
+		show(frame, g_screen_vi, g_regs.vi[1], 0);
 		return;
 	}
 	// A repeat: no task decoded since the last present, the same frame
@@ -364,7 +489,7 @@ void present(GX2ColorBuffer * screen)
 		if (swaps - flips >= kAhead) {
 			if (!fresh) { // a repeat: the TV holds the picture anyway, one vsync fewer
 				g_flipq_skipped++;
-				pace_flips();
+				frame_check();
 				return;
 			}
 			g_flipq_waited++;
@@ -373,9 +498,9 @@ void present(GX2ColorBuffer * screen)
 				GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
 			}
 		}
-		show(frame, g_presents, g_regs.vi[1], 0);
+		show(frame, g_screen_vi, g_regs.vi[1], 0);
 		g_frames_shown++;
-		pace_flips();
+		frame_check();
 		return;
 	}
 	if (!fresh && g_queued == kQueue) { // repeats the waiting picture: the TV holds it anyway
@@ -402,15 +527,16 @@ void present(GX2ColorBuffer * screen)
 		if (picture < 0 || !ui_gfx_copy_frame(frame, &g_pictures[picture])) {
 			g_frames_shown++; // no memory for the queue: shown as before
 			g_shown_picture = -1;
-			show(frame, g_presents, g_regs.vi[1], 0);
+			show(frame, g_screen_vi, g_regs.vi[1], 0);
 			return;
 		}
 		if (picture == g_shown_picture)
 			g_shown_picture = -1;
 		g_queued_picture = picture;
 	}
-	g_queue[g_queued++] = {picture, fresh, OSGetSystemTime(), g_presents, g_regs.vi[1]};
-	pace_note('P', g_queue[g_queued - 1].at, 0, g_presents, g_regs.vi[1], fresh);
+	g_queue[g_queued++] = {picture, fresh, OSGetSystemTime(), g_screen_vi, g_regs.vi[1]};
+	pace_note('P', g_queue[g_queued - 1].at, marked(g_screen_vi) ? g_vi_marks[g_screen_vi % kViMarks].t : 0, g_screen_vi,
+	          g_regs.vi[1], fresh);
 	OUR64_AT();
 	show_queued(false);
 	OUR64_AT();
@@ -670,6 +796,10 @@ int graphics_main(int, const char **)
 			report_line("PROFILE: sampling the graphics core's tasks every 250 us (profile-gfx)");
 		}
 	}
+	if (g_gfx_ok) { // the frame check's flip times (frame_check)
+		GX2SetEventCallback(GX2_EVENT_TYPE_FLIP, on_flip, nullptr);
+		GX2SetEventCallback(GX2_EVENT_TYPE_VSYNC, on_vsync, nullptr);
+	}
 	g_ready = true;
 	OSSignalEvent(&g_done_event);
 	if (!g_gfx_ok)
@@ -699,6 +829,8 @@ int graphics_main(int, const char **)
 	}
 	if (g_prof_on)
 		OSCancelAlarm(&g_prof_alarm); // a periodic alarm left behind hung the next launches (replay app)
+	GX2SetEventCallback(GX2_EVENT_TYPE_FLIP, nullptr, nullptr);
+	GX2SetEventCallback(GX2_EVENT_TYPE_VSYNC, nullptr, nullptr);
 	WHBGfxShutdown();
 	return 0;
 }
@@ -828,6 +960,17 @@ void start_on_graphics_core(void * result)
 		inexact = stat(path, &st) != 0;
 		snprintf(path, sizeof(path), "%s/present-waits", root);
 		g_present_waits = stat(path, &st) == 0;
+		// sd:/wiiu/our64/pace: this game's presents, swaps and flips recorded
+		// from its start (pace.bin, tools/pace-report.py).
+		snprintf(path, sizeof(path), "%s/pace", root);
+		if (stat(path, &st) == 0) {
+			if (g_pace_log == nullptr)
+				g_pace_log = static_cast<PaceEntry *>(calloc(kPaceN, sizeof(PaceEntry)));
+			g_pace_n = 0;
+			g_marks_noted = g_vi_marked;
+			report_line("PACE: recording presents, swaps and flips (sd:/wiiu/our64/pace)%s",
+			            g_pace_log ? "" : ": no memory for the record");
+		}
 	}
 	static char settings[160];
 	snprintf(settings, sizeof(settings),
@@ -894,6 +1037,7 @@ void stop_on_graphics_core(void *)
 	g_queued = 0; // nothing of this game reaches the screens after it
 	g_queued_picture = g_shown_picture = -1;
 	g_tasks_at_present = ~0u;
+	frame_check_reset();
 }
 
 void quit_on_graphics_core(void *) { g_quit = true; }
@@ -933,6 +1077,7 @@ bool video_game_started() { return g_started; }
 void video_set_hold(bool hold)
 {
 	g_hold = hold;
+	frame_check_reset();
 	if (hold) {
 		g_queued = 0;
 		g_queued_picture = g_shown_picture = -1;
@@ -1121,10 +1266,25 @@ extern "C" void video_reset_rsp(void) { if (g_gfx_ok) call(reset_rsp_on_graphics
 // a graphics core that falls behind skips VIs instead of stalling the CPU.
 extern "C" void video_update_screen(void)
 {
-	if (g_screen_pending)
+	// Numbered first, shown or not (the frame check, see g_vi_marks).
+	const uint32_t vi = g_vi_marked + 1, origin = *g_mem.vi[1];
+	g_vi_marks[vi % kViMarks] = {origin, OSGetSystemTime()};
+	if (origin != g_last_marked_origin) {
+		g_last_marked_origin = origin;
+		g_game_frames = g_game_frames + 1;
+	}
+	__sync_synchronize();
+	g_vi_marked = vi;
+	if (g_screen_pending) {
+		g_vis_unpresented = g_vis_unpresented + 1;
 		return;
+	}
 	g_screen_pending = 1;
-	post_vi(CMD_SCREEN);
+	Slot & s = claim();
+	s.cmd = CMD_SCREEN;
+	s.task = vi;
+	snapshot_vi(s);
+	post();
 }
 
 extern "C" void video_vi_status_changed(void) { post_vi(CMD_VI_STATUS); }
@@ -1145,9 +1305,21 @@ extern "C" void video_stats(video_stats_t * s)
 	s->frames_dropped = g_frames_dropped;
 	s->frames_late = g_frames_late;
 	s->frames_trimmed = g_frames_trimmed;
-	s->frames_new = g_frames_new;
-	s->frames_short = g_frames_short;
-	s->frames_long = g_frames_long;
+	s->vis_marked = g_vi_marked;
+	s->vis_unpresented = g_vis_unpresented;
+	s->game_frames = g_game_frames;
+	s->tv_vsyncs = g_vsyncs;
+	s->fc_flips = g_fc_flips;
+	s->fc_skipped = g_fc_skipped;
+	s->fc_repeated = g_fc_repeated;
+	s->fc_never = g_fc_never;
+	s->frames_new = g_fc_frames;
+	s->frames_short = g_fc_short;
+	s->frames_long = g_fc_long;
+	s->latency_us = g_fc_latency_us;
+	s->latency_n = g_fc_latency_n;
+	s->latency_max_us = g_fc_latency_max_us;
+	g_fc_latency_max_us = 0;
 	s->queue_wait_us = g_queue_wait_us;
 	s->vis_taken = g_vis_taken;
 }
@@ -1163,17 +1335,17 @@ extern "C" int video_flipq_toggle(void)
 }
 
 // The record so far to sd:/wiiu/our64/pace.bin (at HOME; see pace_note).
-extern "C" void video_pace_write(void)
+extern "C" void video_pace_write(const char * id)
 {
 	if (g_pace_log == nullptr || g_pace_n == 0)
 		return;
-	char path[256];
-	snprintf(path, sizeof(path), "%s/pace.bin", report_sd_root());
+	char path[320];
+	snprintf(path, sizeof(path), "%s/pace-%s.bin", report_sd_root(), id);
 	if (FILE * f = fopen(path, "wb")) {
 		const unsigned n = g_pace_n;
 		fwrite(g_pace_log, sizeof(PaceEntry), n, f);
 		fclose(f);
-		report_line("PACE: %u events written to pace.bin", n);
+		report_line("PACE: %u events written to %s", n, path);
 	}
 }
 

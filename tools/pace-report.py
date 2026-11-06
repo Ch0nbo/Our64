@@ -1,40 +1,123 @@
 #!/usr/bin/env python3
-"""Reads sd:/wiiu/our64/pace.bin (the dev build's flip record, started by the
-GamePad's L + R + minus): how long each new game frame stayed on the TV
-against how many VIs the game kept it, and how the flips were spaced.
-  tools/pace-report.py pace.bin"""
+"""Reads sd:/wiiu/our64/pace.bin (recorded when sd:/wiiu/our64/pace exists,
+or after the dev build's L + R + minus): the frame check of video.cpp, with
+a cause for every VI the TV skipped or repeated.
+  tools/pace-report.py pace.bin [--events N]   (N: list the first N faults)
+
+The N64 shows VI n's frame buffer for one VI. k vsyncs after one flip, the
+TV should show the VI k later. Entries (big-endian >QQIIII t, x, kind, a, b, c):
+  M  an emulated VI: t its time on the CPU core, a its number, b its origin
+  P  a present: x the VI's time, a the VI, b its origin, c fresh
+  S  a swap: x the vsync it was meant for, a the VI, b its origin, c swaps after
+  F  a TV flip: t its time, a flips, b the VI it showed (0 unknown)"""
 import collections
 import struct
 import sys
 
-TPS = 62156250.0          # OSTime ticks a second
-PERIOD = 1000 / 59.94     # ms between TV vsyncs
+TPS = 62156250.0              # OSTime ticks a second
+PERIOD = TPS * 0.016683333    # ticks between TV vsyncs
 
-data = open(sys.argv[1], "rb").read()
-events = [struct.unpack(">QQIIII", data[o:o + 32]) for o in range(0, len(data) - 31, 32)]
-shows, flips = [], {}
-for t, x, kind, a, b, c in events:
-    if kind == ord("S"):
-        shows.append((t, a, b, c))      # time, VI, origin, swaps after
-    elif kind == ord("F"):
-        flips[a] = t                    # flip count -> its time
-print("events:", dict(collections.Counter(chr(e[2]) for e in events)))
 
-new = []   # (VI, flip time) of each new game frame whose flip time is known
-last_origin = None
-for t, vi, origin, swaps in shows:
-    if origin != last_origin and swaps in flips:
-        new.append((vi, flips[swaps]))
-    last_origin = origin
-holds = collections.Counter()
-for (vi0, f0), (vi1, f1) in zip(new, new[1:]):
-    holds[(vi1 - vi0, round((f1 - f0) * 1000 / TPS / PERIOD))] += 1
-total = sum(holds.values())
-wrong = sum(n for (v, h), n in holds.items() if v != h)
-print("game frames %d, held a wrong number of vsyncs: %d (%.0f%%)" % (total, wrong, 100 * wrong / max(total, 1)))
-print("(VIs, vsyncs held): count")
-for (v, h), n in holds.most_common(10):
-    print("  (%d, %d): %d" % (v, h, n))
-ft = sorted(flips.items())
-spacing = collections.Counter(round((t1 - t0) * 1000 / TPS / PERIOD) for (n0, t0), (n1, t1) in zip(ft, ft[1:]) if n1 - n0 == 1)
-print("vsyncs between consecutive flips:", sorted(spacing.items()))
+def ms(ticks):
+    return ticks * 1000.0 / TPS
+
+
+def main():
+    path = sys.argv[1]
+    show_n = int(sys.argv[sys.argv.index("--events") + 1]) if "--events" in sys.argv else 10
+    data = open(path, "rb").read()
+    events = [struct.unpack(">QQIIII", data[o:o + 32]) for o in range(0, len(data) - 31, 32)]
+    kinds = collections.Counter(chr(e[2]) for e in events)
+    print("events:", dict(kinds))
+    marks, presents, swaps, flips = {}, {}, {}, []
+    for t, x, kind, a, b, c in events:
+        k = chr(kind)
+        if k == "M":
+            marks[a] = (t, b)
+        elif k == "P":
+            presents.setdefault(a, (t, c))
+        elif k == "S":
+            swaps.setdefault(a, t)
+        elif k == "F":
+            flips.append((t, b))
+    if not marks:
+        print("no VIs recorded (an old pace.bin?)")
+        return
+    first, last = min(marks), max(marks)
+    vis = last - first + 1
+    starts = [v for v in range(first + 1, last + 1) if v in marks and v - 1 in marks and marks[v][1] != marks[v - 1][1]]
+    span_s = ms(marks[last][0] - marks[first][0]) / 1000
+    print("N64 VIs %d over %.1f s (%.2f VI/s), game frames %d (%.1f a second)" %
+          (vis, span_s, vis / span_s if span_s else 0, len(starts), len(starts) / span_s if span_s else 0))
+    print("VIs never presented (the graphics core still had one): %d" %
+          sum(1 for v in range(first, last + 1) if v not in presents))
+    print("VIs presented, never swapped: %d (fresh %d)" %
+          (sum(1 for v in presents if v not in swaps),
+           sum(1 for v, (t, fresh) in presents.items() if v not in swaps and fresh)))
+
+    skipped = repeated = never = 0
+    causes = collections.Counter()
+    faults = []
+    latency = []
+    prev = None
+    for t, vi in flips:
+        if vi == 0 or vi not in marks:
+            prev = None
+            continue
+        latency.append(ms(t - marks[vi][0]))
+        if prev is not None:
+            pt, pvi = prev
+            vsyncs = int(round((t - pt) / PERIOD))
+            d = (vi - pvi) - vsyncs
+            if d:
+                # What kept the VI after the last one shown from its vsync: it was due
+                # one vsync after the last flip, at the latency the last flip had.
+                nxt = pvi + 1
+                due = pt + PERIOD
+                if d > 0:
+                    skipped += d
+                    why = []
+                    for v in range(max(pvi + 1, vi - d), vi):  # the VIs due in the vsyncs passed
+                        if v not in presents:
+                            why.append("never presented")
+                        elif v not in swaps:
+                            why.append("replaced in the queue")
+                        else:
+                            why.append("swapped, flip passed")
+                    cause = "skip: " + (max(set(why), key=why.count) if why else "behind, caught up")
+                else:
+                    repeated += -d
+                    if nxt not in marks:
+                        cause = "repeat: unknown"
+                    elif marks[nxt][0] > due:
+                        cause = "repeat: CPU core late (emulated after its vsync)"
+                    elif nxt in presents and presents[nxt][0] > due:
+                        cause = "repeat: graphics core late (presented after its vsync)"
+                    elif nxt in swaps and swaps[nxt] > due:
+                        cause = "repeat: swapped after its vsync (queue)"
+                    elif nxt in swaps:
+                        cause = "repeat: GPU flipped late (swap before the vsync)"
+                    else:
+                        cause = "repeat: never swapped"
+                causes[cause] += abs(d)
+                faults.append((ms(t - flips[0][0]), pvi, vi, vsyncs, d, cause))
+            span = vi - pvi
+            if 1 < span < 512:
+                n = sum(1 for v in range(pvi + 1, vi + 1) if v in marks and v - 1 in marks and marks[v][1] != marks[v - 1][1])
+                if n > 1:
+                    never += n - 1
+        prev = (t, vi)
+    print("TV flips %d; VIs skipped %d, repeated %d; game frames never shown %d" % (len(flips), skipped, repeated, never))
+    if latency:
+        latency.sort()
+        print("VI to TV: median %.1f ms, 5%% %.1f, 95%% %.1f, most %.1f" %
+              (latency[len(latency) // 2], latency[len(latency) // 20], latency[len(latency) * 19 // 20], latency[-1]))
+    print("causes (VIs):")
+    for cause, n in causes.most_common():
+        print("  %5d  %s" % (n, cause))
+    print("first faults (ms from the first flip, last VI shown, this VI, vsyncs between, off by, cause):")
+    for f in faults[:show_n]:
+        print("  %9.1f  %6d -> %6d  %d vsyncs  %+d  %s" % f)
+
+
+main()

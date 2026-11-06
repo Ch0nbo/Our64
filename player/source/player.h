@@ -57,11 +57,23 @@ typedef struct {
 	unsigned frames_shown, frames_late, frames_dropped; /* shown (late: held for a flip first), replaced unshown */
 	unsigned frames_trimmed; /* queued VIs dropped because the queue never emptied for a second (video.cpp) */
 	unsigned frames_new, frames_short, frames_long; /* game frames on the TV; of them, held fewer or more vsyncs than the game's VIs */
+	/* The frame check (video.cpp g_vi_marks): totals since the app started. */
+	unsigned vis_marked;      /* emulated VIs */
+	unsigned vis_unpresented; /* of them, never given to the graphics core (it still had one) */
+	unsigned game_frames;     /* VIs with a new origin */
+	unsigned tv_vsyncs;       /* the TV's vsyncs */
+	unsigned fc_flips;        /* TV flips that showed a game VI */
+	unsigned fc_skipped;      /* VIs the TV passed over: shown fewer vsyncs than the N64 would */
+	unsigned fc_repeated;     /* vsyncs a VI stayed on the TV past its time */
+	unsigned fc_never;        /* game frames none of whose VIs reached the TV */
+	double latency_us;        /* VI to TV flip, summed over latency_n flips */
+	unsigned latency_n;
+	double latency_max_us;    /* the most since the last call */
 	double queue_wait_us;    /* time VIs waited in the queue before the TV took them, summed */
 	unsigned vis_taken;      /* queued VIs the TV took */
 } video_stats_t;
 void video_stats(video_stats_t *s);
-void video_pace_write(void); /* the flip record, once the flip queue was switched on: pace.bin (video.cpp) */
+void video_pace_write(const char *id); /* the flip record (sd:/wiiu/our64/pace or the flip queue): pace-<game>.bin (video.cpp) */
 double video_busy_s(unsigned *cmd); /* how long the current command has run; 0 when idle */
 void video_backtrace(char *out, unsigned size); /* the graphics core's PC and return addresses, for the log */
 

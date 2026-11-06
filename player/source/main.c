@@ -277,6 +277,14 @@ void player_left(int where, int warned)
  * once the first frames are on screen, so the frozen frame is the game's. */
 static uint32_t g_pause_at_vi;
 
+/* The flip record, if one runs, as pace-<game id>.bin (video.cpp). */
+static void pace_write(void)
+{
+	char id[64];
+	saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
+	video_pace_write(id);
+}
+
 /* Controllers once per VI (input_wiiu.c): HOME on any of them pauses. */
 static void pad_read(void)
 {
@@ -377,6 +385,24 @@ double player_ahead_us(void)
 static int g_writer_ok; /* the SD writer thread runs: saves and autosaves work */
 static void save_log(void) { report_save(); }
 
+/* The frame check between two readings (video.cpp g_vi_marks): did the TV
+ * show every emulated VI for one vsync, as the N64 would? */
+static video_stats_t g_fc_window, g_fc_game; /* at the last stats line; at the game's start */
+static double g_fc_game_max_us;
+static void frame_check_line(const char *prefix, const video_stats_t *a, const video_stats_t *b, double max_us)
+{
+	unsigned lat_n = b->latency_n - a->latency_n;
+	report_line("%sframe check: %u N64 VIs (%u game frames), %u TV vsyncs, %u flips; TV skipped %u VIs, repeated %u; "
+	            "game frames never shown %u, held wrong %u of %u (short %u, long %u); VIs not presented %u; "
+	            "VI to TV %.1f ms (most %.1f)",
+	            prefix, b->vis_marked - a->vis_marked, b->game_frames - a->game_frames, b->tv_vsyncs - a->tv_vsyncs,
+	            b->fc_flips - a->fc_flips, b->fc_skipped - a->fc_skipped, b->fc_repeated - a->fc_repeated,
+	            b->fc_never - a->fc_never, (b->frames_short - a->frames_short) + (b->frames_long - a->frames_long),
+	            b->frames_new - a->frames_new, b->frames_short - a->frames_short, b->frames_long - a->frames_long,
+	            b->vis_unpresented - a->vis_unpresented,
+	            lat_n ? (b->latency_us - a->latency_us) / lat_n / 1e3 : 0.0, max_us / 1e3);
+}
+
 /* Where the time went, per second of the last STATS_EVERY_S seconds. What
  * is left after the listed parts is the CPU core running game code. Saved to
  * SD each time, so a session that ends badly still has its log. */
@@ -430,6 +456,10 @@ static void stats(double t)
 	            copies_now - copies, OSTicksToMicroseconds(copy_now - copy_ticks) * ms);
 	copy_ticks = copy_now;
 	copies = copies_now;
+	frame_check_line("  ", &g_fc_window, &v, v.latency_max_us);
+	if (v.latency_max_us > g_fc_game_max_us)
+		g_fc_game_max_us = v.latency_max_us;
+	g_fc_window = v;
 	double posting = d[GFX_SECTION] + d[SCREEN_SECTION] + event_wait;
 	report_line("  CPU core: graphics %.0f (tasks %.0f, VIs %.0f, waiting %.0f: ring full %.0f, calls %.0f, a task while ahead %.0f, "
 	            "a task needed %.0f), audio tasks %.0f, JIT %.0f, pacing %.0f, game %.0f",
@@ -545,7 +575,7 @@ void new_vi(void)
 		g_pause_wanted = 0;
 		report_line("PAUSE: HOME at VI %u", g_bench.vis);
 		timeline_write(); /* a frozen game is left with HOME, and the power button loses it */
-		video_pace_write();
+		pace_write();
 		states_pause();
 	}
 	/* Leaving: once the last resume point is captured, or after a second without the moment for it. */
@@ -1352,6 +1382,9 @@ static int play_game(int index)
 		goto teardown;
 	}
 	video_up = 1;
+	video_stats(&g_fc_game); /* the frame check counts this game from here */
+	g_fc_window = g_fc_game;
+	g_fc_game_max_us = 0;
 	loading("Ready", 1.0f);
 	while (OSTicksToMicroseconds(OSGetSystemTime() - g_load_t0) < LOADING_MIN_S * 1e6) {
 		if (loading_cancelled())
@@ -1433,8 +1466,16 @@ static int play_game(int index)
 		report_line("GAME: %s (%s): %.0f min%s, %u audio underruns", played, id,
 		            (report_now_us() - g_sweep_t0_us) / 60e6, low, audio_underruns() - g_sweep_under0);
 	}
+	{
+		video_stats_t v;
+		video_stats(&v);
+		if (v.latency_max_us > g_fc_game_max_us)
+			g_fc_game_max_us = v.latency_max_us;
+		frame_check_line("GAME: ", &g_fc_game, &v, g_fc_game_max_us);
+	}
 	timeline_write();
 	audio_dump_write();
+	pace_write();
 teardown:
 	if (g_capture_left) { /* a capture belongs to one game: the next one's tasks would join its files */
 		report_line("Capture stopped with the game, %d graphics tasks short", g_capture_left);
