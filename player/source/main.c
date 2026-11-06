@@ -508,6 +508,9 @@ extern unsigned video_tv_lead(void);
 #define TV_LEAD_MAX 4 /* VIs the CPU core may run past the one on the TV (new_vi) */
 static double g_stats_from_us;
 static double g_vi_wait_us;
+/* TV clock pacing in the last 10 s (the stats line "TV clock pacing"): sleeps to the VI's vsync, waits for
+ * the TV (TV_LEAD_MAX), schedule moves when behind or ahead, slips, VIs due 2+ vsyncs on, the oldest vsync seen */
+static struct { double sched_us, lead_us, vs_age_max_us; unsigned behind, ahead, slips, far, n; } g_tvp;
 static unsigned long g_threads_at; /* sd:/wiiu/our64/threads.txt: the game's __osActiveQueue, in hex */
 static int g_interpreter;          /* sd:/wiiu/our64/interpreter exists: pure interpreter, no recompiler */
 static int g_sync_gfx;             /* the CPU waits for each graphics task: this game needs it, or the switch */
@@ -711,6 +714,12 @@ static void stats(double t)
 	cpu_wait = v.cpu_wait_us;
 	for (int i = 0; i < 4; i++)
 		wait_part[i] = v.cpu_wait_part_us[i];
+	if (g_tv_clock)
+		report_line("  TV clock pacing: %u VIs, sleeping to the vsync %.0f, waiting for the TV %.0f; schedule moved "
+		            "%u behind, %u ahead; %u slips; %u due 2+ vsyncs on; oldest vsync %.1f ms",
+		            g_tvp.n, g_tvp.sched_us * ms, g_tvp.lead_us * ms, g_tvp.behind, g_tvp.ahead, g_tvp.slips, g_tvp.far,
+		            g_tvp.vs_age_max_us / 1e3);
+	memset(&g_tvp, 0, sizeof(g_tvp));
 	g_vi_wait_us = 0;
 	g_stats_from_us = t;
 }
@@ -775,16 +784,26 @@ void new_vi(void)
 		 * game runs slower, the TV keeps pictures longer; nothing is skipped). */
 		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
 		g_tv_vi_k += video_last_vi_hold(); /* the VI just run is due this many vsyncs: 2 for a PAL game's every fifth */
-		g_tv_vi_k += video_tv_slip(); /* the TV's queue is deep: one vsync more, unseen */
+		const int slip = video_tv_slip();
+		g_tv_vi_k += slip; /* the TV's queue is deep: one vsync more, unseen */
+		g_tvp.n++;
+		g_tvp.slips += slip;
+		if (now > vs_t && OSTicksToMicroseconds(now - vs_t) > g_tvp.vs_age_max_us)
+			g_tvp.vs_age_max_us = OSTicksToMicroseconds(now - vs_t);
 		/* Behind by up to two vsyncs the CPU core catches up (TV_LEAD_MAX below
 		 * bounds the delay that adds); more, and the schedule moves. Moving it
 		 * after one vsync starved audio where Conker is CPU-bound: 10 underruns
 		 * a minute instead of 1 (2026-11-05). */
-		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4)
+		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4) {
+			g_tvp.behind += (int32_t)(k_now - g_tv_vi_k) > 2;
+			g_tvp.ahead += (int32_t)(g_tv_vi_k - k_now) > 4;
 			g_tv_vi_k = k_now;
+		}
+		g_tvp.far += (int32_t)(g_tv_vi_k - k_now) >= 2;
 		g_next_vi = vs_t + (OSTime)(int32_t)(g_tv_vi_k - vs_count) * g_vi_period;
 		if (g_next_vi > now) {
 			OSSleepTicks(g_next_vi - now);
+			g_tvp.sched_us += OSTicksToMicroseconds(g_next_vi - now);
 			g_vi_wait_us += OSTicksToMicroseconds(g_next_vi - now);
 			idle_us += OSTicksToMicroseconds(g_next_vi - now);
 		}
@@ -797,6 +816,7 @@ void new_vi(void)
 				OSSleepTicks(OSMicrosecondsToTicks(500));
 			const OSTime t1 = OSGetSystemTime();
 			g_vi_wait_us += OSTicksToMicroseconds(t1 - t0);
+			g_tvp.lead_us += OSTicksToMicroseconds(t1 - t0);
 			idle_us += OSTicksToMicroseconds(t1 - t0);
 			g_tv_lead_waits++;
 			if (video_tv_vsync(&vs_count, &vs_t)) /* the schedule goes on from now */
