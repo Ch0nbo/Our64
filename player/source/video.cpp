@@ -235,6 +235,15 @@ constexpr unsigned kDepthWindow = 60;
 unsigned g_depth_min = ~0u, g_depth_n;
 volatile uint32_t g_tv_slips_asked, g_tv_slips_done;
 bool g_triple;
+// A present that finds kTvAhead swaps waiting is kept (a GPU copy of its
+// picture) and swapped once one has flipped (show_tv_kept), so this core
+// decodes on instead of waiting: waiting there took 550 ms of each second and
+// Banjo-Kazooie drew 20 frames a second instead of 29 (2026-11-05).
+constexpr int kKeptMax = 4;
+struct Kept { int picture; unsigned vi; uint32_t origin; };
+Kept g_kept[kKeptMax];
+int g_kept_n;
+GX2ColorBuffer g_kept_pictures[kKeptMax + 1];
 volatile unsigned g_tv_trimmed, g_tv_waited, g_tv_pending_sum, g_tv_pending_n;
 volatile uint32_t g_vs_seq, g_vs_t_hi, g_vs_t_lo; // the last vsync's time, for any core (video_tv_vsync)
 volatile unsigned g_flipq_skipped, g_flipq_waited;
@@ -468,8 +477,11 @@ void frame_check()
 // Shows the next queued VI once the TV has flipped to the one before and a
 // vsync has passed since. outside_frame: not inside GLideN64's own present,
 // so its GPU state needs giving back.
+void show_tv_kept(bool outside_frame);
 void show_queued(bool outside_frame)
 {
+	if (!g_hold)
+		show_tv_kept(outside_frame);
 	frame_check();
 	if (g_queued == 0 || g_hold)
 		return;
@@ -531,6 +543,31 @@ void wait_for_room(uint32_t ahead)
 	}
 }
 
+// TV clock: kept presents swapped in order while fewer than kTvAhead swaps
+// wait. outside_frame: GLideN64's GPU state needs giving back after.
+void show_tv_kept(bool outside_frame)
+{
+	if (!g_tv_clock || g_kept_n == 0)
+		return;
+	bool shown = false;
+	while (g_kept_n > 0) {
+		uint32_t swaps = 0, flips = 0;
+		OSTime last_flip, last_vsync;
+		GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+		if (swaps - flips >= kTvAhead)
+			break;
+		const Kept k = g_kept[0];
+		for (int i = 0; i + 1 < g_kept_n; i++)
+			g_kept[i] = g_kept[i + 1];
+		g_kept_n--;
+		show(&g_kept_pictures[k.picture], k.vi, k.origin, 0);
+		g_frames_shown++;
+		shown = true;
+	}
+	if (shown && outside_frame)
+		gx2::restoreState();
+}
+
 // Each VI GLideN64 presents: queued (see above). Controller notices go on a
 // copy of the frame (ui_gfx_overlay).
 void present(GX2ColorBuffer * screen)
@@ -567,8 +604,9 @@ void present(GX2ColorBuffer * screen)
 	if (g_tv_clock) {
 		uint32_t swaps = 0, flips = 0;
 		OSTime last_flip, last_vsync;
+		show_tv_kept(false);
 		GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
-		const uint32_t depth = swaps - flips;
+		const uint32_t depth = swaps - flips + uint32_t(g_kept_n);
 		g_tv_pending_sum = g_tv_pending_sum + depth;
 		g_tv_pending_n = g_tv_pending_n + 1;
 		if (depth < g_depth_min)
@@ -582,12 +620,44 @@ void present(GX2ColorBuffer * screen)
 			g_depth_n = 0;
 			g_depth_min = ~0u;
 		}
-		if (swaps - flips >= kTvAhead) {
+		if (g_kept_n == 0 && swaps - flips < kTvAhead) {
+			show(frame, g_screen_vi, g_regs.vi[1], 0);
+			g_frames_shown++;
+			frame_check();
+			return;
+		}
+		if (g_kept_n == kKeptMax) { // four kept already: this core waits after all
 			g_tv_waited = g_tv_waited + 1;
 			wait_for_room(kTvAhead);
+			show_tv_kept(false);
 		}
-		show(frame, g_screen_vi, g_regs.vi[1], 0);
-		g_frames_shown++;
+		// A repeat of the last kept picture shares it; anything else is copied
+		// into a picture no kept present uses.
+		int picture = -1;
+		if (same && g_kept_n > 0)
+			picture = g_kept[g_kept_n - 1].picture;
+		for (int p = 0; p <= kKeptMax && picture < 0; p++) {
+			bool used = false;
+			for (int i = 0; i < g_kept_n; i++)
+				used = used || g_kept[i].picture == p;
+			if (!used)
+				picture = p;
+		}
+		if (g_kept_n == kKeptMax || picture < 0 ||
+		    (!(same && g_kept_n > 0 && picture == g_kept[g_kept_n - 1].picture) &&
+		     !ui_gfx_copy_frame(frame, &g_kept_pictures[picture]))) {
+			// no room or no memory: the kept ones first, then this one, waiting here
+			for (int tries = 0; g_kept_n > 0 && tries < 8; tries++) {
+				wait_for_room(kTvAhead);
+				show_tv_kept(false);
+			}
+			wait_for_room(kTvAhead);
+			show(frame, g_screen_vi, g_regs.vi[1], 0);
+			g_frames_shown++;
+			frame_check();
+			return;
+		}
+		g_kept[g_kept_n++] = {picture, g_screen_vi, g_regs.vi[1]};
 		frame_check();
 		return;
 	}
@@ -1143,6 +1213,7 @@ void stop_on_graphics_core(void *)
 	g_queued = 0; // nothing of this game reaches the screens after it
 	g_queued_picture = g_shown_picture = -1;
 	g_tasks_at_present = ~0u;
+	g_kept_n = 0;
 	frame_check_reset();
 }
 
@@ -1185,6 +1256,7 @@ void video_set_hold(bool hold)
 	g_hold = hold;
 	frame_check_reset();
 	if (hold) {
+		g_kept_n = 0;
 		g_queued = 0;
 		g_queued_picture = g_shown_picture = -1;
 	}
