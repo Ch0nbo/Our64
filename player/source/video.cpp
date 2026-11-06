@@ -1588,7 +1588,10 @@ extern "C" void video_gpu_profile_report(char * out, unsigned size)
 		call(prof_report_on_graphics_core, &a);
 }
 
-// The TV clock on or off for the game about to start (main.c, sd:/wiiu/our64/tv-clock).
+// The Wii U's TV output: 576i is 50 Hz (a European TV setting), every other mode 59.94 Hz.
+extern "C" int video_tv_is_60hz(void) { return GX2GetSystemTVScanMode() != GX2_TV_SCAN_MODE_576I; }
+
+// The TV clock on or off for the game about to start (main.c: NTSC games on a 59.94 Hz TV).
 extern "C" void video_set_tv_clock(int on)
 {
 	g_tv_clock = on != 0;

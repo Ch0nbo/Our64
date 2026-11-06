@@ -277,17 +277,22 @@ void player_left(int where, int warned)
  * once the first frames are on screen, so the frozen frame is the game's. */
 static uint32_t g_pause_at_vi;
 
-/* sd:/wiiu/our64/tv-clock (a test, 2026-11-05): one VI per TV vsync (new_vi);
- * audio follows instead of pacing. */
+/* The TV clock, every NTSC game on a 59.94 Hz TV (2026-11-06): one VI per TV
+ * vsync (new_vi), audio follows instead of pacing, every VI is shown for one
+ * vsync. With the old pacing (audio or a 60.000 Hz timer) the frame test
+ * counted 49-514 frames a minute held a wrong number of vsyncs in Conker,
+ * both Banjos, GoldenEye and Mario 64; with the TV clock 0-17
+ * (plans/2026-11-05-frame-pacing.md). sd:/wiiu/our64/old-pacing turns it off,
+ * for comparing. */
 static int g_tv_clock;
 
 /* ---- frame test (2026-11-05): the folder sd:/wiiu/our64/frametest exists.
- * Each NTSC game alternates by itself between the old pacing and the TV
- * clock, from the runs already saved there for it (completed runs: an even
- * count runs the old way, an odd count the TV clock), so the order of games,
- * closing the app or a crash cannot put it out of step. A run settles for
+ * Each NTSC game's run measures the pacing it plays with (the TV clock, or
+ * the old pacing with sd:/wiiu/our64/old-pacing), numbered on from the runs
+ * already saved there for it, so the order of games, closing the app or a
+ * crash cannot overwrite one. A run settles for
  * FT_SETTLE_VIS VIs (loading, a resume), measures FT_MEASURE_VIS, and writes
- * its own files as it goes: <game id>-run<N>-fix-<on|off>.txt every 10 s
+ * its own files as it goes: <game id>-run<N>-<tv|old>.txt every 10 s
  * (COMPLETE at the end) and .bin, the flip record, at the end. Notices say
  * which run it is and when it is saved; none show while it measures (a
  * notice changes how pictures are copied). Nothing waits on the PC, FTP or
@@ -349,14 +354,14 @@ static int ft_begin(void)
 	for (int k = (int)strlen(g_ft_name) - 1; k >= 0 && g_ft_name[k] == ' '; k--)
 		g_ft_name[k] = 0;
 	g_ft_on = 1;
-	g_ft_fix = complete % 2 == 1;
+	g_ft_fix = g_tv_clock;
 	g_ft_run = runs + 1;
 	g_ft_state = 0;
 	g_ft_vi0 = g_bench.vis;
-	snprintf(g_ft_base, sizeof(g_ft_base), "%s/%s-run%d-fix-%s", dir, id, g_ft_run, g_ft_fix ? "on" : "off");
+	snprintf(g_ft_base, sizeof(g_ft_base), "%s/%s-run%d-%s", dir, id, g_ft_run, g_ft_fix ? "tv" : "old");
 	/* shown 2 s into play (ft_tick): a game resumed from its autosave opens paused */
-	snprintf(g_ft_l1, sizeof(g_ft_l1), "Frame test: %s run %d, fix %s", g_ft_name, g_ft_run, g_ft_fix ? "ON" : "OFF");
-	snprintf(g_ft_l2, sizeof(g_ft_l2), "%d of 2 saved. Play until Saved shows", complete > 2 ? 2 : complete);
+	snprintf(g_ft_l1, sizeof(g_ft_l1), "Frame test: %s run %d%s", g_ft_name, g_ft_run, g_ft_fix ? "" : ", old pacing");
+	snprintf(g_ft_l2, sizeof(g_ft_l2), "%d saved before. Play until Saved shows", complete);
 	report_line("FRAME TEST: %s %s", g_ft_l1, g_ft_l2);
 	return 1;
 }
@@ -379,8 +384,8 @@ static int ft_write(int done)
 	if (!f)
 		return 0;
 	const unsigned measured = g_bench.vis - g_ft_vi0 - FT_SETTLE_VIS;
-	int ok = fprintf(f, "game %s\nrun %d\nfix %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s", g_ft_name,
-	                 g_ft_run, g_ft_fix ? "on (tv-clock)" : "off", measured, FT_MEASURE_VIS,
+	int ok = fprintf(f, "game %s\nrun %d\npacing %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s", g_ft_name,
+	                 g_ft_run, g_ft_fix ? "TV clock" : "old", measured, FT_MEASURE_VIS,
 	                 audio_underruns() - g_ft_under0, fc, gpu, done ? "COMPLETE\n" : "") > 0;
 	ok = fclose(f) == 0 && ok;
 	return ok;
@@ -415,7 +420,7 @@ static void ft_tick(void)
 	snprintf(path, sizeof(path), "%s.bin", g_ft_base);
 	ok = video_pace_write_to(path) && ok;
 	g_ft_state = 2;
-	snprintf(l1, sizeof(l1), "Frame test: %s run %d (fix %s)", g_ft_name, g_ft_run, g_ft_fix ? "ON" : "OFF");
+	snprintf(l1, sizeof(l1), "Frame test: %s run %d%s", g_ft_name, g_ft_run, g_ft_fix ? "" : " (old pacing)");
 	if (ok)
 		ft_notice(l1, "Saved. Exit any way you like");
 	else
@@ -1607,20 +1612,21 @@ static int play_game(int index)
 
 	g_vi_period = OSSecondsToTicks(1) / (is_pal() ? 50 : 60);
 	g_next_vi = OSGetSystemTime();
-	{ /* the TV clock test: NTSC games only (a PAL game's 50 VIs cannot follow a 59.94 Hz TV) */
+	{ /* the TV clock: NTSC games on a 59.94 Hz TV (a PAL game's 50 VIs, or a 50 Hz TV, cannot follow it) */
 		char path[256];
 		struct stat st;
-		snprintf(path, sizeof(path), "%s/tv-clock", report_sd_root() ? report_sd_root() : "");
-		g_tv_clock = report_sd_root() && !stat(path, &st) && !is_pal();
-		if (ft_begin())
-			g_tv_clock = g_ft_fix;
+		snprintf(path, sizeof(path), "%s/old-pacing", report_sd_root() ? report_sd_root() : "");
+		const int old = report_sd_root() && !stat(path, &st);
+		g_tv_clock = !old && !is_pal() && video_tv_is_60hz();
+		ft_begin();
 		if (g_tv_clock) {
 			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */
 			uint32_t c;
 			OSTime t;
 			g_tv_vi_k = video_tv_vsync(&c, &t) ? c : 0;
-			report_line("TEST: the TV's vsync is the VI clock, audio follows (tv-clock)");
-		}
+			report_line("VIDEO: the TV's vsync is the VI clock, audio follows");
+		} else
+			report_line("VIDEO: the old pacing (%s)", old ? "old-pacing" : is_pal() ? "a PAL game" : "a 50 Hz TV");
 		video_set_tv_clock(g_tv_clock);
 		video_set_frame_check(!is_pal());
 		audio_set_unpaced(g_tv_clock);
