@@ -482,6 +482,7 @@ static OSTime g_next_vi;    /* when the next VI is due */
 static OSTime g_vi_period;
 static uint32_t g_tv_vi_k; /* TV clock: the vsync the current VI is due at */
 extern int video_tv_vsync(uint32_t *count, OSTime *t); /* video.cpp */
+extern int video_tv_slip(void);
 static double g_stats_from_us;
 static double g_vi_wait_us;
 static unsigned long g_threads_at; /* sd:/wiiu/our64/threads.txt: the game's __osActiveQueue, in hex */
@@ -537,7 +538,7 @@ static void frame_check_line(const char *prefix, const video_stats_t *a, const v
 	unsigned pend_n = b->tv_pending_n - a->tv_pending_n;
 	char tv[128] = "";
 	if (g_tv_clock)
-		snprintf(tv, sizeof(tv), "; TV clock: swaps waiting %.2f a present, %u left out on still screens, %u waits",
+		snprintf(tv, sizeof(tv), "; TV clock: swaps waiting %.2f a present, %u extra vsyncs (delay back), %u waits",
 		         pend_n ? (double)(b->tv_pending_sum - a->tv_pending_sum) / pend_n : 0.0, b->tv_trimmed - a->tv_trimmed,
 		         b->tv_waited - a->tv_waited);
 	snprintf(out, size, "%sframe check: %u N64 VIs (%u game frames), %u TV vsyncs, %u flips; TV skipped %u VIs, repeated %u; "
@@ -749,6 +750,7 @@ void new_vi(void)
 		 * game runs slower, the TV keeps pictures longer; nothing is skipped). */
 		const uint32_t k_now = vs_count + (uint32_t)(now > vs_t ? (now - vs_t) / g_vi_period : 0);
 		g_tv_vi_k++;
+		g_tv_vi_k += video_tv_slip(); /* the TV's queue is deep: one vsync more, unseen */
 		if ((int32_t)(k_now - g_tv_vi_k) > 2 || (int32_t)(g_tv_vi_k - k_now) > 4)
 			g_tv_vi_k = k_now;
 		g_next_vi = vs_t + (OSTime)(int32_t)(g_tv_vi_k - vs_count) * g_vi_period;

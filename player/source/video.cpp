@@ -28,8 +28,11 @@
 #include <coreinit/context.h>
 #include <coreinit/event.h>
 #include <coreinit/thread.h>
+#include <coreinit/cache.h>
+#include <coreinit/memdefaultheap.h>
 #include <coreinit/time.h>
 #include <gx2/display.h>
+#include <gx2/mem.h>
 #include <gx2/draw.h>
 #include <gx2/event.h>
 #include <gx2/state.h>
@@ -215,15 +218,23 @@ bool g_flipq_was;
 // longer sets the pace), every VI reaches the graphics core (up to
 // kScreensInFlight waiting), and every VI's picture is swapped, repeats too,
 // so the GPU flips one per vsync in order: each VI stays on the TV one
-// vsync, as on the N64. Something late makes the TV keep a picture one more
-// vsync and leaves the queue a swap deeper (a vsync more latency); a still
-// screen (kStill repeats in a row) gives that vsync back by leaving out one
-// repeat's swap, which nobody can see.
+// vsync, as on the N64.
 volatile bool g_tv_clock;
-constexpr uint32_t kTvAhead = 3;          // swaps waiting at most
+// Each screen gets three scan buffers (triple_buffers): with WHB's two, a
+// copy into the next one waited on the GPU until a swap already waiting had
+// flipped, and the GPU work behind it waited too: 700-800 ms of each second
+// in the first TV clock runs, and Banjo-Kazooie drew 17 frames a second
+// instead of 29 (2026-11-05). With three, one swap may wait for free.
+constexpr uint32_t kTvAhead = 2;          // a present waits (on this core) while this many swaps wait
 constexpr uint32_t kScreensInFlight = 3;
-constexpr unsigned kStill = 8;
-unsigned g_still;                         // repeats in a row
+// The depth: swaps waiting at each present. Something late leaves it one
+// deeper (a vsync more delay). When it stayed at 2 or more for kDepthWindow
+// presents, the CPU core waits one vsync more once (new_vi): the TV takes the
+// waiting swaps meanwhile, so nothing shows, and the delay is a vsync shorter.
+constexpr unsigned kDepthWindow = 60;
+unsigned g_depth_min = ~0u, g_depth_n;
+volatile uint32_t g_tv_slips_asked, g_tv_slips_done;
+bool g_triple;
 volatile unsigned g_tv_trimmed, g_tv_waited, g_tv_pending_sum, g_tv_pending_n;
 volatile uint32_t g_vs_seq, g_vs_t_hi, g_vs_t_lo; // the last vsync's time, for any core (video_tv_vsync)
 volatile unsigned g_flipq_skipped, g_flipq_waited;
@@ -557,15 +568,19 @@ void present(GX2ColorBuffer * screen)
 		uint32_t swaps = 0, flips = 0;
 		OSTime last_flip, last_vsync;
 		GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
-		g_still = same ? g_still + 1 : 0;
-		g_tv_pending_sum = g_tv_pending_sum + (swaps - flips);
+		const uint32_t depth = swaps - flips;
+		g_tv_pending_sum = g_tv_pending_sum + depth;
 		g_tv_pending_n = g_tv_pending_n + 1;
-		if (same && g_still >= kStill && swaps - flips >= 2) {
-			g_tv_trimmed = g_tv_trimmed + 1; // a still screen: one vsync of latency back
-			g_fc_excused++;                  // the frame check's skip at the next flip is this
-			pace_note('T', OSGetSystemTime(), 0, g_screen_vi, 0, 0);
-			frame_check();
-			return;
+		if (depth < g_depth_min)
+			g_depth_min = depth;
+		if (++g_depth_n == kDepthWindow) {
+			if (g_depth_min >= 2 && g_tv_slips_asked == g_tv_slips_done) {
+				g_tv_slips_asked = g_tv_slips_asked + 1;
+				g_tv_trimmed = g_tv_trimmed + 1;
+				pace_note('D', OSGetSystemTime(), 0, g_screen_vi, g_depth_min, 0);
+			}
+			g_depth_n = 0;
+			g_depth_min = ~0u;
 		}
 		if (swaps - flips >= kTvAhead) {
 			g_tv_waited = g_tv_waited + 1;
@@ -1419,14 +1434,75 @@ extern "C" void video_stats(video_stats_t * s)
 	s->vis_taken = g_vis_taken;
 }
 
-// The TV clock on or off for the game about to start (main.c, sd:/wiiu/our64/tv-clock).
 // A PAL game's 50 VIs a second cannot each hold one vsync of a 59.94 Hz TV: no frame check.
 extern "C" void video_set_frame_check(int on) { g_fc_off = !on; }
 
+// Three scan buffers for the TV and the GamePad in place of WHB's two
+// (MEM2, kept for the session). Graphics core.
+void triple_buffers(void *)
+{
+	if (g_triple)
+		return;
+	GX2TVRenderMode mode = GX2_TV_RENDER_MODE_WIDE_720P; // as WHBGfxInit picks it
+	switch (GX2GetSystemTVScanMode()) {
+	case GX2_TV_SCAN_MODE_480I:
+	case GX2_TV_SCAN_MODE_480P:
+		mode = GX2_TV_RENDER_MODE_WIDE_480P;
+		break;
+	case GX2_TV_SCAN_MODE_1080I:
+	case GX2_TV_SCAN_MODE_1080P:
+		mode = GX2_TV_RENDER_MODE_WIDE_1080P;
+		break;
+	default:
+		break;
+	}
+	const GX2SurfaceFormat format = GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8;
+	uint32_t tv_size = 0, drc_size = 0, unk = 0;
+	GX2CalcTVSize(mode, format, GX2_BUFFERING_MODE_TRIPLE, &tv_size, &unk);
+	GX2CalcDRCSize(GX2_DRC_RENDER_MODE_SINGLE, format, GX2_BUFFERING_MODE_TRIPLE, &drc_size, &unk);
+	void * tv = MEMAllocFromDefaultHeapEx(tv_size, GX2_SCAN_BUFFER_ALIGNMENT);
+	void * drc = MEMAllocFromDefaultHeapEx(drc_size, GX2_SCAN_BUFFER_ALIGNMENT);
+	if (tv == nullptr || drc == nullptr) {
+		if (tv)
+			MEMFreeToDefaultHeap(tv);
+		if (drc)
+			MEMFreeToDefaultHeap(drc);
+		report_line("VIDEO: no memory for three scan buffers (%u + %u KB): two stay", unsigned(tv_size / 1024),
+		            unsigned(drc_size / 1024));
+		return;
+	}
+	memset(tv, 0, tv_size);
+	memset(drc, 0, drc_size);
+	DCFlushRange(tv, tv_size);
+	DCFlushRange(drc, drc_size);
+	GX2DrawDone();
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU, tv, tv_size);
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU, drc, drc_size);
+	GX2SetTVBuffer(tv, tv_size, mode, format, GX2_BUFFERING_MODE_TRIPLE);
+	GX2SetDRCBuffer(drc, drc_size, GX2_DRC_RENDER_MODE_SINGLE, format, GX2_BUFFERING_MODE_TRIPLE);
+	g_triple = true;
+	report_line("VIDEO: three scan buffers: TV mode %d, %u KB; GamePad %u KB", int(mode), unsigned(tv_size / 1024),
+	            unsigned(drc_size / 1024));
+}
+
+// The TV clock on or off for the game about to start (main.c, sd:/wiiu/our64/tv-clock).
 extern "C" void video_set_tv_clock(int on)
 {
 	g_tv_clock = on != 0;
-	g_still = 0;
+	g_depth_n = 0;
+	g_depth_min = ~0u;
+	g_tv_slips_done = g_tv_slips_asked;
+	if (g_tv_clock && g_gfx_ok)
+		call(triple_buffers, nullptr);
+}
+
+// The CPU core's one extra vsync, when the graphics core asked for it (see kDepthWindow).
+extern "C" int video_tv_slip(void)
+{
+	if (g_tv_slips_done == g_tv_slips_asked)
+		return 0;
+	g_tv_slips_done = g_tv_slips_asked;
+	return 1;
 }
 
 // The TV's last vsync: its count and time. 0 before the first one (or while
