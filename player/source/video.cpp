@@ -248,6 +248,7 @@ int g_kept_n;
 GX2ColorBuffer g_kept_pictures[kKeptMax + 1];
 volatile unsigned g_tv_trimmed, g_tv_waited, g_tv_pending_sum, g_tv_pending_n;
 volatile uint32_t g_vs_seq, g_vs_t_hi, g_vs_t_lo; // the last vsync's time, for any core (video_tv_vsync)
+volatile uint32_t g_vs_period_ns; // the TV's measured refresh period, 0 until measured
 volatile unsigned g_flipq_skipped, g_flipq_waited;
 Queued g_queue[kQueue];
 int g_queued;
@@ -344,6 +345,15 @@ void on_vsync(GX2EventType, void *)
 	g_vsyncs = g_vsyncs + 1;
 	__sync_synchronize();
 	g_vs_seq = g_vs_seq + 1;
+	// The measured refresh, over 64 vsyncs (video_tv_is_60hz).
+	static OSTime span_start;
+	static uint32_t span_n;
+	if (span_n == 0)
+		span_start = last_vsync;
+	if (++span_n == 65) {
+		g_vs_period_ns = uint32_t(OSTicksToNanoseconds(last_vsync - span_start) / 64);
+		span_n = 0;
+	}
 }
 
 uint32_t mark_origin(uint32_t vi) { return g_vi_marks[vi % kViMarks].origin; }
@@ -1588,8 +1598,17 @@ extern "C" void video_gpu_profile_report(char * out, unsigned size)
 		call(prof_report_on_graphics_core, &a);
 }
 
-// The Wii U's TV output: 576i is 50 Hz (a European TV setting), every other mode 59.94 Hz.
-extern "C" int video_tv_is_60hz(void) { return GX2GetSystemTVScanMode() != GX2_TV_SCAN_MODE_576I; }
+// The TV runs at 59.94 Hz: measured from the vsyncs (16.0-17.4 ms), else by
+// its mode (576i is 50 Hz). The mode alone is not enough: the 50 Hz HD modes
+// homebrew can set have no GX2 value of their own (tv-clock-other-regions plan,
+// 2026-11-06).
+extern "C" int video_tv_is_60hz(void)
+{
+	const uint32_t p = g_vs_period_ns;
+	if (p != 0)
+		return p >= 16000000 && p <= 17400000;
+	return GX2GetSystemTVScanMode() != GX2_TV_SCAN_MODE_576I;
+}
 
 // The TV clock on or off for the game about to start (main.c: NTSC games on a 59.94 Hz TV).
 extern "C" void video_set_tv_clock(int on)
