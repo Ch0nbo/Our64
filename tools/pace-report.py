@@ -86,8 +86,9 @@ def main():
             if d:
                 # What kept the VI after the last one shown from its vsync: it was due
                 # one vsync after the last flip, at the latency the last flip had.
-                nxt = pvi + 1
-                due = pt + PERIOD
+                # this flip's VI came late: it was due (vi - pvi) vsyncs after the last flip
+                nxt = vi
+                due = pt + PERIOD * (vi - pvi)
                 if d > 0:
                     skipped += d
                     why = []

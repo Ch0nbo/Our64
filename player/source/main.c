@@ -1439,7 +1439,21 @@ static int play_game(int index)
 		char path[256];
 		struct stat st;
 		snprintf(path, sizeof(path), "%s/tv-clock", report_sd_root() ? report_sd_root() : "");
-		g_tv_clock = report_sd_root() && !stat(path, &st) && !is_pal();
+		/* "alternate" in the file: off for the first game of the session, on for
+		 * the next, and so on (an A/B in one sitting: files the app writes reach
+		 * FTP only when it closes, so the switch cannot be flipped from the PC). */
+		static unsigned launches;
+		char how[16] = "";
+		FILE *f = report_sd_root() ? fopen(path, "r") : NULL;
+		if (f) {
+			if (!fgets(how, sizeof(how), f))
+				how[0] = 0;
+			fclose(f);
+		}
+		const int alternate = !strncmp(how, "alternate", 9);
+		g_tv_clock = report_sd_root() && !stat(path, &st) && !is_pal() && (!alternate || launches % 2 == 1);
+		if (f && alternate)
+			launches++;
 		if (g_tv_clock) {
 			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */
 			uint32_t c;
