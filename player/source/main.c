@@ -281,6 +281,139 @@ static uint32_t g_pause_at_vi;
  * audio follows instead of pacing. */
 static int g_tv_clock;
 
+/* ---- frame test (2026-11-05): the folder sd:/wiiu/our64/frametest exists.
+ * Each NTSC game alternates by itself between the old pacing and the TV
+ * clock, from the runs already saved there for it (completed runs: an even
+ * count runs the old way, an odd count the TV clock), so the order of games,
+ * closing the app or a crash cannot put it out of step. A run settles for
+ * FT_SETTLE_VIS VIs (loading, a resume), measures FT_MEASURE_VIS, and writes
+ * its own files as it goes: <game id>-run<N>-fix-<on|off>.txt every 10 s
+ * (COMPLETE at the end) and .bin, the flip record, at the end. Notices say
+ * which run it is and when it is saved; none show while it measures (a
+ * notice changes how pictures are copied). Nothing waits on the PC, FTP or
+ * the player log. ---- */
+static int is_pal(void);
+static void frame_check_line(const char *prefix, const video_stats_t *a, const video_stats_t *b, double max_us,
+                             char *out, unsigned size);
+#define FT_SETTLE_VIS 600
+#define FT_MEASURE_VIS 3600
+static int g_ft_on, g_ft_fix, g_ft_run, g_ft_state; /* state: 0 settling, 1 measuring, 2 saved */
+static unsigned g_ft_vi0, g_ft_under0;
+static char g_ft_base[400], g_ft_name[24], g_ft_l1[96], g_ft_l2[96];
+static video_stats_t g_ft_from;
+
+static void ft_notice(const char *line1, const char *line2)
+{
+	ui_notice(UI_KEY_DEV, NOTICE_INFO, 8, line1, line2);
+	report_line("FRAME TEST: %s %s", line1, line2);
+}
+
+/* At a game's start: is this a frame test run, and which way? */
+static int ft_begin(void)
+{
+	g_ft_on = 0;
+	const char *root = report_sd_root();
+	if (!root || is_pal())
+		return 0;
+	char dir[256], id[64], path[512];
+	snprintf(dir, sizeof(dir), "%s/frametest", root);
+	DIR *d = opendir(dir);
+	if (!d)
+		return 0;
+	saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
+	char prefix[80];
+	snprintf(prefix, sizeof(prefix), "%s-run", id);
+	int runs = 0, complete = 0;
+	struct dirent *e;
+	while ((e = readdir(d))) {
+		const size_t n = strlen(e->d_name);
+		if (strncmp(e->d_name, prefix, strlen(prefix)) || n < 4 || strcmp(e->d_name + n - 4, ".txt"))
+			continue;
+		const int r = atoi(e->d_name + strlen(prefix));
+		if (r > runs)
+			runs = r;
+		snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+		FILE *f = fopen(path, "r");
+		char line[600];
+		while (f && fgets(line, sizeof(line), f))
+			if (!strncmp(line, "COMPLETE", 8)) {
+				complete++;
+				break;
+			}
+		if (f)
+			fclose(f);
+	}
+	closedir(d);
+	snprintf(g_ft_name, sizeof(g_ft_name), "%.20s", (const char *)ROM_HEADER.Name);
+	for (int k = (int)strlen(g_ft_name) - 1; k >= 0 && g_ft_name[k] == ' '; k--)
+		g_ft_name[k] = 0;
+	g_ft_on = 1;
+	g_ft_fix = complete % 2 == 1;
+	g_ft_run = runs + 1;
+	g_ft_state = 0;
+	g_ft_vi0 = g_bench.vis;
+	snprintf(g_ft_base, sizeof(g_ft_base), "%s/%s-run%d-fix-%s", dir, id, g_ft_run, g_ft_fix ? "on" : "off");
+	/* shown 2 s into play (ft_tick): a game resumed from its autosave opens paused */
+	snprintf(g_ft_l1, sizeof(g_ft_l1), "Frame test: %s run %d, fix %s", g_ft_name, g_ft_run, g_ft_fix ? "ON" : "OFF");
+	snprintf(g_ft_l2, sizeof(g_ft_l2), "%d of 2 saved. Play until Saved shows", complete > 2 ? 2 : complete);
+	report_line("FRAME TEST: %s %s", g_ft_l1, g_ft_l2);
+	return 1;
+}
+
+/* The run's text file, rewritten whole each time. 0 when it could not be written. */
+static int ft_write(int done)
+{
+	char path[420], fc[600];
+	video_stats_t v;
+	video_stats(&v);
+	frame_check_line("", &g_ft_from, &v, 0, fc, sizeof(fc));
+	snprintf(path, sizeof(path), "%s.txt", g_ft_base);
+	FILE *f = fopen(path, "w");
+	if (!f)
+		return 0;
+	const unsigned measured = g_bench.vis - g_ft_vi0 - FT_SETTLE_VIS;
+	int ok = fprintf(f, "game %s\nrun %d\nfix %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s", g_ft_name,
+	                 g_ft_run, g_ft_fix ? "on (tv-clock)" : "off", measured, FT_MEASURE_VIS,
+	                 audio_underruns() - g_ft_under0, fc, done ? "COMPLETE\n" : "") > 0;
+	ok = fclose(f) == 0 && ok;
+	return ok;
+}
+
+/* Each VI: settle, measure, save. */
+static void ft_tick(void)
+{
+	if (!g_ft_on || g_ft_state == 2)
+		return;
+	const unsigned n = g_bench.vis - g_ft_vi0;
+	if (g_ft_state == 0 && n == 120)
+		ui_notice(UI_KEY_DEV, NOTICE_INFO, 7, g_ft_l1, g_ft_l2);
+	if (g_ft_state == 0 && n >= FT_SETTLE_VIS) {
+		ui_notice_clear(UI_KEY_DEV);
+		video_stats(&g_ft_from);
+		g_ft_under0 = audio_underruns();
+		video_pace_start();
+		g_ft_state = 1;
+		if (!ft_write(0))
+			ft_notice("Frame test: could not write", "to sd:/wiiu/our64/frametest");
+		return;
+	}
+	if (g_ft_state != 1 || (n - FT_SETTLE_VIS) % 600)
+		return;
+	const int done = n - FT_SETTLE_VIS >= FT_MEASURE_VIS;
+	int ok = ft_write(done);
+	if (!done)
+		return;
+	char path[420], l1[96];
+	snprintf(path, sizeof(path), "%s.bin", g_ft_base);
+	ok = video_pace_write_to(path) && ok;
+	g_ft_state = 2;
+	snprintf(l1, sizeof(l1), "Frame test: %s run %d (fix %s)", g_ft_name, g_ft_run, g_ft_fix ? "ON" : "OFF");
+	if (ok)
+		ft_notice(l1, "Saved. Exit any way you like");
+	else
+		ft_notice(l1, "NOT SAVED: tell Claude");
+}
+
 /* The flip record, if one runs, as pace-<game id>.bin (video.cpp). */
 static void pace_write(void)
 {
@@ -654,6 +787,7 @@ void new_vi(void)
 	states_vi(t, idle_us);
 	if (t - g_stats_from_us >= STATS_EVERY_S * 1e6)
 		stats(t);
+	ft_tick();
 }
 
 /* ---- hang watchdog: on core 2, so it still runs when the emulation thread
@@ -1439,21 +1573,9 @@ static int play_game(int index)
 		char path[256];
 		struct stat st;
 		snprintf(path, sizeof(path), "%s/tv-clock", report_sd_root() ? report_sd_root() : "");
-		/* "alternate" in the file: off for the first game of the session, on for
-		 * the next, and so on (an A/B in one sitting: files the app writes reach
-		 * FTP only when it closes, so the switch cannot be flipped from the PC). */
-		static unsigned launches;
-		char how[16] = "";
-		FILE *f = report_sd_root() ? fopen(path, "r") : NULL;
-		if (f) {
-			if (!fgets(how, sizeof(how), f))
-				how[0] = 0;
-			fclose(f);
-		}
-		const int alternate = !strncmp(how, "alternate", 9);
-		g_tv_clock = report_sd_root() && !stat(path, &st) && !is_pal() && (!alternate || launches % 2 == 1);
-		if (f && alternate)
-			launches++;
+		g_tv_clock = report_sd_root() && !stat(path, &st) && !is_pal();
+		if (ft_begin())
+			g_tv_clock = g_ft_fix;
 		if (g_tv_clock) {
 			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */
 			uint32_t c;

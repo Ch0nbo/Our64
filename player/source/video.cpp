@@ -283,6 +283,7 @@ constexpr unsigned kPaceN = 65536;
 PaceEntry * g_pace_log;
 volatile unsigned g_pace_n;
 uint32_t g_marks_noted; // VIs recorded as M
+volatile bool g_pace_restart; // the CPU core asks for a fresh record (video_pace_start)
 
 void pace_note(char kind, OSTime t, OSTime x, uint32_t a, uint32_t b, uint32_t c)
 {
@@ -412,6 +413,12 @@ void check_flip(uint32_t flips, OSTime t)
 // look that finds two flips cannot tell when the first came).
 void frame_check()
 {
+	if (g_pace_restart) {
+		g_pace_n = 0;
+		g_marks_noted = g_vi_marked;
+		g_pace_restart = false;
+		frame_check_reset();
+	}
 	const uint32_t marked_now = g_vi_marked;
 	__sync_synchronize();
 	if (g_pace_log != nullptr) {
@@ -1452,6 +1459,28 @@ extern "C" int video_flipq_toggle(void)
 		g_pace_log = static_cast<PaceEntry *>(calloc(kPaceN, sizeof(PaceEntry)));
 	g_flipq = !g_flipq;
 	return g_flipq;
+}
+
+// A fresh record from now (the frame test's measured part, main.c): the
+// graphics core starts it over at its next look (frame_check).
+extern "C" void video_pace_start(void)
+{
+	if (g_pace_log == nullptr)
+		g_pace_log = static_cast<PaceEntry *>(calloc(kPaceN, sizeof(PaceEntry)));
+	g_pace_restart = true;
+}
+
+// The record so far to a file of its own; 1 when written.
+extern "C" int video_pace_write_to(const char * path)
+{
+	if (g_pace_log == nullptr || g_pace_restart)
+		return 0;
+	FILE * f = fopen(path, "wb");
+	if (f == nullptr)
+		return 0;
+	const unsigned n = g_pace_n;
+	const bool ok = fwrite(g_pace_log, sizeof(PaceEntry), n, f) == n;
+	return fclose(f) == 0 && ok && n > 0;
 }
 
 // The record so far to sd:/wiiu/our64/pace.bin (at HOME; see pace_note).
