@@ -2002,9 +2002,9 @@ static void sweep(void)
 		build_note("sweep-current", "w", file);
 		report_restart(); /* each game's lines reach the card: the 256 KB buffer held only 24 games */
 		g_sweep_t0_us = 0;
+		g_game_fc[0] = 0; /* before the game: play_game fills it (cleared after, every line lost it) */
 		const int r = play_game(i);
 		char line[1100];
-		g_game_fc[0] = 0;
 		if (!g_sweep_t0_us) {
 			snprintf(line, sizeof(line), "%s: did not start (could not read it, or graphics did not start)  CHECK", file);
 		} else {
