@@ -74,6 +74,9 @@ extern "C" volatile double our64_gx2_frame_wait_us = 0;
 // In wut's import library but not its headers: the GPU writes its clock to
 // the address once all earlier work is done.
 extern "C" void GX2SampleBottomGPUCycle(uint64_t * _sample);
+// ... and once the command processor reaches it (top of the pipe): when the
+// commands after it reached the GPU, if it was idle waiting for them.
+extern "C" void GX2SampleTopGPUCycle(uint64_t * _sample);
 extern "C" uint64_t GX2GPUTimeToCPUTime(uint64_t _gpuTime); // gx2.rpl: GPU counter to OSTime (tv_pass.cpp)
 
 // Debug variants, set by the app before a run (empty or null: none). Words:
@@ -1028,6 +1031,7 @@ public:
 	bool tracing() { return debug().trace; }
 	void traceBegin(const char * _what, u32 _count) {
 		m_profWhat = _what;
+		profTop();
 		if (!tracing()) return;
 		const GX2ColorBuffer * cb = drawColorBuffer();
 		const Texture * t0 = texture(ObjectHandle(m_units[0]));
@@ -1117,7 +1121,18 @@ public:
 		GX2SetAttribBuffer(0, count * sizeof(RectVertex), sizeof(RectVertex), v);
 		if (debug().uniforms)
 			logRectUniforms(*program, v, count);
-		traceBegin("rect", count);
+		// The profile tells fill from textured rectangles, and those over at least
+		// half the scissor (a frame buffer copied or cleared) from small ones.
+		float x0 = _p.vertices[0].x, x1 = x0, y0 = _p.vertices[0].y, y1 = y0;
+		for (u32 i = 1; i < count; ++i) {
+			x0 = std::min(x0, _p.vertices[i].x); x1 = std::max(x1, _p.vertices[i].x);
+			y0 = std::min(y0, _p.vertices[i].y); y1 = std::max(y1, _p.vertices[i].y);
+		}
+		// N64 pixels, as the scissor
+		const float scissor = (gDP.scissor.lrx - gDP.scissor.ulx) * (gDP.scissor.lry - gDP.scissor.uly);
+		const bool big = scissor > 0.0f && (x1 - x0) * (y1 - y0) >= 0.5f * scissor;
+		traceBegin(_p.texrect ? (big ? "rect textured, half the target or more" : "rect textured, small")
+		                      : (big ? "rect fill, half the target or more" : "rect fill, small"), count);
 		GX2DrawEx(primitiveMode(u32(_p.mode)), count, 0, 1);
 		traceEnd();
 	}
@@ -1308,6 +1323,10 @@ public:
 	// scenes that matter it is behind and has commands waiting.
 	static constexpr u32 kProfMax = 8192;
 	u64 * m_prof = nullptr;
+	// m_profTop[n]: a top-of-pipe sample taken before mark n's work (traceBegin,
+	// player marks), 0 if none: the gap then starts no earlier than that, and
+	// the time before it the GPU sat idle, waiting for commands.
+	u64 * m_profTop = nullptr;
 	const char * m_profLabel[kProfMax];
 	u32 m_profN = 0, m_profFrame = 0, m_profFrames = 0, m_profKinds = 0;
 	bool m_profOn = false;
@@ -1322,13 +1341,19 @@ public:
 	u64 m_profUnreadStamp = 0;
 	ProfSum m_runSum[32];
 	u32 m_runKinds = 0, m_runFrames = 0;
-	u64 m_runTotal = 0, m_runMost = 0;
+	u64 m_runTotal = 0, m_runMost = 0, m_runIdle = 0;
 
 	void profMark(const char * _what) {
 		if (!m_profOn || m_profN >= kProfMax)
 			return;
 		m_profLabel[m_profN] = _what;
 		GX2SampleBottomGPUCycle(&m_prof[m_profN++]);
+	}
+	// Before an operation's commands: see m_profTop.
+	void profTop() {
+		if (!m_profOn || m_profN >= kProfMax)
+			return;
+		GX2SampleTopGPUCycle(&m_profTop[m_profN]);
 	}
 
 	bool vcFrameVariant() {
@@ -1339,19 +1364,42 @@ public:
 	}
 	bool m_profVariant = false;
 
-	// A profiled frame's samples, summed by kind into _sum; returns the frame's GPU cycles.
-	u64 profRead(ProfSum * _sum, u32 & _kinds, u64 & _total) {
+	// A profiled frame's samples, summed by kind into _sum; returns the frame's
+	// GPU cycles (busy), and adds the cycles it sat idle waiting for commands to _idle.
+	u64 profRead(ProfSum * _sum, u32 & _kinds, u64 & _total, u64 * _idle = nullptr) {
 		DCInvalidateRange(m_prof, kProfMax * sizeof(u64));
+		DCInvalidateRange(m_profTop, kProfMax * sizeof(u64));
+		auto unset = [](u64 v) { return v == 0 || v == ~0ull; };
 		// The clock as written, or byte-swapped: whichever counts up.
 		const bool swap = m_profN > 1 && __builtin_bswap64(m_prof[m_profN - 1]) - __builtin_bswap64(m_prof[0]) <
 			m_prof[m_profN - 1] - m_prof[0];
+		auto bottom = [&](u32 i) { return swap ? __builtin_bswap64(m_prof[i]) : m_prof[i]; };
+		// Top samples come from another packet: as written or swapped, whichever
+		// falls inside the frame's bottom samples.
+		int topSwap = -1;
+		for (u32 i = 1; i < m_profN && topSwap < 0; ++i)
+			if (!unset(m_profTop[i])) {
+				const u64 lo = bottom(0), hi = bottom(m_profN - 1);
+				const u64 a = m_profTop[i], b = __builtin_bswap64(m_profTop[i]);
+				topSwap = a >= lo && a <= hi ? 0 : b >= lo && b <= hi ? 1 : 2; // 2: neither, unused
+			}
 		u64 frame = 0;
 		for (u32 i = 1; i < m_profN; ++i) {
-			const u64 a = swap ? __builtin_bswap64(m_prof[i - 1]) : m_prof[i - 1];
-			const u64 b = swap ? __builtin_bswap64(m_prof[i]) : m_prof[i];
-			if (a == 0 || b == 0 || a == ~0ull || b == ~0ull || b < a || b - a > 100000000ull)
-				continue; // not written, or not a gap (over 3 s)
-			const u64 d = b - a;
+			if (unset(m_prof[i - 1]) || unset(m_prof[i]))
+				continue;
+			const u64 a = bottom(i - 1), b = bottom(i);
+			if (b < a || b - a > 100000000ull)
+				continue; // not a gap (over 3 s)
+			u64 d = b - a, idle = 0;
+			if ((topSwap == 0 || topSwap == 1) && !unset(m_profTop[i])) {
+				const u64 t = topSwap ? __builtin_bswap64(m_profTop[i]) : m_profTop[i];
+				if (t > a && t <= b) { // the commands came after the GPU had finished the ones before
+					idle = t - a;
+					d = b - t;
+				}
+			}
+			if (_idle != nullptr)
+				*_idle += idle;
 			u32 k = 0;
 			while (k < _kinds && strcmp(_sum[k].what, m_profLabel[i]) != 0)
 				++k;
@@ -1402,7 +1450,7 @@ public:
 			m_profFrame = 0;
 			if (m_profQuietWas) {
 				m_runKinds = m_runFrames = 0;
-				m_runTotal = m_runMost = 0;
+				m_runTotal = m_runMost = m_runIdle = 0;
 			}
 		}
 		if (!(debug().gpuProf || m_profQuietWas) || ++m_profFrame % 10 != 0)
@@ -1410,7 +1458,7 @@ public:
 		if (m_profUnread) { // 10 frames on: retired long since, so the wait returns at once
 			GX2WaitTimeStamp(m_profUnreadStamp);
 			u64 total = 0;
-			const u64 frame = profRead(m_runSum, m_runKinds, total);
+			const u64 frame = profRead(m_runSum, m_runKinds, total, &m_runIdle);
 			m_runTotal += frame;
 			m_runFrames++;
 			if (frame > m_runMost)
@@ -1426,11 +1474,14 @@ public:
 		}
 		if (m_prof == nullptr) {
 			m_prof = static_cast<u64*>(MEMAllocFromDefaultHeapEx(kProfMax * sizeof(u64), 256));
-			if (m_prof == nullptr)
+			m_profTop = static_cast<u64*>(MEMAllocFromDefaultHeapEx(kProfMax * sizeof(u64), 256));
+			if (m_prof == nullptr || m_profTop == nullptr)
 				return;
 		}
 		memset(m_prof, 0, (m_profN > 0 ? m_profN : kProfMax) * sizeof(u64));
+		memset(m_profTop, 0, (m_profN > 0 ? m_profN + 1 : kProfMax) * sizeof(u64));
 		DCFlushRange(m_prof, kProfMax * sizeof(u64));
+		DCFlushRange(m_profTop, kProfMax * sizeof(u64));
 		m_profN = 0;
 		m_profOn = true;
 		m_profStart = OSGetSystemTime();
@@ -2624,8 +2675,10 @@ private:
 			logOnce(m_loggedLayout, "program and draw use different vertex layouts (skipped)\n");
 			return nullptr;
 		}
-		if (refreshDepthTextures(*p))
+		if (refreshDepthTextures(*p)) {
 			restoreAfterClear();
+			profMark("depth buffer to texture refresh");
+		}
 		GX2ColorBuffer * cb = drawColorBuffer();
 		if (cb == nullptr)
 			return nullptr;
@@ -2678,8 +2731,11 @@ private:
 			// the color cache back and drop stale texture cache lines first, or
 			// the draw reads a mix of old and new pixels (sparkling).
 			if (t->cbDirty && !debug().noSampleFlush) {
+				profMark("draw setup (before a frame buffer is sampled)");
+				profTop();
 				GX2Invalidate((GX2InvalidateMode)(GX2_INVALIDATE_MODE_COLOR_BUFFER | GX2_INVALIDATE_MODE_TEXTURE),
 					t->tex.surface.image, t->tex.surface.imageSize);
+				profMark("cache flush: a frame buffer sampled as a texture");
 				t->cbDirty = false;
 			}
 			if (s.vertex) {
@@ -2980,8 +3036,10 @@ extern "C" void our64_gx2_prof_run(int _on)
 
 extern "C" void our64_gx2_prof_mark(const char * _what)
 {
-	if (gx2::g_context != nullptr)
+	if (gx2::g_context != nullptr) {
 		gx2::g_context->profMark(_what);
+		gx2::g_context->profTop(); // the player's next copy follows at once
+	}
 }
 
 // The run's profile as one line: GPU time a profiled frame, then each kind's
@@ -3001,8 +3059,9 @@ extern "C" void our64_gx2_prof_report(char * _out, unsigned _size)
 	const u64 c0 = GX2GPUTimeToCPUTime(span), c1 = GX2GPUTimeToCPUTime(2 * span);
 	const double rate = c1 > c0 ? double(span) / (double(c1 - c0) / double(OSTimerClockSpeed)) : 27000000.0;
 	const double frames = double(c->m_runFrames);
-	int n = snprintf(_out, _size, "GPU profile, %u frames: %.2f ms a frame (most %.2f)", c->m_runFrames,
-		double(c->m_runTotal) / frames * 1000.0 / rate, double(c->m_runMost) * 1000.0 / rate);
+	int n = snprintf(_out, _size, "GPU profile, %u frames: %.2f ms busy a frame (most %.2f), idle waiting for commands %.2f ms",
+		c->m_runFrames, double(c->m_runTotal) / frames * 1000.0 / rate, double(c->m_runMost) * 1000.0 / rate,
+		double(c->m_runIdle) / frames * 1000.0 / rate);
 	bool done[32] = {};
 	for (u32 shown = 0; shown < c->m_runKinds && n > 0 && unsigned(n) < _size; ++shown) {
 		u32 best = 32;
