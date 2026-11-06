@@ -1618,6 +1618,11 @@ static int play_game(int index)
 		snprintf(path, sizeof(path), "%s/old-pacing", report_sd_root() ? report_sd_root() : "");
 		const int old = report_sd_root() && !stat(path, &st);
 		g_tv_clock = !old && !is_pal() && video_tv_is_60hz();
+		snprintf(path, sizeof(path), "%s/tv-ahead-1", report_sd_root() ? report_sd_root() : "");
+		const int ahead1 = report_sd_root() && !stat(path, &st);
+		video_set_tv_ahead(ahead1 ? 1 : 2);
+		if (ahead1)
+			report_line("TEST: one swap waits for the TV at most (tv-ahead-1)");
 		ft_begin();
 		if (g_tv_clock) {
 			g_vi_period = OSNanosecondsToTicks(16683333); /* the TV's 59.94 Hz */

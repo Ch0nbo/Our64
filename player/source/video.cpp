@@ -227,7 +227,10 @@ volatile bool g_tv_clock;
 // flipped, and the GPU work behind it waited too: 700-800 ms of each second
 // in the first TV clock runs, and Banjo-Kazooie drew 17 frames a second
 // instead of 29 (2026-11-05). With three, one swap may wait for free.
-constexpr uint32_t kTvAhead = 2;          // a present waits (on this core) while this many swaps wait
+uint32_t kTvAhead = 2; // a present waits (on this core) while this many swaps wait
+// sd:/wiiu/our64/tv-ahead-1 (a test, 2026-11-06): one swap waits at most, as
+// with the old pacing, which held Racer at 60 VI/s where the TV clock (two)
+// held it at 55-58 with the graphics core waiting 400 ms a second for the GPU.
 constexpr uint32_t kScreensInFlight = 3;
 // The depth: swaps waiting at each present. Something late leaves it one
 // deeper (a vsync more delay). When it stayed at 2 or more for kDepthWindow
@@ -1611,6 +1614,8 @@ extern "C" int video_tv_is_60hz(void)
 }
 
 // The TV clock on or off for the game about to start (main.c: NTSC games on a 59.94 Hz TV).
+extern "C" void video_set_tv_ahead(unsigned n) { kTvAhead = n < 1 ? 1 : n > 2 ? 2 : n; }
+
 extern "C" void video_set_tv_clock(int on)
 {
 	g_tv_clock = on != 0;
