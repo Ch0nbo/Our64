@@ -74,6 +74,7 @@ extern "C" volatile double our64_gx2_frame_wait_us = 0;
 // In wut's import library but not its headers: the GPU writes its clock to
 // the address once all earlier work is done.
 extern "C" void GX2SampleBottomGPUCycle(uint64_t * _sample);
+extern "C" uint64_t GX2GPUTimeToCPUTime(uint64_t _gpuTime); // gx2.rpl: GPU counter to OSTime (tv_pass.cpp)
 
 // Debug variants, set by the app before a run (empty or null: none). Words:
 // "skip=<otherMode.l hex>" drops draws with that RDP mode word; "nodepth",
@@ -1299,6 +1300,12 @@ public:
 	// previous sample is summed per kind; logged every 10 profiled frames.
 	// Command buffers go to the GPU at the frame's end, so a gap is the GPU's
 	// own time, not waiting for the CPU (Stunt Racer's GPU wait, 2026-10-28).
+	// The player's frame test profiles quietly (our64_gx2_prof_run): no wait
+	// for the GPU, so the pacing it measures stays as it is. A profiled frame's
+	// samples are read 10 frames later, once its commands have retired, and
+	// summed for the whole run (our64_gx2_prof_report). Without the wait a gap
+	// can also hold time the GPU sat idle, waiting for commands; in the heavy
+	// scenes that matter it is behind and has commands waiting.
 	static constexpr u32 kProfMax = 8192;
 	u64 * m_prof = nullptr;
 	const char * m_profLabel[kProfMax];
@@ -1309,6 +1316,13 @@ public:
 	ProfSum m_profSum[32];
 	u64 m_profTotal = 0;
 	OSTime m_profCpuTicks = 0;
+	volatile bool m_profQuiet = false; // asked (any core)
+	bool m_profQuietWas = false;        // as this core runs it
+	bool m_profUnread = false;         // a quiet frame's samples wait to be read
+	u64 m_profUnreadStamp = 0;
+	ProfSum m_runSum[32];
+	u32 m_runKinds = 0, m_runFrames = 0;
+	u64 m_runTotal = 0, m_runMost = 0;
 
 	void profMark(const char * _what) {
 		if (!m_profOn || m_profN >= kProfMax)
@@ -1325,49 +1339,85 @@ public:
 	}
 	bool m_profVariant = false;
 
+	// A profiled frame's samples, summed by kind into _sum; returns the frame's GPU cycles.
+	u64 profRead(ProfSum * _sum, u32 & _kinds, u64 & _total) {
+		DCInvalidateRange(m_prof, kProfMax * sizeof(u64));
+		// The clock as written, or byte-swapped: whichever counts up.
+		const bool swap = m_profN > 1 && __builtin_bswap64(m_prof[m_profN - 1]) - __builtin_bswap64(m_prof[0]) <
+			m_prof[m_profN - 1] - m_prof[0];
+		u64 frame = 0;
+		for (u32 i = 1; i < m_profN; ++i) {
+			const u64 a = swap ? __builtin_bswap64(m_prof[i - 1]) : m_prof[i - 1];
+			const u64 b = swap ? __builtin_bswap64(m_prof[i]) : m_prof[i];
+			if (a == 0 || b == 0 || a == ~0ull || b == ~0ull || b < a || b - a > 100000000ull)
+				continue; // not written, or not a gap (over 3 s)
+			const u64 d = b - a;
+			u32 k = 0;
+			while (k < _kinds && strcmp(_sum[k].what, m_profLabel[i]) != 0)
+				++k;
+			if (k == _kinds) {
+				if (_kinds == 32)
+					continue;
+				_sum[_kinds++] = {m_profLabel[i], 0, 0};
+			}
+			_sum[k].gpu += d;
+			_sum[k].count++;
+			_total += d;
+			frame += d;
+		}
+		return frame;
+	}
+
 	void profFrame() {
 		if (m_profOn) {
 			m_profOn = false;
-			GX2DrawDone();
-			m_profCpuTicks += OSGetSystemTime() - m_profStart;
-			DCInvalidateRange(m_prof, kProfMax * sizeof(u64));
-			// The clock as written, or byte-swapped: whichever counts up.
-			const bool swap = m_profN > 1 && __builtin_bswap64(m_prof[m_profN - 1]) - __builtin_bswap64(m_prof[0]) <
-				m_prof[m_profN - 1] - m_prof[0];
-			for (u32 i = 1; i < m_profN; ++i) {
-				const u64 a = swap ? __builtin_bswap64(m_prof[i - 1]) : m_prof[i - 1];
-				const u64 b = swap ? __builtin_bswap64(m_prof[i]) : m_prof[i];
-				const u64 d = b - a;
-				u32 k = 0;
-				while (k < m_profKinds && strcmp(m_profSum[k].what, m_profLabel[i]) != 0)
-					++k;
-				if (k == m_profKinds) {
-					if (m_profKinds == 32)
-						continue;
-					m_profSum[m_profKinds++] = {m_profLabel[i], 0, 0};
+			if (m_profQuietWas) {
+				m_profUnreadStamp = GX2GetLastSubmittedTimeStamp();
+				m_profUnread = true;
+			} else {
+				GX2DrawDone();
+				m_profCpuTicks += OSGetSystemTime() - m_profStart;
+				const bool swap = m_profN > 1 && __builtin_bswap64(m_prof[m_profN - 1]) - __builtin_bswap64(m_prof[0]) <
+					m_prof[m_profN - 1] - m_prof[0];
+				profRead(m_profSum, m_profKinds, m_profTotal);
+				if (++m_profFrames % 10 == 0) {
+					gx2::log("GPU profile, %u frames (%s clock, %s): %llu GPU cycles a frame, %.2f ms CPU from start to done a frame\n",
+						m_profFrames, swap ? "swapped" : "as written", m_profVariant ? "vcframe" : "per-draw invalidate",
+						(unsigned long long)(m_profTotal / 10),
+						OSTicksToMicroseconds(m_profCpuTicks) / 10000.0);
+					for (u32 k = 0; k < m_profKinds; ++k)
+						gx2::log("  %-28s %6u ops a frame, %10llu cycles a frame (%4.1f%%), %8llu an op\n", m_profSum[k].what,
+							m_profSum[k].count / 10, (unsigned long long)(m_profSum[k].gpu / 10),
+							m_profTotal ? 100.0 * m_profSum[k].gpu / m_profTotal : 0.0,
+							(unsigned long long)(m_profSum[k].count ? m_profSum[k].gpu / m_profSum[k].count : 0));
+					m_profKinds = 0;
+					m_profTotal = 0;
+					m_profCpuTicks = 0;
 				}
-				m_profSum[k].gpu += d;
-				m_profSum[k].count++;
-				m_profTotal += d;
-			}
-			if (++m_profFrames % 10 == 0) {
-				gx2::log("GPU profile, %u frames (%s clock, %s): %llu GPU cycles a frame, %.2f ms CPU from start to done a frame\n",
-					m_profFrames, swap ? "swapped" : "as written", m_profVariant ? "vcframe" : "per-draw invalidate",
-					(unsigned long long)(m_profTotal / 10),
-					OSTicksToMicroseconds(m_profCpuTicks) / 10000.0);
-				for (u32 k = 0; k < m_profKinds; ++k)
-					gx2::log("  %-28s %6u ops a frame, %10llu cycles a frame (%4.1f%%), %8llu an op\n", m_profSum[k].what,
-						m_profSum[k].count / 10, (unsigned long long)(m_profSum[k].gpu / 10),
-						m_profTotal ? 100.0 * m_profSum[k].gpu / m_profTotal : 0.0,
-						(unsigned long long)(m_profSum[k].count ? m_profSum[k].gpu / m_profSum[k].count : 0));
-				m_profKinds = 0;
-				m_profTotal = 0;
-				m_profCpuTicks = 0;
 			}
 		}
-		if (!debug().gpuProf || ++m_profFrame % 10 != 0)
+		if (m_profQuiet != m_profQuietWas) {
+			m_profQuietWas = m_profQuiet;
+			m_profUnread = false;
+			m_profFrame = 0;
+			if (m_profQuietWas) {
+				m_runKinds = m_runFrames = 0;
+				m_runTotal = m_runMost = 0;
+			}
+		}
+		if (!(debug().gpuProf || m_profQuietWas) || ++m_profFrame % 10 != 0)
 			return;
-		if (g_vcFrame != m_profVariant) { // a summary covers one variant only
+		if (m_profUnread) { // 10 frames on: retired long since, so the wait returns at once
+			GX2WaitTimeStamp(m_profUnreadStamp);
+			u64 total = 0;
+			const u64 frame = profRead(m_runSum, m_runKinds, total);
+			m_runTotal += frame;
+			m_runFrames++;
+			if (frame > m_runMost)
+				m_runMost = frame;
+			m_profUnread = false;
+		}
+		if (!m_profQuietWas && g_vcFrame != m_profVariant) { // a summary covers one variant only
 			m_profVariant = g_vcFrame;
 			m_profFrames = (m_profFrames + 9) / 10 * 10;
 			m_profKinds = 0;
@@ -1379,7 +1429,7 @@ public:
 			if (m_prof == nullptr)
 				return;
 		}
-		memset(m_prof, 0, kProfMax * sizeof(u64));
+		memset(m_prof, 0, (m_profN > 0 ? m_profN : kProfMax) * sizeof(u64));
 		DCFlushRange(m_prof, kProfMax * sizeof(u64));
 		m_profN = 0;
 		m_profOn = true;
@@ -2917,4 +2967,53 @@ void readScreen(u8 * _dest, u32 _width, u32 _height)
 graphics::ContextImpl * our64_createGX2Context()
 {
 	return new gx2::GX2ContextImpl;
+}
+
+// The player's frame test (main.c): a quiet GPU profile of every 10th frame
+// for the run (see profFrame). Marks name the GPU work done since the last
+// one; labels are kept as pointers, so they are string literals.
+extern "C" void our64_gx2_prof_run(int _on)
+{
+	if (gx2::g_context != nullptr)
+		gx2::g_context->m_profQuiet = _on != 0;
+}
+
+extern "C" void our64_gx2_prof_mark(const char * _what)
+{
+	if (gx2::g_context != nullptr)
+		gx2::g_context->profMark(_what);
+}
+
+// The run's profile as one line: GPU time a profiled frame, then each kind's
+// share, the largest first. Called on the graphics core (it writes the sums).
+extern "C" void our64_gx2_prof_report(char * _out, unsigned _size)
+{
+	if (_size == 0)
+		return;
+	_out[0] = 0;
+	gx2::GX2ContextImpl * c = gx2::g_context;
+	if (c == nullptr || c->m_runFrames == 0 || c->m_runTotal == 0) {
+		snprintf(_out, _size, "GPU profile: no frames measured");
+		return;
+	}
+	// The counter's rate from gx2.rpl's own conversion (as tv_pass.cpp): 27 MHz on the console.
+	const u64 span = 1000000000ull;
+	const u64 c0 = GX2GPUTimeToCPUTime(span), c1 = GX2GPUTimeToCPUTime(2 * span);
+	const double rate = c1 > c0 ? double(span) / (double(c1 - c0) / double(OSTimerClockSpeed)) : 27000000.0;
+	const double frames = double(c->m_runFrames);
+	int n = snprintf(_out, _size, "GPU profile, %u frames: %.2f ms a frame (most %.2f)", c->m_runFrames,
+		double(c->m_runTotal) / frames * 1000.0 / rate, double(c->m_runMost) * 1000.0 / rate);
+	bool done[32] = {};
+	for (u32 shown = 0; shown < c->m_runKinds && n > 0 && unsigned(n) < _size; ++shown) {
+		u32 best = 32;
+		for (u32 k = 0; k < c->m_runKinds; ++k)
+			if (!done[k] && (best == 32 || c->m_runSum[k].gpu > c->m_runSum[best].gpu))
+				best = k;
+		if (best == 32)
+			break;
+		done[best] = true;
+		const gx2::GX2ContextImpl::ProfSum & s = c->m_runSum[best];
+		n += snprintf(_out + n, _size - n, "%s %s %.2f ms (%.1f a frame)", shown == 0 ? ";" : ",", s.what,
+			double(s.gpu) / frames * 1000.0 / rate, double(s.count) / frames);
+	}
 }

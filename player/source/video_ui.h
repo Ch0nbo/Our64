@@ -15,6 +15,7 @@ void video_set_hold(bool hold);      // the UI owns the screens: game frames are
 GX2ColorBuffer * ui_gfx_overlay(GX2ColorBuffer * frame); // the frame with the notices on, or frame
 void ui_gfx_loading_progress(unsigned done, unsigned total); // GLideN64 builds saved shaders: the loading screen moves
 void ui_gfx_scan(GX2ColorBuffer * frame);                // copies a game frame to the screens the mode uses
+void ui_gfx_screens_changed();                           // new scan buffers: the GamePad-only card is copied again
 void ui_gfx_set_picture_43(bool on);                     // Picture: 4:3 (black at the sides) or stretched
 void ui_gfx_set_shader(int shader);                      // Picture's Shader (SHADER_, prompt.h): the TV-only ones are drawn here
 void ui_gfx_game_stopped();                              // the game ended: the TV shaders' buffer is freed

@@ -60,6 +60,7 @@ extern const char * our64_gx2_log_path;
 extern const char * our64_gx2_debug;
 extern "C" const char * our64_gx2_shader_dir; // gx2_ShaderCache.cpp
 extern "C" void our64_gx2_shader_bench(const char * dir); // gx2_GL.cpp
+extern "C" void our64_gx2_prof_mark(const char * what); // gx2_ContextImpl.cpp: the frame test's GPU profile
 
 namespace {
 
@@ -661,6 +662,7 @@ void present(GX2ColorBuffer * screen)
 			frame_check();
 			return;
 		}
+		our64_gx2_prof_mark("kept copy");
 		g_kept[g_kept_n++] = {picture, g_screen_vi, g_regs.vi[1]};
 		frame_check();
 		return;
@@ -1557,8 +1559,33 @@ void triple_buffers(void *)
 	GX2SetTVBuffer(tv, tv_size, mode, format, GX2_BUFFERING_MODE_TRIPLE);
 	GX2SetDRCBuffer(drc, drc_size, GX2_DRC_RENDER_MODE_SINGLE, format, GX2_BUFFERING_MODE_TRIPLE);
 	g_triple = true;
+	ui_gfx_screens_changed();
 	report_line("VIDEO: three scan buffers: TV mode %d, %u KB; GamePad %u KB", int(mode), unsigned(tv_size / 1024),
 	            unsigned(drc_size / 1024));
+}
+
+// The frame test's GPU profile (gx2_ContextImpl.cpp: every 10th frame, no
+// wait for the GPU): on for the measured VIs, then its line, read on the
+// graphics core, which writes the sums.
+extern "C" void our64_gx2_prof_run(int on);
+extern "C" void our64_gx2_prof_report(char * out, unsigned size);
+extern "C" void video_gpu_profile(int on) { our64_gx2_prof_run(on); }
+namespace {
+struct ProfArgs { char * out; unsigned size; };
+void prof_report_on_graphics_core(void * arg)
+{
+	ProfArgs & a = *static_cast<ProfArgs *>(arg);
+	our64_gx2_prof_report(a.out, a.size);
+}
+} // namespace
+extern "C" void video_gpu_profile_report(char * out, unsigned size)
+{
+	if (size == 0)
+		return;
+	out[0] = 0;
+	ProfArgs a = {out, size};
+	if (g_gfx_ok)
+		call(prof_report_on_graphics_core, &a);
 }
 
 // The TV clock on or off for the game about to start (main.c, sd:/wiiu/our64/tv-clock).

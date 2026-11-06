@@ -99,6 +99,14 @@ bool g_frozen_now;           // ... of the current freeze (cleared when the game
 GX2ColorBuffer g_overlay;    // a game frame with the notices on
 GX2ColorBuffer g_tv_card;    // GamePad only: what the TV shows
 bool g_tv_card_ok;
+// GamePad only: the TV's card is copied to the TV's scan buffers until each
+// holds it, then no more. A full-size copy every VI (8 MB at 1080p) was GPU
+// time the game's frames waited behind (frame test, 2026-11-06). Any other
+// swap in between (a menu, Our ROMs) or a new card or new scan buffers starts
+// the count over. More copies than buffers (two or three), so each has one.
+constexpr unsigned kCardCopies = 4;
+unsigned g_card_copies;
+uint32_t g_card_swap = ~0u; // the swap count after the last scan with the card
 GX2ContextState * g_copy_ctx;
 
 volatile int g_mode = MODE_BOTH; // before the prompt's choice both screens are on
@@ -424,6 +432,7 @@ void tv_card_on_graphics_core(void *)
 		return;
 	draw_tv_card(g_mode_title);
 	g_video->drawOverlay(&g_tv_card);
+	g_card_copies = 0; // a new card: each scan buffer gets it again
 }
 
 void restore_on_graphics_core(void *)
@@ -595,8 +604,15 @@ static GX2ColorBuffer * shaped(GX2ColorBuffer * frame)
 	return &g_shaped;
 }
 
+void ui_gfx_screens_changed() { g_card_copies = 0; }
+
+// GPU profile marks (the frame test's, gx2_ContextImpl.cpp): each names the GPU
+// work since the one before.
+extern "C" void our64_gx2_prof_mark(const char * what);
+
 void ui_gfx_scan(GX2ColorBuffer * frame)
 {
+	our64_gx2_prof_mark("player: notices, kept copies");
 	if (g_copy_ctx == nullptr) {
 		g_copy_ctx = static_cast<GX2ContextState *>(MEMAllocFromDefaultHeapEx(sizeof(GX2ContextState), GX2_CONTEXT_STATE_ALIGNMENT));
 		if (g_copy_ctx != nullptr)
@@ -604,15 +620,34 @@ void ui_gfx_scan(GX2ColorBuffer * frame)
 	}
 	// The TV-only shaders draw the TV's picture; the GamePad keeps the plain one.
 	GX2ColorBuffer * tv = tv_shaded(frame);
-	if (g_copy_ctx != nullptr && (tv == nullptr || g_mode != MODE_TV))
+	if (tv != nullptr)
+		our64_gx2_prof_mark("TV shader");
+	if (g_copy_ctx != nullptr && (tv == nullptr || g_mode != MODE_TV)) {
 		frame = shaped(frame);
-	if (g_mode == MODE_GAMEPAD && g_tv_card_ok)
-		GX2CopyColorBufferToScanBuffer(&g_tv_card, GX2_SCAN_TARGET_TV);
-	else
+		our64_gx2_prof_mark("4:3 copy");
+	}
+	uint32_t swaps = 0, flips = 0;
+	OSTime last_flip, last_vsync;
+	GX2GetSwapStatus(&swaps, &flips, &last_flip, &last_vsync);
+	if (g_mode == MODE_GAMEPAD && g_tv_card_ok) {
+		if (swaps != g_card_swap)
+			g_card_copies = 0;
+		if (g_card_copies < kCardCopies) {
+			GX2CopyColorBufferToScanBuffer(&g_tv_card, GX2_SCAN_TARGET_TV);
+			g_card_copies++;
+			our64_gx2_prof_mark("TV copy (GamePad only card)");
+		}
+		g_card_swap = swaps + 1;
+	} else {
 		GX2CopyColorBufferToScanBuffer(tv != nullptr ? tv : frame, GX2_SCAN_TARGET_TV);
-	if (g_mode != MODE_TV)
+		our64_gx2_prof_mark("TV copy");
+	}
+	if (g_mode != MODE_TV) {
 		GX2CopyColorBufferToScanBuffer(frame, GX2_SCAN_TARGET_DRC);
+		our64_gx2_prof_mark("GamePad copy");
+	}
 	GX2SwapScanBuffers();
+	our64_gx2_prof_mark("swap");
 	GX2Flush();
 	apply_screens();
 }

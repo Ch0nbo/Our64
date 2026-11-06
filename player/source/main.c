@@ -312,6 +312,7 @@ static void ft_notice(const char *line1, const char *line2)
 static int ft_begin(void)
 {
 	g_ft_on = 0;
+	video_gpu_profile(0);
 	const char *root = report_sd_root();
 	if (!root || is_pal())
 		return 0;
@@ -363,18 +364,24 @@ static int ft_begin(void)
 /* The run's text file, rewritten whole each time. 0 when it could not be written. */
 static int ft_write(int done)
 {
-	char path[420], fc[600];
+	char path[420], fc[600], gpu[700] = "";
 	video_stats_t v;
 	video_stats(&v);
 	frame_check_line("", &g_ft_from, &v, 0, fc, sizeof(fc));
+	if (done) { /* the run's GPU profile: read once, at the end (it waits for the graphics core) */
+		video_gpu_profile_report(gpu, sizeof(gpu));
+		video_gpu_profile(0);
+		report_line("FRAME TEST: %s", gpu);
+		strncat(gpu, "\n", sizeof(gpu) - strlen(gpu) - 1);
+	}
 	snprintf(path, sizeof(path), "%s.txt", g_ft_base);
 	FILE *f = fopen(path, "w");
 	if (!f)
 		return 0;
 	const unsigned measured = g_bench.vis - g_ft_vi0 - FT_SETTLE_VIS;
-	int ok = fprintf(f, "game %s\nrun %d\nfix %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s", g_ft_name,
+	int ok = fprintf(f, "game %s\nrun %d\nfix %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s", g_ft_name,
 	                 g_ft_run, g_ft_fix ? "on (tv-clock)" : "off", measured, FT_MEASURE_VIS,
-	                 audio_underruns() - g_ft_under0, fc, done ? "COMPLETE\n" : "") > 0;
+	                 audio_underruns() - g_ft_under0, fc, gpu, done ? "COMPLETE\n" : "") > 0;
 	ok = fclose(f) == 0 && ok;
 	return ok;
 }
@@ -392,6 +399,7 @@ static void ft_tick(void)
 		video_stats(&g_ft_from);
 		g_ft_under0 = audio_underruns();
 		video_pace_start();
+		video_gpu_profile(1);
 		g_ft_state = 1;
 		if (!ft_write(0))
 			ft_notice("Frame test: could not write", "to sd:/wiiu/our64/frametest");
