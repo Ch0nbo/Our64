@@ -2704,6 +2704,9 @@ private:
 			m_hasDepth = db != nullptr && db->surface.width >= cb->surface.width && db->surface.height >= cb->surface.height;
 			m_targetDirty = false;
 			m_dirty = true;
+			// Everything that writes these registers some other way (a context
+			// switch, a clear, the present and copy draws) marks the target dirty.
+			m_shadowValid = false;
 			profMark("draw setup: render target");
 			profTop();
 		}
@@ -2768,13 +2771,48 @@ private:
 		return p;
 	}
 
+	// The render state as last sent, so a draw sends only what changed. Every
+	// draw sent it all (13 register groups and a display list): on this GPU a
+	// context register write after a draw starts a new copy of the context, and
+	// with a few in flight the next draw waits, so draws stopped overlapping.
+	// In the GPU profile each draw had 20-30 us of GPU time before it with no
+	// work of its own (Mario Tennis 8 ms a frame over 270 draws, Racer 4 ms,
+	// 2026-11-06). Debug variant "nostatecache": everything every draw, as before.
+	struct StateShadow {
+		f32 viewport[4];
+		u32 scissor[4];
+		u32 depth[3];
+		u32 polygon[2];
+		bool polygonOffsetOn;
+		f32 polygonOffset[2];
+		u32 blend[4];
+		u32 blendOn;
+		f32 blendColor[4];
+		u32 clip[2];
+	};
+	StateShadow m_shadow = {};
+	bool m_shadowValid = false;
+
+	template <typename T> bool changed(T & _was, const T & _now) {
+		if (m_shadowValid && memcmp(&_was, &_now, sizeof(T)) == 0)
+			return false;
+		memcpy(&_was, &_now, sizeof(T));
+		return true;
+	}
+
 	void applyState(const GX2ColorBuffer * _cb) {
 		const u32 width = _cb->surface.width, height = _cb->surface.height;
 		if (m_viewport[2] <= 0 || m_viewport[3] <= 0) {
 			static unsigned n;
 			if (n++ < 4) gx2::log("CHECK: viewport %d,%d %dx%d\n", m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]);
 		}
-		GX2SetViewport(f32(m_viewport[0]), f32(m_viewport[1]), f32(m_viewport[2]), f32(m_viewport[3]), 0.0f, 1.0f);
+		const char * d = our64_gx2_debug != nullptr ? our64_gx2_debug : "";
+		if (strstr(d, "nostatecache"))
+			m_shadowValid = false;
+		const bool all = !m_shadowValid; // nothing known: every group goes out
+		const f32 vp[4] = {f32(m_viewport[0]), f32(m_viewport[1]), f32(m_viewport[2]), f32(m_viewport[3])};
+		if (changed(m_shadow.viewport, *reinterpret_cast<const f32 (*)[4]>(vp)))
+			GX2SetViewport(vp[0], vp[1], vp[2], vp[3], 0.0f, 1.0f);
 		s32 sx = 0, sy = 0, sw = s32(width), sh = s32(height);
 		if (m_scissorTest) {
 			sx = m_scissor[0]; sy = m_scissor[1]; sw = m_scissor[2]; sh = m_scissor[3];
@@ -2785,35 +2823,54 @@ private:
 		if (sy + sh > s32(height)) sh = s32(height) - sy;
 		if (sw < 0) sw = 0;
 		if (sh < 0) sh = 0;
-		GX2SetScissor(u32(sx), u32(sy), u32(sw), u32(sh));
+		const u32 sc[4] = {u32(sx), u32(sy), u32(sw), u32(sh)};
+		if (changed(m_shadow.scissor, *reinterpret_cast<const u32 (*)[4]>(sc)))
+			GX2SetScissor(sc[0], sc[1], sc[2], sc[3]);
 
 		const bool depthTest = m_depthTest && m_hasDepth && !debug().noDepth;
-		if (!depthTest && debug().zTestAlways) // the depth unit on, passing everything, writing nothing
-			GX2SetDepthOnlyControl(TRUE, FALSE, GX2_COMPARE_FUNC_ALWAYS);
-		else
-			GX2SetDepthOnlyControl(depthTest, depthTest && m_depthWrite, compareFunction(m_depthFunc));
+		u32 dc[3];
+		if (!depthTest && debug().zTestAlways) { // the depth unit on, passing everything, writing nothing
+			dc[0] = TRUE; dc[1] = FALSE; dc[2] = u32(GX2_COMPARE_FUNC_ALWAYS);
+		} else {
+			dc[0] = depthTest; dc[1] = depthTest && m_depthWrite; dc[2] = u32(compareFunction(m_depthFunc));
+		}
+		if (changed(m_shadow.depth, *reinterpret_cast<const u32 (*)[3]>(dc)))
+			GX2SetDepthOnlyControl(dc[0], dc[1], GX2CompareFunction(dc[2]));
 
 		// Negating y in the vertex shader reverses the winding, so OpenGL's
 		// counter-clockwise front faces are clockwise here.
 		const bool cull = m_cull && !debug().noCull;
 		const bool cullFront = cull && (m_cullMode == GL_FRONT || m_cullMode == GL_FRONT_AND_BACK);
 		const bool cullBack = cull && (m_cullMode == GL_BACK || m_cullMode == GL_FRONT_AND_BACK);
-		GX2SetPolygonControl(GX2_FRONT_FACE_CW, cullFront, cullBack, FALSE, GX2_POLYGON_MODE_TRIANGLE,
-			GX2_POLYGON_MODE_TRIANGLE, m_polygonOffset, m_polygonOffset, FALSE);
-		GX2SetPolygonOffset(m_offsetUnits, m_offsetFactor, m_offsetUnits, m_offsetFactor, 0.0f);
+		const u32 pc[2] = {u32(cullFront) | u32(cullBack) << 1, u32(m_polygonOffset)};
+		if (changed(m_shadow.polygon, *reinterpret_cast<const u32 (*)[2]>(pc)))
+			GX2SetPolygonControl(GX2_FRONT_FACE_CW, cullFront, cullBack, FALSE, GX2_POLYGON_MODE_TRIANGLE,
+				GX2_POLYGON_MODE_TRIANGLE, m_polygonOffset, m_polygonOffset, FALSE);
+		const f32 po[2] = {f32(m_offsetUnits), f32(m_offsetFactor)};
+		if (changed(m_shadow.polygonOffset, *reinterpret_cast<const f32 (*)[2]>(po)))
+			GX2SetPolygonOffset(m_offsetUnits, m_offsetFactor, m_offsetUnits, m_offsetFactor, 0.0f);
 
-		GX2SetBlendControl(GX2_RENDER_TARGET_0, blendMode(m_blendFactors[0]), blendMode(m_blendFactors[1]),
-			GX2_BLEND_COMBINE_MODE_ADD, TRUE, blendMode(m_blendFactors[2]), blendMode(m_blendFactors[3]),
-			GX2_BLEND_COMBINE_MODE_ADD);
-		GX2SetColorControl(GX2_LOGIC_OP_COPY, m_blend && !debug().noBlend ? 1 : 0, FALSE, TRUE);
-		GX2SetBlendConstantColor(m_blendColor[0], m_blendColor[1], m_blendColor[2], m_blendColor[3]);
-		// Only target 0 is written. The shader's second export (dual-source
-		// blending) only feeds target 0's blend; writing target 1 too, a
-		// target with no buffer of its own, is undefined. Mesa's r600 driver
-		// enables only the targets it binds.
-		GX2SetTargetChannelMasks(GX2_CHANNEL_MASK_RGBA, (GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0,
-			(GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0);
-		GX2SetAlphaTest(FALSE, GX2_COMPARE_FUNC_ALWAYS, 0.0f);
+		const u32 bm[4] = {u32(blendMode(m_blendFactors[0])), u32(blendMode(m_blendFactors[1])),
+			u32(blendMode(m_blendFactors[2])), u32(blendMode(m_blendFactors[3]))};
+		if (changed(m_shadow.blend, *reinterpret_cast<const u32 (*)[4]>(bm)))
+			GX2SetBlendControl(GX2_RENDER_TARGET_0, GX2BlendMode(bm[0]), GX2BlendMode(bm[1]),
+				GX2_BLEND_COMBINE_MODE_ADD, TRUE, GX2BlendMode(bm[2]), GX2BlendMode(bm[3]),
+				GX2_BLEND_COMBINE_MODE_ADD);
+		const u32 blendOn = m_blend && !debug().noBlend ? 1 : 0;
+		if (changed(m_shadow.blendOn, blendOn))
+			GX2SetColorControl(GX2_LOGIC_OP_COPY, blendOn, FALSE, TRUE);
+		const f32 bc[4] = {m_blendColor[0], m_blendColor[1], m_blendColor[2], m_blendColor[3]};
+		if (changed(m_shadow.blendColor, *reinterpret_cast<const f32 (*)[4]>(bc)))
+			GX2SetBlendConstantColor(bc[0], bc[1], bc[2], bc[3]);
+		if (all) {
+			// Only target 0 is written. The shader's second export (dual-source
+			// blending) only feeds target 0's blend; writing target 1 too, a
+			// target with no buffer of its own, is undefined. Mesa's r600 driver
+			// enables only the targets it binds.
+			GX2SetTargetChannelMasks(GX2_CHANNEL_MASK_RGBA, (GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0,
+				(GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0);
+			GX2SetAlphaTest(FALSE, GX2_COMPARE_FUNC_ALWAYS, 0.0f);
+		}
 		// Shaders write OpenGL clip coordinates (z from -1 to 1). Depth
 		// clipping is off in GLideN64's NoClipping mode (draws without a
 		// depth test): with z clipped there, Star Wars Episode I Racer's pod and
@@ -2824,16 +2881,20 @@ private:
 		// (g_nearClipOff). With both planes clipped, Racer's engines in the
 		// cockpit view were cut away (2026-10-22). Debug variant "nonzclip":
 		// both planes, as before; "zclipoff": neither.
-		const char * d = our64_gx2_debug != nullptr ? our64_gx2_debug : "";
 		const bool zClip = !m_depthClamp && m_clampMode != ClampMode::NoClipping && !strstr(d, "zclipoff");
-		GX2SetRasterizerClipControlEx(TRUE, zClip, FALSE);
-		if (zClip && m_clampMode == ClampMode::NoNearPlaneClipping && !strstr(d, "nonzclip")) {
-			if (!g_nearClipOffFlushed) {
-				DCFlushRange(g_nearClipOff, sizeof(g_nearClipOff));
-				g_nearClipOffFlushed = true;
+		const bool nearOff = zClip && m_clampMode == ClampMode::NoNearPlaneClipping && !strstr(d, "nonzclip");
+		const u32 cl[2] = {u32(zClip), u32(nearOff)};
+		if (changed(m_shadow.clip, *reinterpret_cast<const u32 (*)[2]>(cl))) {
+			GX2SetRasterizerClipControlEx(TRUE, zClip, FALSE);
+			if (nearOff) {
+				if (!g_nearClipOffFlushed) {
+					DCFlushRange(g_nearClipOff, sizeof(g_nearClipOff));
+					g_nearClipOffFlushed = true;
+				}
+				GX2CallDisplayList(g_nearClipOff, sizeof(g_nearClipOff));
 			}
-			GX2CallDisplayList(g_nearClipOff, sizeof(g_nearClipOff));
 		}
+		m_shadowValid = true;
 	}
 
 	opengl::GLInfo m_glInfo;
