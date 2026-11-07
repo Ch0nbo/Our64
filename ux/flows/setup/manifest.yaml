@@ -162,7 +162,7 @@ screens:
       shows:
         - what: "Headline SETTINGS; four rows, each opening a page: Controllers, Picture, Games, Theme (2026-11-04)"
           why: "Few rows, all visible; each page holds a few related settings"
-        - what: "Under the rows, one line on the selected row: \"Players, rumble and buttons\", \"Screens and shape\", \"Where the games are, and their covers\", \"Colors and how Our ROMs shows the games\""
+        - what: "Under the rows, one line on the selected row: \"Players, rumble and buttons\", \"Screens and shape\", \"ROM Path, box art, and auto-save\", \"Colors and how Our ROMs shows the games\""
           why: "What a page holds is known before it is opened"
       actions:
         - do: "A on a row"

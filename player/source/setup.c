@@ -85,7 +85,7 @@ const char *settings_row_about(const settings_ui *s)
 {
 	switch (s->row) {
 	case SET_PICTURE: return "Screens and shape";
-	case SET_GAMES: return "Where the games are, and their covers";
+	case SET_GAMES: return "ROM Path, box art, and auto-save";
 	case SET_THEME: return "Colors and how Our ROMs shows the games";
 	default: return "Players, rumble and buttons";
 	}
