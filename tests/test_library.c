@@ -1,6 +1,7 @@
 /* PC tests for player/source/library.c: Our ROMs' games, their order and
  * the letter bar. */
 #include "library.h"
+#include "prompt.h"
 #include "gamedb.h"
 
 #include <stdio.h>
