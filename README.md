@@ -92,7 +92,7 @@ Settings > Games:
 - **Auto-Resume:** On, the default, saves where you stop and picks up there next time. Off, every game
   starts at its title screen and no autosave is written. Turning it off deletes every game's autosave;
   save states stay.
-- **Start on:** the tab Our ROMs opens on: All, Recent or Favorites. Recent opens only when the last game
+- **Start-up ROM Category:** the category shown when Our64 starts: All, Recent or Favorites. Recent opens only when the last game
   played is in it, Favorites only when you have favorites; otherwise All.
 
 ## Reporting a problem

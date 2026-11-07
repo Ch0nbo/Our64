@@ -272,7 +272,7 @@ int picture_legend(const picture_ui *p, int type, pause_key *keys, int max)
 
 /* ---- Settings > Games ---- */
 
-static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers", "Auto-Resume", "Start on" };
+static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers", "Auto-Resume", "Start-up ROM Category" };
 
 const char *games_row_name(int row) { return row >= 0 && row < GAMES_ROWS ? g_games_row[row] : ""; }
 
@@ -363,7 +363,7 @@ const char *games_row_about(const games_ui *g)
 	switch (g->row) {
 	case GAMES_FOLDER: return "Where Our ROMs finds your games";
 	case GAMES_RESUME: return "Saves where you stop and picks up there next time";
-	case GAMES_START: return "The tab Our ROMs opens on";
+	case GAMES_START: return "The category shown when Our64 starts";
 	default: return "Fetches box art from the internet. Requires Wi-Fi";
 	}
 }
@@ -441,15 +441,6 @@ int start_event(start_ui *s, int event, int target)
 	case PEV_HOME: return STACT_HOME;
 	}
 	return STACT_NONE;
-}
-
-const char *start_row_about(const start_ui *s)
-{
-	switch (s->row) {
-	case START_ALL: return "Every game";
-	case START_RECENT: return "The games played last. All when the last game isn't there";
-	default: return "Your favorites. All when there are none";
-	}
 }
 
 int start_hit(int x, int y)

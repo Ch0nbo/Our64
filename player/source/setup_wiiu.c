@@ -750,7 +750,7 @@ static int run_start(games_ui *g)
 				}
 				g->start_on = st->row;
 				report_line("START ON: %s", start_name(st->row));
-				snprintf(g_view.line, sizeof(g_view.line), "Start on: %s", start_name(st->row));
+				snprintf(g_view.line, sizeof(g_view.line), "Start-up ROM Category: %s", start_name(st->row));
 				return 0;
 			}
 			}

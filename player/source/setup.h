@@ -106,7 +106,6 @@ typedef struct {
 enum { STACT_NONE, STACT_BACK, STACT_HOME, STACT_PICK }; /* STACT_PICK: row is the choice */
 void start_open(start_ui *s, int in_use);
 int  start_event(start_ui *s, int event, int target);
-const char *start_row_about(const start_ui *s);
 int  start_hit(int x, int y);                   /* row, or -1 */
 int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
 

@@ -189,7 +189,7 @@ screens:
     entered_by: "A on Games in settings"
     spec:
       shows:
-        - what: "ROM folder, with the folder in use as a full path (\"SD card: /wiiu/our64/roms\", \"USB drive <label>: /ROMs/N64\"), Fetch covers, Auto-Resume (On or Off) and Start on (All, Recent or Favorites) (2026-11-06)"
+        - what: "ROM folder, with the folder in use as a full path (\"SD card: /wiiu/our64/roms\", \"USB drive <label>: /ROMs/N64\"), Fetch covers, Auto-Resume (On or Off) and Start-up ROM Category (All, Recent or Favorites) (2026-11-06; renamed from Start on by Zach)"
           why: "Where the games come from is always visible; each setting shows its value"
         - what: "Under the rows: \"Where Our ROMs finds your games\", \"Fetches box art from the internet. Requires Wi-Fi\", \"Saves where you stop and picks up there next time\" or \"The tab Our ROMs opens on\""
           why: "Fetch covers needs the internet: said before A"
@@ -204,24 +204,24 @@ screens:
           result: "\"Are you sure? You will lose all your current Auto-Saves.\" over the page, Cancel focused. Turn Off: written to config/settings.cfg as \"Auto-resume = off\", then every game's resume points are deleted (states/<id>/resume-a.o64s, resume-b.o64s, resume-*.unused.o64s; save state slots and Undo stay); the header says \"Auto-Resume off. Auto-Saves deleted.\" Cancel, B or HOME: stays On"
         - do: "A on Auto-Resume while Off"
           result: "On at once, nothing asked; written as \"Auto-resume = on\""
-        - do: "A on Start on"
-          result: "The Start on page opens"
+        - do: "A on Start-up ROM Category"
+          result: "The Start-up ROM Category page opens"
       states:
         - "Opening this page reads no game: the reading is on the fetch screen"
         - "Auto-Resume Off: no resume point is read at launch or written (no 60 s timer, pause, exit or after-load captures); a game starts fresh and running, not paused; in-game saves go to the SD at once"
-        - "a write to the SD fails: OUR-0203; Auto-Resume or Start on keeps its old value and nothing is deleted"
+        - "a write to the SD fails: OUR-0203; Auto-Resume or Start-up ROM Category keeps its old value and nothing is deleted"
   - id: start-on
-    title: "Start on"
-    entered_by: "A on Start on in games"
+    title: "Start-up ROM Category"
+    entered_by: "A on Start-up ROM Category in games"
     spec:
       shows:
-        - what: "Headline START ON; rows All, Recent, Favorites, each with a round mark at the right, filled on the one in use; it opens on that row"
+        - what: "Headline START-UP ROM CATEGORY; rows All, Recent, Favorites, each with a round mark at the right, filled on the one in use; it opens on that row"
           why: "One choice of three, shown as a radio button shows it; rows chosen with A, not arrows (Zach, 2026-11-06)"
-        - what: "Under the rows: \"Every game\", \"The games played last. All when the last game isn't there\" or \"Your favorites. All when there are none\""
-          why: "When Our ROMs falls back to All is known before choosing"
+        - what: "No line under the rows (Zach, 2026-11-06: removed)"
+          why: "The choices name themselves"
       actions:
         - do: "A on a row"
-          result: "Written to config/settings.cfg as \"Start on = all|recent|favorites\"; back to games with \"Start on: <choice>\" under the header. The next launch of Our64 opens Our ROMs on it"
+          result: "Written to config/settings.cfg as \"Start on = all|recent|favorites\"; back to games with \"Start-up ROM Category: <choice>\" under the header. The next launch of Our64 opens Our ROMs on it"
         - do: "B"
           result: "Back to games unchanged"
   - id: browse

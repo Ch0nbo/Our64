@@ -637,7 +637,7 @@ static void auto_resume_and_start_on_rows(void)
 {
 	games_ui g;
 	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
-	CHECK(!strcmp(games_row_name(GAMES_RESUME), "Auto-Resume") && !strcmp(games_row_name(GAMES_START), "Start on"));
+	CHECK(!strcmp(games_row_name(GAMES_RESUME), "Auto-Resume") && !strcmp(games_row_name(GAMES_START), "Start-up ROM Category"));
 	CHECK(GAMES_RESUME == GAMES_COVERS + 1 && GAMES_START == GAMES_RESUME + 1 && GAMES_ROWS == 4);
 	char v[64];
 	games_value(&g, GAMES_RESUME, v, sizeof(v));
@@ -647,7 +647,7 @@ static void auto_resume_and_start_on_rows(void)
 	for (int i = 0; i < 4; i++)
 		games_event(&g, PEV_DOWN, -1);
 	CHECK(g.row == GAMES_START); /* stops at the last row */
-	CHECK(!strcmp(games_row_about(&g), "The tab Our ROMs opens on"));
+	CHECK(!strcmp(games_row_about(&g), "The category shown when Our64 starts"));
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_START);
 	games_event(&g, PEV_UP, -1);
 	CHECK(g.row == GAMES_RESUME && !strcmp(games_row_about(&g), "Saves where you stop and picks up there next time"));
@@ -678,11 +678,11 @@ static void start_on_picks_all_recent_or_favorites(void)
 	CHECK(start_event(&s, PEV_LEFT, -1) == STACT_NONE && s.row == START_RECENT); /* rows, no arrows */
 	start_event(&s, PEV_UP, -1);
 	start_event(&s, PEV_UP, -1);
-	CHECK(s.row == START_ALL && !strcmp(start_row_about(&s), "Every game"));
+	CHECK(s.row == START_ALL);
 	start_event(&s, PEV_DOWN, -1);
 	start_event(&s, PEV_DOWN, -1);
 	start_event(&s, PEV_DOWN, -1);
-	CHECK(s.row == START_FAVORITES && strstr(start_row_about(&s), "none"));
+	CHECK(s.row == START_FAVORITES);
 	CHECK(start_event(&s, PEV_OK, -1) == STACT_PICK && s.row == START_FAVORITES);
 	CHECK(start_event(&s, PEV_BACK, -1) == STACT_BACK && start_event(&s, PEV_HOME, -1) == STACT_HOME);
 	int r[4];

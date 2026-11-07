@@ -1891,7 +1891,7 @@ void draw_games(const setup_view & sv)
 void draw_start(const setup_view & sv)
 {
 	const start_ui & st = sv.start;
-	setup_header("START ON", sv.line[0] ? sv.line : nullptr);
+	setup_header("START-UP ROM CATEGORY", sv.line[0] ? sv.line : nullptr);
 	for (int row = 0; row < STARTS; row++) {
 		int r[4];
 		settings_row_rect(row, r);
@@ -1904,7 +1904,6 @@ void draw_start(const setup_view & sv)
 		if (row == st.in_use)
 			box(cx - 8, cy - 8, 16, 16, ink, 8);
 	}
-	row_about(STARTS, start_row_about(&st));
 	pause_key keys[6];
 	int n = start_legend(&st, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
