@@ -361,7 +361,7 @@ void games_value(const games_ui *g, int row, char *out, unsigned size)
 const char *games_row_about(const games_ui *g)
 {
 	switch (g->row) {
-	case GAMES_FOLDER: return "Where Our ROMs finds your games";
+	case GAMES_FOLDER: return "Where we find your games";
 	case GAMES_RESUME: return "Saves where you stop and picks up there next time";
 	case GAMES_START: return "The category shown when Our64 starts";
 	default: return "Fetches box art from the internet. Requires Wi-Fi";

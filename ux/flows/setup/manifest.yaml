@@ -191,7 +191,7 @@ screens:
       shows:
         - what: "ROM folder, with the folder in use as a full path (\"SD card: /wiiu/our64/roms\", \"USB drive <label>: /ROMs/N64\"), Fetch covers, Auto-Resume (On or Off) and Start-up ROM Category (All, Recent or Favorites) (2026-11-06; renamed from Start on by Zach)"
           why: "Where the games come from is always visible; each setting shows its value"
-        - what: "Under the rows: \"Where Our ROMs finds your games\", \"Fetches box art from the internet. Requires Wi-Fi\", \"Saves where you stop and picks up there next time\" or \"The tab Our ROMs opens on\""
+        - what: "Under the rows: \"Where we find your games\", \"Fetches box art from the internet. Requires Wi-Fi\", \"Saves where you stop and picks up there next time\" or \"The category shown when Our64 starts\""
           why: "Fetch covers needs the internet: said before A"
         - what: "After a fetch, its result under the header (\"Fetched 6 covers.\", \"All games have covers.\", or a failure with OUR-0401, 0402, 0403 or 0205)"
           why: "The outcome stays visible after the progress screen closes"
