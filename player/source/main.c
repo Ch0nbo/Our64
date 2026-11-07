@@ -282,7 +282,7 @@ static uint32_t g_pause_at_vi;
  * vsync. With the old pacing (audio or a 60.000 Hz timer) the frame test
  * counted 49-514 frames a minute held a wrong number of vsyncs in Conker,
  * both Banjos, GoldenEye and Mario 64; with the TV clock 0-17
- * (plans/2026-11-05-frame-pacing.md). sd:/wiiu/our64/old-pacing turns it off,
+ * (2026-11-05). sd:/wiiu/our64/old-pacing turns it off,
  * for comparing. */
 static int g_tv_clock;
 static int g_tv_cadence;       /* a PAL game on a 59.94 Hz TV: every fifth VI two vsyncs */
@@ -431,7 +431,7 @@ static void ft_tick(void)
 	if (ok)
 		ft_notice(l1, "Saved. Exit any way you like");
 	else
-		ft_notice(l1, "NOT SAVED: tell Claude");
+		ft_notice(l1, "NOT SAVED: see player-log.txt");
 }
 
 /* The flip record, if one runs, as pace-<game id>.bin (video.cpp). */
@@ -1637,7 +1637,7 @@ static int play_game(int index)
 		/* Racer kept the old pacing (5ef8a2e) while the CPU core waited for the
 		 * TV: 55-58 VI/s and choppy sound. VIs are now dropped instead
 		 * (video_update_screen), so it is on the TV clock again, to be checked. */
-		/* PAL games too (2026-11-06, plans/2026-11-06-tv-clock-other-regions.md):
+		/* PAL games too (2026-11-06):
 		 * on a 59.94 Hz TV every fifth VI stays two vsyncs (5 VIs in 6 vsyncs,
 		 * 49.95 VI/s, 0.06% fast against a PAL N64's 49.92); on a 50 Hz TV
 		 * (576i) one VI a vsync. An NTSC game on a 50 Hz TV keeps the old pacing. */
