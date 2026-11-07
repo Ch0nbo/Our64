@@ -38,7 +38,7 @@ Used as they are:
 
 ## USB drives
 
-- Our64 only reads USB drives; it never writes to them. Saves, save states and covers stay on the SD card.
+- ROMs can be on a USB drive, but Our64 never writes to an external USB. Saves, save states and covers always stay on the SD card.
 - Drives formatted for the Wii U can't hold ROMs.
 - With ISFShax and stroopwafel's `5usbpart.ipx` plugin, Our64 can't see the drive's FAT32 partition, because
   the plugin shows homebrew only the Wii U partition. Use the plugin's SD build, `5upartsd.ipx`, instead: it
