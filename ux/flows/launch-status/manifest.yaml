@@ -7,9 +7,8 @@ app_style: "Soviet poster parody: red and cream, bold condensed headlines in a p
 accepted_departures: []
 domain_rules:
   - "The screen mode prompt shows on every launch, with the last choice pre-selected (Zach, 2026-10-16)."
-  - "Each launch resumes the last game from its newest resume point; the game list comes in build step 6."
+  - "Each launch resumes the last game from its newest resume point; the game list comes in build step 6. With Settings > Games' Auto-Resume Off (2026-11-06) no resume point is read or written: the game starts fresh and running."
   - "HOME leaves Our64 for the Wii U Menu through a last resume point until the pause menu exists (build step 5)."
-  - "Holding B while Our64 starts boots the game fresh, keeping the resume point until the next one is written, until the pause menu exists."
   - "A hard power cut (unplug) may lose up to 60 s of play; players expect that (Zach, 2026-10-16). A power press loses nothing."
   - "The system HOME Menu is off: HOME is Our64's own button."
   - "Nothing is drawn over a running game: notices and the SD write icon show only at the launch prompt, the pause menu and the closing screen (Zach, 2026-10-16). The notices and write-icon screens below are to be redesigned to that rule."
@@ -68,7 +67,6 @@ screens:
         - "no other controller connected: the GamePad answers as usual"
         - "config/settings.cfg missing: first-launch default; unreadable or damaged: first-launch default, and notice \"Settings file damaged, using defaults\" after the choice"
         - "no resume point, or one not usable: the line says the game starts from the beginning, with the reason as a notice once the game runs (\"Resume point from another Our64 version, not used\")"
-        - "B held while Our64 started: the line says \"starts from the beginning (B held)\""
   - id: tv-card
     title: "Playing on GamePad (TV)"
     entered_by: "GamePad only chosen on mode-prompt"

@@ -58,6 +58,7 @@ Used as they are:
 - **Controllers:** GamePad, Pro Controller, Classic Controller, Wii Remote with or without a Nunchuk.
   Up to 4 players. Pair controllers in the Wii U Menu before starting Our64.
 - **Resume:** Our64 keeps an autosave of where you stopped and offers it the next time you start the game.
+  Turn it off in Settings > Games > Auto-Resume.
 - **Paks:** Controller Pak, Rumble Pak and Transfer Pak. The Transfer Pak reads Game Boy saves from
   RetroArch's save folders, VBA GX's save folder and Game Boy Virtual Console games installed on the
   Wii U.
@@ -83,6 +84,18 @@ Settings > Picture:
 - **Shape:** 4:3, the games' own shape, or 16:9, stretched to fill a wide TV.
 - **Shader:** Off, Scanlines, CRT or CRT Curved. Scanlines, CRT and CRT Curved are drawn on the TV
   only.
+
+## Games
+
+Settings > Games:
+
+- **ROM folder:** where Our ROMs finds your games.
+- **Fetch covers:** see Covers above.
+- **Auto-Resume:** On, the default, saves where you stop and picks up there next time. Off, every game
+  starts at its title screen and no autosave is written. Turning it off deletes every game's autosave;
+  save states stay.
+- **Start on:** the tab Our ROMs opens on: All, Recent or Favorites. Recent opens only when the last game
+  played is in it, Favorites only when you have favorites; otherwise All.
 
 ## Reporting a problem
 
