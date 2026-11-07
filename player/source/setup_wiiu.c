@@ -778,7 +778,9 @@ static void deleting_shown(int done, int total, void *ctx)
  * and deletes nothing); on at once. */
 static void toggle_auto_resume(games_ui *g, int on)
 {
-	if (!on && !player_ask("Are you sure?", "You will lose all your current Auto-Saves.", "Turn Off"))
+	/* No Auto-Saves on the card: nothing to lose, so no question and no screen. */
+	const int saves = on ? 0 : states_autosaves(report_sd_root());
+	if (saves > 0 && !player_ask("Are you sure?", "You will lose all your current Auto-Saves.", "Turn Off"))
 		return; /* Cancel: still on */
 	g_settings.auto_resume = on;
 	if (setup_save_settings()) {
@@ -790,12 +792,15 @@ static void toggle_auto_resume(games_ui *g, int on)
 	report_line("AUTO-RESUME: %s", on ? "on" : "off");
 	if (on) {
 		line("Auto-Resume on.");
-	} else {
+	} else if (saves > 0) {
 		const int screen = g_view.screen;
 		g_view.screen = SETUP_DELETING;
 		states_forget_all(report_sd_root(), deleting_shown, NULL);
 		g_view.screen = screen;
 		line("Auto-Resume off. Auto-Saves deleted.");
+	} else {
+		states_forget_all(report_sd_root(), NULL, NULL); /* the game paused now forgets its plan */
+		line("Auto-Resume off.");
 	}
 }
 

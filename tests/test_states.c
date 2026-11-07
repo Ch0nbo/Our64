@@ -507,13 +507,35 @@ static void resume_point_names_never_match_slots_or_undo(void)
 	CHECK(!resume_point_file("slot1.unused.o64s") && !resume_point_file(""));
 }
 
-/* Auto-Resume off: every game's resume points go, nothing else. */
+static int g_each_n, g_each_total, g_each_last;
+static void count_each(int done, int total, void *ctx)
+{
+	(void)ctx;
+	g_each_n++;
+	g_each_total = total;
+	g_each_last = done;
+}
+
+/* Auto-Resume off: every game's resume points go, nothing else; the progress
+ * counts only games that had some. */
 static void forget_all_deletes_every_games_resume_points_only(void)
 {
 	char cmd[600];
 	snprintf(cmd, sizeof(cmd), "mkdir -p %s/states/GAME1 %s/states/GAME2 && cd %s/states && "
 	         "touch GAME1/resume-a.o64s GAME1/resume-b.o64s GAME1/slot1.o64s GAME1/undo.o64s "
 	         "GAME2/resume-a.unused.o64s GAME2/resume-b.unused.o64s GAME2/slot3.o64s stray.txt", g_dir, g_dir, g_dir);
+	CHECK(system(cmd) == 0);
+	snprintf(cmd, sizeof(cmd), "mkdir -p %s/states/GAME3 && touch %s/states/GAME3/slot2.o64s", g_dir, g_dir);
+	CHECK(system(cmd) == 0); /* save states only: no Auto-Saves to count */
+	CHECK(resume_games_with_points(g_dir) == 2);
+	g_each_n = 0;
+	g_each_last = -1;
+	CHECK(resume_forget_all(g_dir, count_each, NULL) == 4);
+	CHECK(g_each_n == 3 && g_each_total == 2 && g_each_last == 2); /* 0 of 2, 1 of 2, 2 of 2 */
+	CHECK(resume_games_with_points(g_dir) == 0);
+	CHECK(file_size("states/GAME3/slot2.o64s") == 0);
+	snprintf(cmd, sizeof(cmd), "cd %s/states && touch GAME1/resume-a.o64s GAME1/resume-b.o64s "
+	         "GAME2/resume-a.unused.o64s GAME2/resume-b.unused.o64s", g_dir);
 	CHECK(system(cmd) == 0);
 	CHECK(resume_forget_all(g_dir, NULL, NULL) == 4);
 	CHECK(file_size("states/GAME1/resume-a.o64s") < 0 && file_size("states/GAME1/resume-b.o64s") < 0);

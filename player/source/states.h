@@ -105,7 +105,8 @@ void resume_forget(const char *a, const char *b); /* deletes both */
  * resume-a/b.o64s and the set-aside resume-*.unused.o64s, under
  * <root>/states/<game id>/. Save state slots and Undo stay. Returns the files
  * deleted. resume_point_file: name is one of those files. */
-int  resume_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx); /* each: per game folder, or NULL */
+int  resume_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx); /* each: per game with resume points, or NULL */
+int  resume_games_with_points(const char *root); /* games that have resume points */
 int  resume_point_file(const char *name);
 
 /* When a resume point is captured. Due every 60 s, and at once when an

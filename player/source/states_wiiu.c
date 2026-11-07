@@ -932,6 +932,12 @@ void states_autosave(pause_autosave *a)
  * first, so a resume point still being written cannot land after the
  * deletion; then every game's resume points go (resume_forget_all). A game
  * paused now starts its next resume point afresh if Auto-Resume comes back on. */
+int states_autosaves(const char *root)
+{
+	writer_drain(); /* one being written counts */
+	return resume_games_with_points(root);
+}
+
 int states_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx)
 {
 	writer_drain();

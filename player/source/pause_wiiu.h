@@ -37,6 +37,7 @@ void states_set_aside(void);       /* the autosave cannot be used: renamed, kept
 void states_load_now(void);        /* the card read last becomes the game */
 void states_after_reset(void);     /* an autosave of the fresh game at the first chance (Auto-Resume on) */
 int  states_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx); /* Auto-Resume off: every game's resume points deleted; the count */
+int  states_autosaves(const char *root); /* the games with Auto-Saves on the card */
 /* An autosave or in-game save reached the SD card or did not (writer thread). */
 enum { WRITE_AUTOSAVE, WRITE_INGAME };
 void states_write_done(int what, int ok);

@@ -383,42 +383,66 @@ int resume_point_file(const char *name)
 
 /* The names are gathered first and the folder closed before any is removed:
  * nothing is deleted under an open directory listing. */
-int resume_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx)
+/* A game folder's resume point files (up to 8 names); 0 for a file or a
+ * folder without any. */
+static int game_points(const char *dir, char names[8][32])
 {
-	char top[300], dir[560], file[600];
+	DIR *g = opendir(dir); /* a file, not a game's folder: NULL */
+	if (!g)
+		return 0;
+	int k = 0;
+	for (struct dirent *f; (f = readdir(g)) && k < 8;) {
+		const size_t n = strlen(f->d_name);
+		if (resume_point_file(f->d_name) && n < 32)
+			memcpy(names[k++], f->d_name, n + 1);
+	}
+	closedir(g);
+	return k;
+}
+
+int resume_games_with_points(const char *root)
+{
+	char top[300], dir[560], names[8][32];
 	snprintf(top, sizeof(top), "%s/states", root);
 	DIR *d = opendir(top);
 	if (!d)
 		return 0;
-	int total = 0, done = 0;
-	if (each) { /* the folders first, so the screen can say "12 of 94" */
-		for (struct dirent *e; (e = readdir(d));)
-			total += e->d_name[0] != '.';
-		rewinddir(d);
-		each(0, total, ctx);
-	}
-	int deleted = 0;
+	int games = 0;
 	for (struct dirent *e; (e = readdir(d));) {
 		if (e->d_name[0] == '.')
 			continue;
-		if (each)
-			each(++done < total ? done : total, total, ctx);
 		snprintf(dir, sizeof(dir), "%s/%s", top, e->d_name);
-		DIR *g = opendir(dir); /* a file, not a game's folder: NULL */
-		if (!g)
+		games += game_points(dir, names) > 0;
+	}
+	closedir(d);
+	return games;
+}
+
+int resume_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx)
+{
+	char top[300], dir[560], file[600], names[8][32];
+	/* Only the games that have resume points count, so "12 of 94" is games
+	 * whose Auto-Saves go: a folder with only save states is not one (every
+	 * Off counted them all again, 2026-11-06). */
+	const int total = each ? resume_games_with_points(root) : 0;
+	snprintf(top, sizeof(top), "%s/states", root);
+	DIR *d = opendir(top);
+	if (!d)
+		return 0;
+	if (each)
+		each(0, total, ctx);
+	int deleted = 0, done = 0;
+	for (struct dirent *e; (e = readdir(d));) {
+		if (e->d_name[0] == '.')
 			continue;
-		char names[8][32];
-		int k = 0;
-		for (struct dirent *f; (f = readdir(g)) && k < 8;) {
-			const size_t n = strlen(f->d_name);
-			if (resume_point_file(f->d_name) && n < sizeof(names[0]))
-				memcpy(names[k++], f->d_name, n + 1);
-		}
-		closedir(g);
+		snprintf(dir, sizeof(dir), "%s/%s", top, e->d_name);
+		const int k = game_points(dir, names);
 		for (int i = 0; i < k; i++) {
 			snprintf(file, sizeof(file), "%s/%.31s", dir, names[i]);
 			deleted += remove(file) == 0;
 		}
+		if (each && k > 0)
+			each(++done < total ? done : total, total, ctx);
 	}
 	closedir(d);
 	return deleted;
