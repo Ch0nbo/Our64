@@ -758,6 +758,21 @@ static int run_start(games_ui *g)
 	}
 }
 
+/* Auto-Resume off: the Deleting Auto-Saves screen follows each game folder
+ * (about 50 ms an SD delete; 94 games took long enough to look frozen). */
+static void deleting_shown(int done, int total, void *ctx)
+{
+	(void)ctx;
+	static OSTime last;
+	g_view.deleting_done = done;
+	g_view.deleting_total = total;
+	const OSTime now = OSGetSystemTime();
+	if (done == 0 || done == total || now - last >= OSMillisecondsToTicks(33)) {
+		last = now;
+		show();
+	}
+}
+
 /* Auto-Resume: off only after "Are you sure?", which deletes every game's
  * resume points once the setting is saved (a write that fails leaves it on
  * and deletes nothing); on at once. */
@@ -776,7 +791,10 @@ static void toggle_auto_resume(games_ui *g, int on)
 	if (on) {
 		line("Auto-Resume on.");
 	} else {
-		states_forget_all(report_sd_root());
+		const int screen = g_view.screen;
+		g_view.screen = SETUP_DELETING;
+		states_forget_all(report_sd_root(), deleting_shown, NULL);
+		g_view.screen = screen;
 		line("Auto-Resume off. Auto-Saves deleted.");
 	}
 }

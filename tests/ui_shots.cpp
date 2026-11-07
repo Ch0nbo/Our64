@@ -710,6 +710,11 @@ void shots_setup()
 	shot("games-auto-resume-ask", v);
 	v.exit_ask = 0;
 	v.ask_title[0] = 0;
+	sv.screen = SETUP_DELETING; // Turn Off: the Auto-Saves go, with progress
+	sv.deleting_done = 37;
+	sv.deleting_total = 94;
+	shot("games-auto-resume-deleting", v);
+	sv.screen = SETUP_GAMES;
 	sv.games.auto_resume = 0;
 	snprintf(sv.line, sizeof(sv.line), "Auto-Resume off. Auto-Saves deleted.");
 	shot("games-auto-resume-off", v);

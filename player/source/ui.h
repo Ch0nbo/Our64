@@ -86,7 +86,7 @@ typedef struct {
 } loading_view;
 
 /* The setup screens (setup_wiiu.c fills it). */
-enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START };
+enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START, SETUP_DELETING };
 typedef struct {
 	int screen;              /* SETUP_ */
 	settings_ui settings;
@@ -101,6 +101,7 @@ typedef struct {
 	char line[400];          /* what the last action did ("ROM folder: " and a full path) */
 	char game[64];           /* a paused game, "" from Our ROMs */
 	int glyphs;
+	int deleting_done, deleting_total; /* SETUP_DELETING: Auto-Resume turned off, game folders done of all */
 } setup_view;
 
 /* What the pause screens show (pause_wiiu.c fills it; it outlives each ui_show). */

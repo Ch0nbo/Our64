@@ -32,8 +32,8 @@ Used as they are:
 
 1. Download the latest zip from [Releases](../../releases).
 2. Copy its `wiiu` folder to the root of the SD card.
-3. Copy your games into `sd:/wiiu/our64/roms`, or into any folder you choose in Settings > Games > ROM folder,
-   on the SD card or on a FAT32 or exFAT USB drive.
+3. Copy your games into `sd:/wiiu/our64/roms`, the default ROM folder. To use another folder instead, on the
+   SD card or on a FAT32 or exFAT USB drive, choose it in Settings > Games > ROM folder.
 4. Start Our64 from the Wii U Menu.
 
 ## USB drives
@@ -43,15 +43,6 @@ Used as they are:
 - With ISFShax and stroopwafel's `5usbpart.ipx` plugin, Our64 can't see the drive's FAT32 partition, because
   the plugin shows homebrew only the Wii U partition. Use the plugin's SD build, `5upartsd.ipx`, instead: it
   makes that partition the SD card, and Our64 reads it as the SD card.
-
-## Covers
-
-- Settings > Games > Fetch covers downloads covers for games without one from libretro-thumbnails, over the
-  Wii U's internet connection.
-- Covers already on the card are never replaced, except one that can't be read.
-- Hacks and translations that are not in the No-Intro list keep their poster card, unless a cover is filed under
-  the ROM's file name.
-- `tools/fetch-art.sh` still fetches covers from a computer.
 
 ## Playing
 
@@ -87,13 +78,13 @@ Settings > Picture:
 
 Settings > Games:
 
-- **ROM folder:** where Our ROMs finds your games.
-- **Fetch covers:** see Covers above.
+- **ROM folder:** where we find your games: `sd:/wiiu/our64/roms` unless you choose another.
+- **Fetch covers:** downloads box art over Wi-Fi for games without any.
 - **Auto-Resume:** On, the default, saves where you stop and picks up there next time. Off, every game
   starts at its title screen and no autosave is written. Turning it off deletes every game's autosave;
   save states stay.
-- **Start-up ROM Category:** the category shown when Our64 starts: All, Recent or Favorites. Recent opens only when the last game
-  played is in it, Favorites only when you have favorites; otherwise All.
+- **Start-up ROM Category:** the category shown when Our64 starts: All, Recent or Favorites. Recent opens only
+  when the last game played is in it, Favorites only when you have favorites; otherwise All.
 
 ## Reporting a problem
 

@@ -1924,6 +1924,19 @@ void draw_fetch(const setup_view & sv)
 	draw_keys(keys, games_legend(&g, sv.glyphs, keys, 4), nullptr);
 }
 
+// Auto-Resume turned off: every game's Auto-Saves deleted, on a screen laid
+// out like Fetch covers, so a long delete never looks like a freeze (NH 1).
+// Nothing to press: it ends by itself.
+void draw_deleting(const setup_view & sv)
+{
+	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
+	text(UI_W / 2, 218, "Deleting Auto-Saves", 32, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
+	char step[64];
+	snprintf(step, sizeof(step), "%d of %d", sv.deleting_done, sv.deleting_total);
+	progress_bar(sv.deleting_total > 0 ? float(sv.deleting_done) / sv.deleting_total : 0.0f, step);
+	draw_keys(nullptr, 0, nullptr);
+}
+
 // Settings > Games > ROM folder: the drives, then a drive's folders, with
 // "Use this folder" first; arrows in the margin when rows are out of view.
 void draw_browse(const setup_view & sv)
@@ -1972,6 +1985,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_BROWSE: draw_browse(sv); break;
 	case SETUP_FETCH: draw_fetch(sv); break;
 	case SETUP_START: draw_start(sv); break;
+	case SETUP_DELETING: draw_deleting(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;

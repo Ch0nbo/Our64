@@ -383,17 +383,26 @@ int resume_point_file(const char *name)
 
 /* The names are gathered first and the folder closed before any is removed:
  * nothing is deleted under an open directory listing. */
-int resume_forget_all(const char *root)
+int resume_forget_all(const char *root, void (*each)(int done, int total, void *ctx), void *ctx)
 {
 	char top[300], dir[560], file[600];
 	snprintf(top, sizeof(top), "%s/states", root);
 	DIR *d = opendir(top);
 	if (!d)
 		return 0;
+	int total = 0, done = 0;
+	if (each) { /* the folders first, so the screen can say "12 of 94" */
+		for (struct dirent *e; (e = readdir(d));)
+			total += e->d_name[0] != '.';
+		rewinddir(d);
+		each(0, total, ctx);
+	}
 	int deleted = 0;
 	for (struct dirent *e; (e = readdir(d));) {
 		if (e->d_name[0] == '.')
 			continue;
+		if (each)
+			each(++done < total ? done : total, total, ctx);
 		snprintf(dir, sizeof(dir), "%s/%s", top, e->d_name);
 		DIR *g = opendir(dir); /* a file, not a game's folder: NULL */
 		if (!g)

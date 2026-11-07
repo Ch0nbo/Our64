@@ -515,14 +515,14 @@ static void forget_all_deletes_every_games_resume_points_only(void)
 	         "touch GAME1/resume-a.o64s GAME1/resume-b.o64s GAME1/slot1.o64s GAME1/undo.o64s "
 	         "GAME2/resume-a.unused.o64s GAME2/resume-b.unused.o64s GAME2/slot3.o64s stray.txt", g_dir, g_dir, g_dir);
 	CHECK(system(cmd) == 0);
-	CHECK(resume_forget_all(g_dir) == 4);
+	CHECK(resume_forget_all(g_dir, NULL, NULL) == 4);
 	CHECK(file_size("states/GAME1/resume-a.o64s") < 0 && file_size("states/GAME1/resume-b.o64s") < 0);
 	CHECK(file_size("states/GAME2/resume-a.unused.o64s") < 0 && file_size("states/GAME2/resume-b.unused.o64s") < 0);
 	CHECK(file_size("states/GAME1/slot1.o64s") == 0 && file_size("states/GAME1/undo.o64s") == 0);
 	CHECK(file_size("states/GAME2/slot3.o64s") == 0 && file_size("states/stray.txt") == 0);
-	CHECK(resume_forget_all(g_dir) == 0);
+	CHECK(resume_forget_all(g_dir, NULL, NULL) == 0);
 	snprintf(cmd, sizeof(cmd), "%s/nowhere", g_dir);
-	CHECK(resume_forget_all(cmd) == 0); /* no states folder: nothing to do */
+	CHECK(resume_forget_all(cmd, NULL, NULL) == 0); /* no states folder: nothing to do */
 }
 
 /* ---- when to capture ---- */
