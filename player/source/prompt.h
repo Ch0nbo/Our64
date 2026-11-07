@@ -47,6 +47,9 @@ const char *layout_name(int layout); /* "Covers": the row of covers; "List": the
 enum { SHADER_OFF, SHADER_SCANLINES, SHADER_CRT, SHADER_CURVED, SHADERS };
 const char *shader_name(int shader); /* "Off", "Scanlines", "CRT", "CRT Curved" */
 int shader_tv_only(int shader);
+/* "Start on = recent": Settings > Games, the tab Our ROMs opens on (library_start_category). */
+enum { START_ALL, START_RECENT, START_FAVORITES, STARTS };
+const char *start_name(int start); /* "All", "Recent", "Favorites" */
 typedef struct {
 	int mode;            /* MODE_, or -1 */
 	int picture;         /* PICTURE_ */
@@ -59,6 +62,8 @@ typedef struct {
 	char rom_folder[256]; /* "ROM folder = ...": "" is sd:/wiiu/our64/roms; "sd:/path" or "usb:<serial>/path" (usbfs.h) */
 	char rom_drive[34];   /* "ROM drive = ...": the USB partition's label when its folder was picked, shown while
 	                       * it is unplugged; "" none (an SD folder, no label, or a settings.cfg from before) */
+	int auto_resume;      /* "Auto-resume = on|off": resume points written and loaded (the default), or neither */
+	int start_on;         /* START_ */
 } our_settings;
 int settings_parse(const char *text, our_settings *s);
 /* A game started: it becomes the last game and the newest recent one. */

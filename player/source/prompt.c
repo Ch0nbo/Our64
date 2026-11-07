@@ -33,6 +33,9 @@ const char *layout_name(int layout) { return layout >= 0 && layout < LAYOUTS ? g
 static const char *const g_shader_name[SHADERS] = { "Off", "Scanlines", "CRT", "CRT Curved" };
 const char *shader_name(int shader) { return shader >= 0 && shader < SHADERS ? g_shader_name[shader] : "?"; }
 int shader_tv_only(int shader) { return shader >= SHADER_SCANLINES && shader < SHADERS; }
+static const char *const g_start_name[STARTS] = { "All", "Recent", "Favorites" };
+const char *start_name(int start) { return start >= 0 && start < STARTS ? g_start_name[start] : "?"; }
+static const char *const g_start_key[STARTS] = { "all", "recent", "favorites" }; /* as written to settings.cfg */
 
 int settings_parse(const char *text, our_settings *s)
 {
@@ -47,6 +50,8 @@ int settings_parse(const char *text, our_settings *s)
 	s->shader = SHADER_OFF;
 	s->rom_folder[0] = 0;
 	s->rom_drive[0] = 0;
+	s->auto_resume = 1;
+	s->start_on = START_RECENT;
 	int recent_line = 0;
 	int result = SETTINGS_MISSING;
 	char line[1024]; /* a full Recent games line is up to 5 x 131 bytes */
@@ -113,6 +118,13 @@ int settings_parse(const char *text, our_settings *s)
 				s->shader = SHADER_OFF;
 				found = 1;
 			}
+		} else if (!strcasecmp(k, "Auto-resume")) {
+			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
+				found = s->auto_resume = !strcasecmp(v, "on");
+		} else if (!strcasecmp(k, "Start on")) {
+			for (int i = 0; i < STARTS; i++)
+				if (!strcasecmp(v, g_start_key[i]))
+					found = s->start_on = i;
 		} else if (!strcasecmp(k, "ROM folder")) {
 			snprintf(s->rom_folder, sizeof(s->rom_folder), "%s", v);
 			found = 1;
@@ -176,12 +188,14 @@ int settings_format_all(char *out, unsigned size, const our_settings *s)
 	}
 	return snprintf(out, size, "# Our64 settings. Screen mode: TV only, TV + GamePad or GamePad only. "
 	                           "Picture: 4:3 or 16:9 stretched. Theme: Standard or Comrade. Our ROMs: Covers or List. "
-	                           "Shader: Off, Scanlines, CRT or CRT Curved.\n"
+	                           "Shader: Off, Scanlines, CRT or CRT Curved. Auto-resume: on or off. "
+	                           "Start on: all, recent or favorites.\n"
 	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nShader = %s\nROM folder = %s\nROM drive = %s\nLast game = %s\nRecent games = %s\n"
-	                           "Rumble = %s, %s, %s, %s\n",
+	                           "Rumble = %s, %s, %s, %s\nAuto-resume = %s\nStart on = %s\n",
 	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), shader_name(s->shader), s->rom_folder, s->rom_drive, s->last_game,
 	                recent, s->rumble[0] ? "on" : "off", s->rumble[1] ? "on" : "off", s->rumble[2] ? "on" : "off",
-	                s->rumble[3] ? "on" : "off");
+	                s->rumble[3] ? "on" : "off", s->auto_resume ? "on" : "off",
+	                g_start_key[s->start_on >= 0 && s->start_on < STARTS ? s->start_on : START_RECENT]);
 }
 
 int settings_parse_mode(const char *text)

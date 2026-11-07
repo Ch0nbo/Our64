@@ -233,6 +233,31 @@ static void a_long_recent_list_and_folder_still_fit(void)
 	CHECK(!strcmp(back.rom_drive, s.rom_drive));
 }
 
+static void auto_resume_and_start_on_round_trip(void)
+{
+	our_settings s, back;
+	CHECK(settings_parse("Screen mode = TV only\n", &s) == 0 && s.auto_resume == 1 && s.start_on == START_RECENT);
+	CHECK(settings_parse("Auto-resume = off\nStart on = favorites\n", &s) == 0 && !s.auto_resume && s.start_on == START_FAVORITES);
+	CHECK(settings_parse("auto-resume=ON\nstart on = All\n", &s) == 0 && s.auto_resume && s.start_on == START_ALL);
+	CHECK(settings_parse("Auto-resume = maybe\n", &s) == SETTINGS_DAMAGED && s.auto_resume == 1);
+	CHECK(settings_parse("Start on = Letters\n", &s) == SETTINGS_DAMAGED && s.start_on == START_RECENT);
+	char text[2048];
+	for (int on = 0; on < 2; on++)
+		for (int t = 0; t < STARTS; t++) {
+			settings_parse("", &s);
+			s.auto_resume = on;
+			s.start_on = t;
+			settings_format_all(text, sizeof(text), &s);
+			CHECK(settings_parse(text, &back) == 0 && back.auto_resume == on && back.start_on == t);
+		}
+	s.auto_resume = 0;
+	s.start_on = START_ALL;
+	settings_format_all(text, sizeof(text), &s);
+	CHECK(strstr(text, "\nAuto-resume = off\n") && strstr(text, "\nStart on = all\n"));
+	CHECK(!strcmp(start_name(START_ALL), "All") && !strcmp(start_name(START_RECENT), "Recent") &&
+	      !strcmp(start_name(START_FAVORITES), "Favorites"));
+}
+
 /* 2026-10-16 21:40 and friends, as UTC. */
 #define DAY 86400
 #define T(d, h, m) ((time_t)1760572800 + (d) * DAY + (h) * 3600 + (m) * 60) /* 2025-10-16 00:00 + days */
@@ -329,6 +354,7 @@ int main(void)
 	rom_drive_round_trips_and_may_be_missing();
 	an_older_builds_smooth_reads_as_off();
 	a_long_recent_list_and_folder_still_fit();
+	auto_resume_and_start_on_round_trip();
 	test_when();
 	test_title();
 	test_line();
