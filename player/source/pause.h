@@ -142,6 +142,7 @@ typedef struct {
 	int autosave_failed; /* the newest autosave did not reach the SD */
 	time_t ingame_failed;/* an in-game save that did not reach the SD, 0 none */
 	int exit_failed;     /* Exit found failed writes: leaving now is "Leave without saving" */
+	int off;             /* Auto-Resume is off: no autosave line, only in-game save failures */
 } pause_autosave;
 /* Up to 4 lines; returns the count. *red: a failure. */
 int pause_autosave_lines(const pause_autosave *a, time_t now, int us, char lines[4][128], int *red);

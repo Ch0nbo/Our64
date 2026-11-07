@@ -623,6 +623,17 @@ int pause_autosave_lines(const pause_autosave *a, time_t now, int us, char lines
 		snprintf(lines[n++], 128, "Saving to SD card...");
 		return n;
 	}
+	if (a->off) { /* Auto-Resume off: no autosave to name, only an in-game save that failed */
+		if (!a->ingame_failed)
+			return 0;
+		*red = 1;
+		stamp(t, sizeof(t), a->ingame_failed, now, us);
+		snprintf(lines[n++], 128, "Your in-game save from %s is not on the SD card.", t);
+		snprintf(lines[n++], 128, "Check the card's lock switch or free space on a computer. OUR-0201");
+		if (a->exit_failed)
+			snprintf(lines[n++], 128, "Leave without saving: that in-game save is lost.");
+		return n;
+	}
 	if (a->ingame_failed || a->autosave_failed) {
 		*red = 1;
 		if (a->ingame_failed) {

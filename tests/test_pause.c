@@ -651,6 +651,26 @@ static void the_autosave_line_says_how_long_ago(void)
 	CHECK(!strcmp(l[0], "Saving to SD card...") && !red);
 }
 
+/* Auto-Resume off: no autosave line at all; an in-game save that failed still says so. */
+static void with_auto_resume_off_only_in_game_saves_are_named(void)
+{
+	char l[4][128];
+	int red;
+	pause_autosave a = { 0 };
+	a.off = 1;
+	CHECK(pause_autosave_lines(&a, NOW, 1, l, &red) == 0 && !red);
+	a.writing = 1; /* an in-game save going out */
+	CHECK(pause_autosave_lines(&a, NOW, 1, l, &red) == 1 && !strcmp(l[0], "Saving to SD card..."));
+	a.writing = 0;
+	a.ingame_failed = NOW - 60;
+	int n = pause_autosave_lines(&a, NOW, 1, l, &red);
+	CHECK(red && n == 2 && !strcmp(l[0], "Your in-game save from 9:39 PM is not on the SD card."));
+	CHECK(strstr(l[1], "OUR-0201") != NULL);
+	a.exit_failed = 1;
+	n = pause_autosave_lines(&a, NOW, 1, l, &red);
+	CHECK(n == 3 && strstr(l[2], "Leave without saving") && !strstr(l[2], "autosave"));
+}
+
 static void a_failed_write_says_what_is_safe_and_what_to_do(void)
 {
 	char l[4][128];
@@ -735,6 +755,7 @@ int main(void)
 	RUN(dialogs_name_the_action_and_its_target);
 	RUN(the_load_dialog_has_no_body_text);
 	RUN(the_autosave_line_says_how_long_ago);
+	RUN(with_auto_resume_off_only_in_game_saves_are_named);
 	RUN(a_failed_write_says_what_is_safe_and_what_to_do);
 	RUN(home_outside_a_game_asks_with_cancel_first);
 	printf("%d of %d failed\n", g_failed, g_run);

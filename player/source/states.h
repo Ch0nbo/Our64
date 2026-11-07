@@ -101,6 +101,12 @@ typedef struct {
 int resume_load(const char *a, const char *b, uint32_t crc1, uint32_t crc2, resume_plan *plan,
                 void *raw, unsigned raw_cap, unsigned *raw_size);
 void resume_forget(const char *a, const char *b); /* deletes both */
+/* Auto-Resume turned off (Settings > Games): every game's resume points go,
+ * resume-a/b.o64s and the set-aside resume-*.unused.o64s, under
+ * <root>/states/<game id>/. Save state slots and Undo stay. Returns the files
+ * deleted. resume_point_file: name is one of those files. */
+int  resume_forget_all(const char *root);
+int  resume_point_file(const char *name);
 
 /* When a resume point is captured. Due every 60 s, and at once when an
  * in-game save waits for one (the resume point goes to the SD first, so the

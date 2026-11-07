@@ -1,6 +1,7 @@
 /* Our64 player: save state files and resume points (see states.h). */
 #include "states.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -368,6 +369,50 @@ void resume_forget(const char *a, const char *b)
 {
 	remove(a);
 	remove(b);
+}
+
+int resume_point_file(const char *name)
+{
+	static const char pre[] = "resume-", post[] = ".unused.o64s";
+	size_t n = strlen(name);
+	if (!strcmp(name, "resume-a.o64s") || !strcmp(name, "resume-b.o64s"))
+		return 1;
+	return n > sizeof(pre) - 1 + sizeof(post) - 1 && !strncmp(name, pre, sizeof(pre) - 1) &&
+	       !strcmp(name + n - (sizeof(post) - 1), post);
+}
+
+/* The names are gathered first and the folder closed before any is removed:
+ * nothing is deleted under an open directory listing. */
+int resume_forget_all(const char *root)
+{
+	char top[300], dir[560], file[600];
+	snprintf(top, sizeof(top), "%s/states", root);
+	DIR *d = opendir(top);
+	if (!d)
+		return 0;
+	int deleted = 0;
+	for (struct dirent *e; (e = readdir(d));) {
+		if (e->d_name[0] == '.')
+			continue;
+		snprintf(dir, sizeof(dir), "%s/%s", top, e->d_name);
+		DIR *g = opendir(dir); /* a file, not a game's folder: NULL */
+		if (!g)
+			continue;
+		char names[8][32];
+		int k = 0;
+		for (struct dirent *f; (f = readdir(g)) && k < 8;) {
+			const size_t n = strlen(f->d_name);
+			if (resume_point_file(f->d_name) && n < sizeof(names[0]))
+				memcpy(names[k++], f->d_name, n + 1);
+		}
+		closedir(g);
+		for (int i = 0; i < k; i++) {
+			snprintf(file, sizeof(file), "%s/%.31s", dir, names[i]);
+			deleted += remove(file) == 0;
+		}
+	}
+	closedir(d);
+	return deleted;
 }
 
 /* ---- when to capture ---- */

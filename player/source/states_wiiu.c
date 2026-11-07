@@ -549,6 +549,11 @@ static void forget_job(void)
 static int g_launch = LAUNCH_FIRST;
 static time_t g_launch_when;
 
+/* Settings > Games' Auto-Resume, read as it is now: turned off from a paused
+ * game, no resume point is written from that pause on. Off, nothing waits for
+ * a capture: in-game saves go straight to the writer (states_vi). */
+static int resume_on(void) { return setup_settings()->auto_resume; }
+
 int states_launch(time_t *when)
 {
 	*when = g_launch_when;
@@ -588,6 +593,14 @@ int states_start(const char *root, int fresh)
 	static const char *const why[] = { "", "none yet", "damaged", "from another Our64 version", "for another game",
 	                                   "too big", "", "" };
 	unsigned size = 0;
+	if (!resume_on()) { /* no resume point read: the game starts fresh and running (main.c pauses only LAUNCH_RESUME) */
+		resume_plan none = { 0, 1, -1 };
+		g_plan = none;
+		g_launch = LAUNCH_FIRST;
+		report_line("RESUME: Auto-Resume is off: the game starts fresh, no resume point read or written");
+		g_on = 1;
+		return 0;
+	}
 	int r = resume_load(g_path[0], g_path[1], ROM_HEADER.CRC1, ROM_HEADER.CRC2, &g_plan, g_load, RAW_MAX, &size);
 	if (r == STATEFILE_OK) {
 		state_info info;
@@ -653,13 +666,15 @@ static void pause_here(void)
 	 * SD card..." up over the menu. */
 	int as_loaded = g_as_loaded && player_vis() - g_loaded_vi < 60 && !saves_pending();
 	g_as_loaded = 0;
-	if (!as_loaded)
+	const int resume = resume_on(); /* off: g_now is still captured, for Save state and the menu's picture */
+	if (!as_loaded && resume)
 		post_resume(g_now, g_now_size);
 	saves_flush(); /* in-game saves the game made go after it */
 	resume_captured(&g_timer, report_now_us(), cost);
 	g_due_since = -1;
 	report_line("PAUSE: game captured at VI %u in %.1f ms%s", player_vis(), cost / 1e3,
-	            as_loaded ? " (not written: it is the resume point just loaded)" : "");
+	            !resume ? " (Auto-Resume off: not written)"
+	            : as_loaded ? " (not written: it is the resume point just loaded)" : "");
 	switch (pause_run(1)) {
 	case PAUSE_LOAD:
 		g_action = ACTION_LOAD;
@@ -690,6 +705,13 @@ void savestates_save(void)
 	}
 	if (g_pause) {
 		pause_here();
+		return;
+	}
+	if (!resume_on()) { /* turned off while a capture was asked for: none is taken */
+		savestates_job &= ~SAVESTATE;
+		g_soon = 0;
+		if (g_exit)
+			g_exit_done = 1;
 		return;
 	}
 	if (!g_exit && !g_soon && !resume_fits(&g_timer, player_idle_left_us())) {
@@ -736,7 +758,7 @@ void states_vi(double now_us, double idle_us)
 		g_idle_min = idle_us;
 	g_idle_sum += idle_us;
 	g_idle_vis++;
-	if (!g_on) {
+	if (!g_on || !resume_on()) { /* no resume point to wait for: in-game saves go now */
 		saves_release();
 		return;
 	}
@@ -762,6 +784,10 @@ void states_vi(double now_us, double idle_us)
 void states_exit(void)
 {
 	g_exit = 1;
+	if (!resume_on()) { /* nothing to capture: main.c stops at once, saves_stop flushes the in-game saves */
+		g_exit_done = 1;
+		return;
+	}
 	savestates_job |= SAVESTATE;
 }
 
@@ -899,6 +925,23 @@ void states_autosave(pause_autosave *a)
 	a->writing = states_writing();
 	a->autosave_failed = g_autosave_failed;
 	a->ingame_failed = g_ingame_failed;
+	a->off = !resume_on();
+}
+
+/* Auto-Resume turned off (Settings > Games, confirmed): the writer drained
+ * first, so a resume point still being written cannot land after the
+ * deletion; then every game's resume points go (resume_forget_all). A game
+ * paused now starts its next resume point afresh if Auto-Resume comes back on. */
+int states_forget_all(const char *root)
+{
+	writer_drain();
+	const int n = resume_forget_all(root);
+	resume_plan none = { 0, 1, -1 };
+	g_plan = none;
+	g_last_ok = 0;
+	g_last_ok_launch = g_autosave_failed = g_as_loaded = g_soon = 0;
+	report_line("RESUME: Auto-Resume off: %d resume point files deleted", n);
+	return n;
 }
 
 /* An autosave that cannot be used is kept, renamed, so the new game's
@@ -937,6 +980,8 @@ void states_load_now(void)
 
 void states_after_reset(void)
 {
+	if (!resume_on())
+		return;
 	g_soon = 1;
 	savestates_job |= SAVESTATE;
 }

@@ -169,7 +169,7 @@ void saves_flush(void);             /* leaving: every unsaved change to the writ
 void saves_stop(void);              /* the game ended: flushed, and nothing of it kept */
 
 /* states_wiiu.c: resume points in sd:/wiiu/our64/states/<game id>. */
-int  states_start(const char *root, int fresh); /* after saves_start; resumes unless fresh */
+int  states_start(const char *root, int fresh); /* after saves_start; resumes unless fresh or Auto-Resume is off */
 void states_vi(double now_us, double idle_us);  /* each VI, with the time it spent waiting */
 void states_exit(void);           /* leaving: ask for a last capture */
 int  states_launch(time_t *when); /* LAUNCH_ (prompt.h): what this launch does, and the resume point's time */
