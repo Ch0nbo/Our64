@@ -677,12 +677,14 @@ int library_run(int *game, const char *notice)
 	}
 	loader_start();
 	/* Recent follows the games played since the list was last up. The first
-	 * time, it opens on the last game when that is among them (Zach,
-	 * 2026-10-18); otherwise All. */
+	 * time, it opens on Settings > Games' Start on (2026-11-06): Recent when
+	 * the last game is among them (Zach, 2026-10-18), Favorites when there
+	 * are some; otherwise All. */
 	library_mark_recent(g_games, g_count, setup_settings()->recent, RECENT_GAMES);
 	library_categories(g_games, g_count, v->has);
-	if (first_time && v->has[LIBRARY_RECENT] && *game >= 0 && *game < g_count && g_games[*game].recent)
-		v->category = LIBRARY_RECENT;
+	if (first_time)
+		v->category = library_start_category(setup_settings()->start_on, v->has,
+		                                     *game >= 0 && *game < g_count && g_games[*game].recent);
 	if (!v->has[v->category])
 		v->category = LIBRARY_ALL;
 	v->count = library_show(g_games, g_count, v->category, g_shown);
@@ -693,6 +695,11 @@ int library_run(int *game, const char *notice)
 			v->sel = i;
 			in = 1;
 		}
+	/* Opening on Favorites without the last game among them: the first favorite */
+	if (!in && first_time && v->category == LIBRARY_FAVORITES && v->count > 0) {
+		v->sel = 0;
+		in = 1;
+	}
 	if (!in) { /* All: the game, or the one after it when it was deleted */
 		v->count = library_show(g_games, g_count, LIBRARY_ALL, g_shown);
 		v->category = LIBRARY_ALL;

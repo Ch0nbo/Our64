@@ -66,6 +66,10 @@ void library_sort(library_game *g, int n);
  * deleted game is in none, and gives no category games. */
 int  library_show(const library_game *g, int n, int category, int *shown);
 void library_categories(const library_game *g, int n, int has[LIBRARY_CATEGORIES]); /* has[LIBRARY_ALL]: any game */
+/* The tab Our ROMs opens on at launch, from Settings > Games' Start on
+ * (START_, prompt.h): Recent only when the last game played is among them
+ * (last_recent), Favorites only when there are favorites, otherwise All. */
+int  library_start_category(int start_on, const int has[LIBRARY_CATEGORIES], int last_recent);
 /* The next category with games in dir (+1 right, -1 left); this one at the ends. */
 int  library_next_category(const int has[LIBRARY_CATEGORIES], int category, int dir);
 

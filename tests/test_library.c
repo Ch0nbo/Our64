@@ -376,6 +376,24 @@ static void covers_scale_by_area_to_fit(void)
 
 #define RUN(fn) do { g_run++; int before = g_failed; fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
+/* Settings > Games' Start on (2026-11-06). */
+static void start_on_picks_the_first_tab(void)
+{
+	int has[LIBRARY_CATEGORIES] = { 0 };
+	has[LIBRARY_ALL] = 1;
+	CHECK(library_start_category(START_ALL, has, 1) == LIBRARY_ALL);
+	CHECK(library_start_category(START_RECENT, has, 0) == LIBRARY_ALL);       /* nothing played */
+	CHECK(library_start_category(START_FAVORITES, has, 0) == LIBRARY_ALL);    /* no favorites */
+	has[LIBRARY_RECENT] = 1;
+	CHECK(library_start_category(START_RECENT, has, 1) == LIBRARY_RECENT);
+	CHECK(library_start_category(START_RECENT, has, 0) == LIBRARY_ALL);       /* the last game is not among them */
+	CHECK(library_start_category(START_ALL, has, 1) == LIBRARY_ALL);
+	CHECK(library_start_category(START_FAVORITES, has, 1) == LIBRARY_ALL);
+	has[LIBRARY_FAVORITES] = 1;
+	CHECK(library_start_category(START_FAVORITES, has, 0) == LIBRARY_FAVORITES); /* whatever the last game */
+	CHECK(library_start_category(START_RECENT, has, 1) == LIBRARY_RECENT);
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -396,6 +414,7 @@ int main(void)
 	RUN(paks_follow_the_game_not_the_rumble_switch);
 	RUN(counter_factors_come_from_the_catalogue);
 	RUN(covers_scale_by_area_to_fit);
+	RUN(start_on_picks_the_first_tab);
 	printf("%d of %d failed\n", g_failed, g_run);
 	return g_failed != 0;
 }

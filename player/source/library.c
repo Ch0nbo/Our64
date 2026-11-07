@@ -188,6 +188,15 @@ int library_show(const library_game *g, int n, int category, int *shown)
 	return k;
 }
 
+int library_start_category(int start_on, const int has[LIBRARY_CATEGORIES], int last_recent)
+{
+	if (start_on == START_RECENT && has[LIBRARY_RECENT] && last_recent)
+		return LIBRARY_RECENT;
+	if (start_on == START_FAVORITES && has[LIBRARY_FAVORITES])
+		return LIBRARY_FAVORITES;
+	return LIBRARY_ALL;
+}
+
 void library_categories(const library_game *g, int n, int has[LIBRARY_CATEGORIES])
 {
 	memset(has, 0, sizeof(int) * LIBRARY_CATEGORIES);
