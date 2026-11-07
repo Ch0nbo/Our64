@@ -16,8 +16,6 @@ CAFEGLSL	:=	$(CURDIR)/../third_party/cafeglsl
 GFX_INCLUDE	:=	-I$(CAFEGLSL)/include
 GFX_LIBS	:=	-L$(CAFEGLSL)/lib -lcafeglsl
 GFX_DEFINES	:=	-DREPORT_NO_CONSOLE
-# The player's TV-only shader pass (gx2-tvfx.txt in source/main.cpp).
-GFX_OFILES	:=	$(BUILD)/player/tv_pass.o
 APP_ICON	:=	$(CURDIR)/meta/icon-gx2.png
 else
 APP_NAME	:= Our64 Replay
@@ -32,8 +30,7 @@ include gliden64.mk
 BENCH		:=	$(CURDIR)/../bench/source
 
 OFILES		:=	$(addprefix $(BUILD)/gliden64/,$(GLIDEN64_CORE:.cpp=.o) $(GLIDEN64_C:.c=.o)) \
-			$(BUILD)/source/main.o $(BUILD)/source/core_wiiu.o $(BUILD)/source/profile.o $(BUILD)/bench/report.o \
-			$(GFX_OFILES)
+			$(BUILD)/source/main.o $(BUILD)/source/core_wiiu.o $(BUILD)/source/profile.o $(BUILD)/bench/report.o
 
 DEFINES		:=	-D__WIIU__ -D__WUT__ -DOS_LINUX $(GLIDEN64_DEFINES) $(GFX_DEFINES)
 INCLUDE		:=	$(GLIDEN64_INCLUDE) $(GFX_INCLUDE) -I$(BENCH) $(foreach dir,$(PORTLIBS) $(WUT_ROOT),-I$(dir)/include)
@@ -67,10 +64,6 @@ $(BUILD)/gliden64/%.o: $(G)/%.c
 	@echo $*.c
 	@$(CC) -MMD -MP $(CFLAGS) -c $< -o $@
 $(BUILD)/source/%.o: source/%.cpp
-	@mkdir -p $(dir $@)
-	@echo $*.cpp
-	@$(CXX) -MMD -MP $(CXXFLAGS) -Wall -c $< -o $@
-$(BUILD)/player/%.o: ../player/source/%.cpp
 	@mkdir -p $(dir $@)
 	@echo $*.cpp
 	@$(CXX) -MMD -MP $(CXXFLAGS) -Wall -c $< -o $@

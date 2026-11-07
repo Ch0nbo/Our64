@@ -82,8 +82,6 @@ Settings > Picture:
 
 - **Screen mode:** TV only, TV + GamePad or GamePad only. The prompt at each start begins on this choice.
 - **Shape:** 4:3, the games' own shape, or 16:9, stretched to fill a wide TV.
-- **Shader:** Off, Scanlines, CRT or CRT Curved. Scanlines, CRT and CRT Curved are drawn on the TV
-  only.
 
 ## Games
 

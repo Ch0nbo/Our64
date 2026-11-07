@@ -36,34 +36,28 @@ void settings_value_rect(int row, int i, int r[4]); /* kept: the value pages' bo
 int  settings_hit(int x, int y);               /* the row, or -1 */
 int  settings_legend(const settings_ui *s, int type, pause_key *keys, int max);
 
-/* ---- Settings > Picture (2026-11-04): Screen mode, Shape (the old Picture
- * row) and Shader, each applied with A, on the Settings rows' layout. Shader
- * shows one value between arrows: five do not fit as boxes. ---- */
+/* ---- Settings > Picture (2026-11-04): Screen mode and Shape (the old
+ * Picture row), each applied with A, on the Settings rows' layout. ---- */
 
-enum { PIC_SCREEN, PIC_SHAPE, PIC_SHADER, PIC_ROWS };
-enum { PIC_ARROW_LEFT = 6, PIC_ARROW_RIGHT = 7 }; /* touch targets: row * 8 + these */
+enum { PIC_SCREEN, PIC_SHAPE, PIC_ROWS };
 typedef struct {
 	int row;
-	int mode, shape, shader;  /* in use */
+	int mode, shape;          /* in use */
 	int pick[PIC_ROWS];       /* the value left/right is on, per row; A applies it */
 	int gamepad;              /* a GamePad is connected: GamePad only can be picked */
 	int touched;
 } picture_ui;
-enum { PICT_NONE, PICT_BACK, PICT_HOME, PICT_MODE, PICT_SHAPE, PICT_SHADER };
-void picture_open(picture_ui *p, int mode, int shape, int shader, int gamepad);
-int  picture_event(picture_ui *p, int event, int target); /* PICT_MODE/_SHAPE/_SHADER: apply pick[], then picture_applied */
+enum { PICT_NONE, PICT_BACK, PICT_HOME, PICT_MODE, PICT_SHAPE };
+void picture_open(picture_ui *p, int mode, int shape, int gamepad);
+int  picture_event(picture_ui *p, int event, int target); /* PICT_MODE/_SHAPE: apply pick[], then picture_applied */
 void picture_applied(picture_ui *p);
 int  picture_values(int row);
-int  picture_cycler(int row);                    /* 1: one value between arrows */
 int  picture_in_use(const picture_ui *p, int row);
 int  picture_off(const picture_ui *p, int row, int i); /* greyed: shown, A does nothing */
 const char *picture_value_name(int row, int i);
-const char *picture_row_name(int row);           /* "Screen mode", "Shape", "Shader" */
+const char *picture_row_name(int row);           /* "Screen mode", "Shape" */
 const char *picture_row_about(const picture_ui *p);
-void picture_arrow_rect(int row, int right, int r[4]);
-void picture_cycler_rect(int row, int r[4]);     /* the value between the arrows */
-/* row * 8 + value + 1, row * 8 + PIC_ARROW_, row * 8 (the row, and a cycler's value); -1 */
-int  picture_hit(int x, int y);
+int  picture_hit(int x, int y);                  /* row * 8 + value + 1, or row * 8 for the row itself; -1 */
 int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games (2026-11-04): where the ROMs are, and fetching

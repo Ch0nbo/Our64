@@ -50,9 +50,6 @@ extern uint32_t our64_cmd_count[256];
 extern const char * our64_gx2_log_path;
 extern "C" const char * our64_gx2_shader_dir; // gx2_ShaderCache.cpp
 extern "C" const char * our64_gx2_shader_source_dir; // gx2_GL.cpp
-#include <coreinit/memdefaultheap.h>
-// The player's TV-only shaders (player/source/tv_pass.cpp).
-bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool picture_43, bool clear);
 #endif
 
 namespace {
@@ -131,52 +128,10 @@ void save_screen(const std::string & root, const std::string & base)
 	fclose(f);
 }
 
-// sd:/wiiu/our64/gx2-tvfx.txt, "<shader> <43 or 169> [720]": the TV gets
-// each frame through the player's TV-only shader pass (2 Scanlines, 3 CRT, 4
-// CRT Curved, as prompt.h numbers them), at the TV's size (or 1280x720), 4:3
-// or 16:9; for screenshots of it in Cemu (tools/cemu-shot.sh).
-int g_tvfx_shader = 0;
-unsigned g_tvfx_height = 0;
-bool g_tvfx_43 = true, g_tvfx_clear = true;
-GX2ColorBuffer g_tvfx;
-
-GX2ColorBuffer * tvfx(GX2ColorBuffer * screen)
-{
-	if (g_tvfx_shader == 0)
-		return screen;
-	if (g_tvfx.surface.image == nullptr) {
-		const GX2ColorBuffer * tv = WHBGfxGetTVColourBuffer();
-		g_tvfx = GX2ColorBuffer();
-		g_tvfx.surface.dim = GX2_SURFACE_DIM_TEXTURE_2D;
-		g_tvfx.surface.width = g_tvfx_height == 720 ? 1280 : tv->surface.width;
-		g_tvfx.surface.height = g_tvfx_height == 720 ? 720 : tv->surface.height;
-		g_tvfx.surface.depth = 1;
-		g_tvfx.surface.mipLevels = 1;
-		g_tvfx.surface.format = GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8;
-		g_tvfx.surface.aa = GX2_AA_MODE1X;
-		g_tvfx.surface.use = GX2_SURFACE_USE_TEXTURE_COLOR_BUFFER_TV;
-		g_tvfx.surface.tileMode = GX2_TILE_MODE_DEFAULT;
-		g_tvfx.viewNumSlices = 1;
-		GX2CalcSurfaceSizeAndAlignment(&g_tvfx.surface);
-		GX2InitColorBufferRegs(&g_tvfx);
-		g_tvfx.surface.image = MEMAllocFromDefaultHeapEx(g_tvfx.surface.imageSize, g_tvfx.surface.alignment);
-		if (g_tvfx.surface.image == nullptr) {
-			g_tvfx_shader = 0;
-			return screen;
-		}
-		report_line("gx2-tvfx: shader %d, %s, at %ux%u", g_tvfx_shader, g_tvfx_43 ? "4:3" : "16:9",
-		            unsigned(g_tvfx.surface.width), unsigned(g_tvfx.surface.height));
-	}
-	if (!tv_pass_draw(screen, &g_tvfx, g_tvfx_shader, g_tvfx_43, g_tvfx_clear))
-		return screen;
-	g_tvfx_clear = false;
-	return &g_tvfx;
-}
-
 // Shows each finished frame on the TV and the GamePad.
 void present(GX2ColorBuffer * screen)
 {
-	GX2CopyColorBufferToScanBuffer(tvfx(screen), GX2_SCAN_TARGET_TV);
+	GX2CopyColorBufferToScanBuffer(screen, GX2_SCAN_TARGET_TV);
 	GX2CopyColorBufferToScanBuffer(screen, GX2_SCAN_TARGET_DRC);
 	GX2SwapScanBuffers();
 	GX2Flush();
@@ -345,16 +300,6 @@ int replay_thread(int, const char **)
 	struct stat cache_flag;
 	if (stat((r + "/gx2-shader-cache").c_str(), &cache_flag) == 0)
 		our64_gx2_shader_dir = shader_dir.c_str();
-	if (FILE * f = fopen((r + "/gx2-tvfx.txt").c_str(), "r")) {
-		int shader = 0, picture = 43;
-		unsigned height = 0;
-		if (fscanf(f, "%d %d %u", &shader, &picture, &height) >= 1 && shader >= 2 && shader <= 4) {
-			g_tvfx_shader = shader;
-			g_tvfx_43 = picture != 169;
-			g_tvfx_height = height;
-		}
-		fclose(f);
-	}
 	if (FILE * f = fopen((r + "/gx2-hold.txt").c_str(), "r")) {
 		char name[128] = {};
 		if (fscanf(f, "%127s %u", name, &g_hold_seconds) >= 1)

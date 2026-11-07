@@ -349,8 +349,8 @@ static int run_look(void)
 	}
 }
 
-/* ---- Settings > Picture: Screen mode at once; Shape and Shader saved at
- * once and shown as the settings close (settings_run) ---- */
+/* ---- Settings > Picture: Screen mode at once; Shape saved at once and
+ * shown as the settings close (settings_run) ---- */
 
 static void apply_mode(int mode)
 {
@@ -363,7 +363,7 @@ static int run_picture(void)
 	frame_input f;
 	memset(&f, 0, sizeof(f));
 	input_menu_state(&f.m);
-	picture_open(p, ui_mode(), g_settings.picture, g_settings.shader, f.m.type[0] >= 0);
+	picture_open(p, ui_mode(), g_settings.picture, f.m.type[0] >= 0);
 	g_view.screen = SETUP_PICTURE;
 	g_view.line[0] = 0;
 	int touching = 0, target = -1;
@@ -395,26 +395,17 @@ static int run_picture(void)
 				}
 				break;
 			}
-			case PICT_SHAPE:
-			case PICT_SHADER: {
-				const our_settings keep = g_settings;
-				if (act == PICT_SHAPE)
-					g_settings.picture = p->pick[PIC_SHAPE];
-				else
-					g_settings.shader = p->pick[PIC_SHADER];
+			case PICT_SHAPE: {
+				int keep = g_settings.picture;
+				g_settings.picture = p->pick[PIC_SHAPE];
 				if (setup_save_settings()) {
-					g_settings = keep;
+					g_settings.picture = keep;
 					p->pick[PIC_SHAPE] = p->shape;
-					p->pick[PIC_SHADER] = p->shader;
 					write_failed();
 				} else {
 					picture_applied(p);
-					if (act == PICT_SHAPE)
-						snprintf(g_view.line, sizeof(g_view.line), "Shape: %s%s", picture_name(p->shape),
-						         g_from_pause ? ", on Resume" : "");
-					else
-						snprintf(g_view.line, sizeof(g_view.line), "Shader: %s%s", shader_name(p->shader),
-						         g_from_pause ? ", on Resume" : "");
+					snprintf(g_view.line, sizeof(g_view.line), "Shape: %s%s", picture_name(p->shape),
+					         g_from_pause ? ", on Resume" : "");
 				}
 				break;
 			}
@@ -851,10 +842,10 @@ void settings_run(int from_pause)
 	snprintf(g_view.game, sizeof(g_view.game), "%s", from_pause ? player_title() : "");
 	settings_ui *s = &g_view.settings;
 	settings_open(s);
-	/* Shape and Shader are applied once, as the settings close: a change can
-	 * rebuild the graphics core's frame buffers, a wait the player should not
-	 * get at every press while trying them (Shape: Zach, 2026-10-27). */
-	const int picture_at_open = g_settings.picture, shader_at_open = g_settings.shader;
+	/* Shape is applied once, as the settings close: each change rebuilds
+	 * the graphics core's frame buffers, a wait the player should not get at
+	 * every press while trying both (Zach, 2026-10-27). */
+	const int picture_at_open = g_settings.picture;
 	g_view.screen = SETUP_SETTINGS;
 	g_view.line[0] = 0;
 	frame_input f;
@@ -892,8 +883,6 @@ void settings_run(int from_pause)
 done:
 	if (g_settings.picture != picture_at_open)
 		video_set_picture(g_settings.picture == PICTURE_WIDE);
-	if (g_settings.shader != shader_at_open)
-		video_set_shader(g_settings.shader);
 	input_withhold();
 	if (home) /* HOME means Wii U Menu: the caller asks first (a paused game) or leaves */
 		g_home_asked = 1;

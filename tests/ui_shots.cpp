@@ -680,15 +680,8 @@ void shots_setup()
 	sv.settings.row = SET_GAMES;
 	shot("settings-games", v);
 	sv.screen = SETUP_PICTURE; // Settings > Picture
-	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, SHADER_OFF, 1);
+	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, 1);
 	shot("picture", v);
-	sv.picture.row = PIC_SHADER;
-	sv.picture.pick[PIC_SHADER] = SHADER_CRT;
-	shot("picture-shader-crt", v);
-	picture_open(&sv.picture, MODE_GAMEPAD, PICTURE_43, SHADER_OFF, 1);
-	sv.picture.row = PIC_SHADER;
-	sv.picture.pick[PIC_SHADER] = SHADER_SCANLINES; // greyed: TV only
-	shot("picture-shader-gamepad-only", v);
 	sv.screen = SETUP_THEME; // Settings > Theme
 	look_open(&sv.look, theme_comrade() ? THEME_COMRADE : THEME_STANDARD, LAYOUT_COVERS);
 	shot("theme", v);

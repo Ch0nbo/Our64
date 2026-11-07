@@ -84,7 +84,7 @@ int settings_event(settings_ui *s, int event, int target)
 const char *settings_row_about(const settings_ui *s)
 {
 	switch (s->row) {
-	case SET_PICTURE: return "Screens, shape and shader";
+	case SET_PICTURE: return "Screens and shape";
 	case SET_GAMES: return "Where the games are, and their covers";
 	case SET_THEME: return "Colors and how Our ROMs shows the games";
 	default: return "Players, rumble and buttons";
@@ -140,39 +140,26 @@ int settings_legend(const settings_ui *s, int type, pause_key *keys, int max)
 
 /* ---- Settings > Picture ---- */
 
-static const char *const g_pic_row[PIC_ROWS] = { "Screen mode", "Shape", "Shader" };
+static const char *const g_pic_row[PIC_ROWS] = { "Screen mode", "Shape" };
 
-int picture_values(int row)
-{
-	return row == PIC_SCREEN ? MODES : row == PIC_SHAPE ? PICTURES : row == PIC_SHADER ? SHADERS : 0;
-}
+int picture_values(int row) { return row == PIC_SCREEN ? MODES : row == PIC_SHAPE ? PICTURES : 0; }
 
-int picture_cycler(int row) { return row == PIC_SHADER; }
+int picture_in_use(const picture_ui *p, int row) { return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : -1; }
 
-int picture_in_use(const picture_ui *p, int row)
-{
-	return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : row == PIC_SHADER ? p->shader : -1;
-}
-
-int picture_off(const picture_ui *p, int row, int i)
-{
-	return (row == PIC_SCREEN && !p->gamepad && mode_uses_gamepad(i)) ||
-	       (row == PIC_SHADER && p->mode == MODE_GAMEPAD && shader_tv_only(i));
-}
+int picture_off(const picture_ui *p, int row, int i) { return row == PIC_SCREEN && !p->gamepad && mode_uses_gamepad(i); }
 
 const char *picture_value_name(int row, int i)
 {
-	return row == PIC_SCREEN ? mode_name(i) : row == PIC_SHAPE ? picture_name(i) : row == PIC_SHADER ? shader_name(i) : "";
+	return row == PIC_SCREEN ? mode_name(i) : row == PIC_SHAPE ? picture_name(i) : "";
 }
 
 const char *picture_row_name(int row) { return row >= 0 && row < PIC_ROWS ? g_pic_row[row] : ""; }
 
-void picture_open(picture_ui *p, int mode, int shape, int shader, int gamepad)
+void picture_open(picture_ui *p, int mode, int shape, int gamepad)
 {
 	memset(p, 0, sizeof(*p));
 	p->mode = p->pick[PIC_SCREEN] = mode;
 	p->shape = p->pick[PIC_SHAPE] = shape;
-	p->shader = p->pick[PIC_SHADER] = shader;
 	p->gamepad = gamepad;
 	p->touched = -1;
 }
@@ -181,14 +168,12 @@ void picture_applied(picture_ui *p)
 {
 	p->mode = p->pick[PIC_SCREEN];
 	p->shape = p->pick[PIC_SHAPE];
-	p->shader = p->pick[PIC_SHADER];
 }
 
 static void picture_drop_picks(picture_ui *p)
 {
 	p->pick[PIC_SCREEN] = p->mode;
 	p->pick[PIC_SHAPE] = p->shape;
-	p->pick[PIC_SHADER] = p->shader;
 }
 
 static int picture_apply(const picture_ui *p)
@@ -196,7 +181,7 @@ static int picture_apply(const picture_ui *p)
 	const int i = p->pick[p->row];
 	if (i == picture_in_use(p, p->row) || picture_off(p, p->row, i))
 		return PICT_NONE;
-	return p->row == PIC_SCREEN ? PICT_MODE : p->row == PIC_SHAPE ? PICT_SHAPE : PICT_SHADER;
+	return p->row == PIC_SCREEN ? PICT_MODE : PICT_SHAPE;
 }
 
 static void picture_select(picture_ui *p, int row)
@@ -209,12 +194,9 @@ static void picture_select(picture_ui *p, int row)
 int picture_event(picture_ui *p, int event, int target)
 {
 	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
-		const int row = target >= 0 ? target / 8 : -1, slot = target >= 0 ? target % 8 : -1;
-		const int arrow = row >= 0 && picture_cycler(row) && (slot == PIC_ARROW_LEFT || slot == PIC_ARROW_RIGHT);
-		const int value = !arrow && slot > 0 ? slot - 1 : -1;
+		const int row = target >= 0 ? target / 8 : -1, value = target >= 0 ? target % 8 - 1 : -1;
 		const int now = row == p->row && (value < 0 || p->pick[row] == value);
-		/* an arrow steps at once, selected or not */
-		int e = tap(&p->touched, event, target, arrow || now);
+		int e = tap(&p->touched, event, target, now);
 		if (e == -2) {
 			picture_select(p, row);
 			if (value >= 0 && value < picture_values(row) && !picture_off(p, row, value))
@@ -223,10 +205,6 @@ int picture_event(picture_ui *p, int event, int target)
 		}
 		if (e < 0)
 			return PICT_NONE;
-		if (arrow) {
-			picture_select(p, row);
-			e = slot == PIC_ARROW_LEFT ? PEV_LEFT : PEV_RIGHT;
-		}
 		event = e;
 	}
 	switch (event) {
@@ -240,13 +218,6 @@ int picture_event(picture_ui *p, int event, int target)
 	case PEV_LEFT:
 	case PEV_RIGHT: {
 		const int step = event == PEV_LEFT ? -1 : 1, n = picture_values(p->row);
-		if (picture_cycler(p->row)) {
-			/* one step, onto a greyed value too: its line says why A does nothing */
-			int i = p->pick[p->row] + step;
-			if (i >= 0 && i < n)
-				p->pick[p->row] = i;
-			break;
-		}
 		for (int i = p->pick[p->row] + step; i >= 0 && i < n; i += step)
 			if (!picture_off(p, p->row, i)) {
 				p->pick[p->row] = i;
@@ -267,54 +238,22 @@ const char *picture_row_about(const picture_ui *p)
 	case PIC_SCREEN:
 		/* the same whatever is picked (Zach, 2026-10-23) */
 		return "Which screens show the game. The prompt at each start begins on it.";
-	case PIC_SHAPE:
+	default:
 		/* the same whatever is picked (Zach, 2026-10-23): it says what each shape is */
 		return "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.";
-	default:
-		/* by the pick: the TV-only ones say so (Zach, 2026-11-04) */
-		switch (p->pick[PIC_SHADER]) {
-		case SHADER_OFF: return "No filter: the picture as the game draws it";
-		default: return "TV only: Does not apply to GamePad";
-		}
 	}
-}
-
-/* The cycler spans the three value slots: arrows at its ends, the value between. */
-#define PIC_SPAN (3 * 176 - 8)
-#define PIC_ARROW_W 40
-
-void picture_arrow_rect(int row, int right, int r[4])
-{
-	settings_value_rect(row, 0, r);
-	r[0] = right ? 282 + PIC_SPAN - PIC_ARROW_W : 282;
-	r[2] = PIC_ARROW_W;
-}
-
-void picture_cycler_rect(int row, int r[4])
-{
-	settings_value_rect(row, 0, r);
-	r[0] = 282 + 44;
-	r[2] = PIC_SPAN - 88;
 }
 
 int picture_hit(int x, int y)
 {
 	int r[4];
 	for (int row = 0; row < PIC_ROWS; row++) {
-		if (picture_cycler(row)) {
-			for (int right = 0; right < 2; right++) {
-				picture_arrow_rect(row, right, r);
-				if (inside(x, y, r))
-					return row * 8 + (right ? PIC_ARROW_RIGHT : PIC_ARROW_LEFT);
-			}
-		} else {
-			for (int i = 0; i < picture_values(row); i++) {
-				settings_value_rect(row, i, r);
-				if (inside(x, y, r))
-					return row * 8 + i + 1;
-			}
+		for (int i = 0; i < picture_values(row); i++) {
+			settings_value_rect(row, i, r);
+			if (inside(x, y, r))
+				return row * 8 + i + 1;
 		}
-		settings_row_rect(row, r); /* a cycler's value is the row: a tap selects, the next is A */
+		settings_row_rect(row, r);
 		if (inside(x, y, r))
 			return row * 8;
 	}
