@@ -71,17 +71,24 @@ int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
  * value is text, Fetch covers has none (the page reads no game: Zach,
  * 2026-11-04). A fetch runs on its own screen, like the game loading screen:
  * the games' headers read first ("Reading your games: 80 of 200"), then a
- * bar, "12 of 40" under it, and HOME or B to stop (SETUP_FETCH). ---- */
-enum { GAMES_FOLDER, GAMES_COVERS, GAMES_ROWS };
+ * bar, "12 of 40" under it, and HOME or B to stop (SETUP_FETCH).
+ * Auto-Resume (2026-11-06) switches resume points on or off with A: turning
+ * it off asks first, since every game's resume points are deleted
+ * (GACT_RESUME_OFF: the caller asks); on asks nothing. Start on opens its own
+ * page: All, Recent or Favorites, A picks one and goes back. ---- */
+enum { GAMES_FOLDER, GAMES_COVERS, GAMES_RESUME, GAMES_START, GAMES_ROWS };
 typedef struct {
 	int row;
 	char folder[400];     /* "SD card: /wiiu/our64/roms", "USB drive OUR64 EXFAT: /ROMs/N64" (usbfs_folder_label) */
+	int auto_resume;      /* on: resume points written and loaded */
+	int start_on;         /* START_ (prompt.h) */
 	int running, done, total; /* a fetch in progress: SETUP_FETCH */
 	int reading;          /* running, and done of total are headers read, not covers */
 	int touched;
 } games_ui;
-enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP };
-void games_open(games_ui *g, const char *folder);
+/* GACT_RESUME_OFF: ask, then turn it off; GACT_RESUME_ON: turn it on; GACT_START: the Start on page */
+enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP, GACT_RESUME_OFF, GACT_RESUME_ON, GACT_START };
+void games_open(games_ui *g, const char *folder, int auto_resume, int start_on);
 int  games_event(games_ui *g, int event, int target);
 void games_reading(games_ui *g, int read, int total); /* the headers being read for the fetch */
 void games_fetching(games_ui *g, int done, int total);
@@ -93,6 +100,21 @@ void games_fetch_step(const games_ui *g, char *out, unsigned size); /* under the
 float games_fetch_progress(const games_ui *g);                    /* 0..1 */
 int  games_hit(int x, int y);                   /* row, or -1 */
 int  games_legend(const games_ui *g, int type, pause_key *keys, int max); /* running: HOME, Stop */
+
+/* ---- Settings > Games > Start on (2026-11-06): the tab Our ROMs opens on,
+ * rows All, Recent and Favorites (START_, in that order), the one in use
+ * ticked. A picks the selected one and goes back; B goes back unchanged. ---- */
+typedef struct {
+	int row;     /* START_ */
+	int in_use;  /* START_ */
+	int touched;
+} start_ui;
+enum { STACT_NONE, STACT_BACK, STACT_HOME, STACT_PICK }; /* STACT_PICK: row is the choice */
+void start_open(start_ui *s, int in_use);
+int  start_event(start_ui *s, int event, int target);
+const char *start_row_about(const start_ui *s);
+int  start_hit(int x, int y);                   /* row, or -1 */
+int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games > ROM folder (2026-11-04): drives, then folders.
  * A opens a folder; "Use this folder", the first row inside a drive, picks

@@ -606,7 +606,7 @@ static void taps_select_a_row_then_change_it_and_switch_tabs_at_once(void)
 static void games_rows_and_fetch_progress(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
 	CHECK(!strcmp(games_row_name(GAMES_FOLDER), "ROM folder") && !strcmp(games_row_name(GAMES_COVERS), "Fetch covers"));
 	char v[64];
 	games_value(&g, GAMES_FOLDER, v, sizeof(v));
@@ -638,7 +638,7 @@ static void games_rows_and_fetch_progress(void)
 static void fetch_covers_is_always_available(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
 	g.row = GAMES_COVERS;
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
 	pause_key k[6];
@@ -652,7 +652,7 @@ static void fetch_covers_is_always_available(void)
 static void games_legend_and_lines_while_fetching(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
 	CHECK(!strcmp(games_row_about(&g), "Where Our ROMs finds your games"));
 	g.row = GAMES_COVERS;
 	CHECK(!strcmp(games_row_about(&g), "Fetches box art from the internet. Requires Wi-Fi"));
@@ -679,7 +679,7 @@ static int tap_games(games_ui *g, int target)
 static void games_taps_select_then_act(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms");
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
 	int r[4];
 	settings_row_rect(GAMES_COVERS, r);
 	const int t = games_hit(r[0] + 5, r[1] + 5);
@@ -689,6 +689,74 @@ static void games_taps_select_then_act(void)
 	games_fetching(&g, 1, 3);
 	settings_row_rect(GAMES_FOLDER, r);
 	CHECK(tap_games(&g, games_hit(r[0] + 5, r[1] + 5)) == GACT_NONE && g.row == GAMES_COVERS); /* not while it runs */
+}
+
+/* Auto-Resume and Start on, below Fetch covers (2026-11-06). */
+static void auto_resume_and_start_on_rows(void)
+{
+	games_ui g;
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	CHECK(!strcmp(games_row_name(GAMES_RESUME), "Auto-Resume") && !strcmp(games_row_name(GAMES_START), "Start on"));
+	CHECK(GAMES_RESUME == GAMES_COVERS + 1 && GAMES_START == GAMES_RESUME + 1 && GAMES_ROWS == 4);
+	char v[64];
+	games_value(&g, GAMES_RESUME, v, sizeof(v));
+	CHECK(!strcmp(v, "On"));
+	games_value(&g, GAMES_START, v, sizeof(v));
+	CHECK(!strcmp(v, "Recent"));
+	for (int i = 0; i < 4; i++)
+		games_event(&g, PEV_DOWN, -1);
+	CHECK(g.row == GAMES_START); /* stops at the last row */
+	CHECK(!strcmp(games_row_about(&g), "The tab Our ROMs opens on"));
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_START);
+	games_event(&g, PEV_UP, -1);
+	CHECK(g.row == GAMES_RESUME && !strcmp(games_row_about(&g), "Saves where you stop and picks up there next time"));
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_RESUME_OFF); /* On: the caller asks before turning it off */
+	g.auto_resume = 0;                                       /* confirmed */
+	games_value(&g, GAMES_RESUME, v, sizeof(v));
+	CHECK(!strcmp(v, "Off"));
+	CHECK(games_event(&g, PEV_OK, -1) == GACT_RESUME_ON);  /* Off: on at once, nothing asked */
+	pause_key k[6];
+	CHECK(games_legend(&g, INPUT_PRO, k, 6) == 4 && !k[3].dim);
+	games_open(&g, "SD card: /wiiu/our64/roms", 0, START_FAVORITES);
+	games_value(&g, GAMES_RESUME, v, sizeof(v));
+	CHECK(!strcmp(v, "Off"));
+	games_value(&g, GAMES_START, v, sizeof(v));
+	CHECK(!strcmp(v, "Favorites"));
+	int r[4];
+	settings_row_rect(GAMES_START, r);
+	const int t = games_hit(r[0] + 5, r[1] + 5);
+	CHECK(t == GAMES_START && tap_games(&g, t) == GACT_NONE && tap_games(&g, t) == GACT_START);
+}
+
+static void start_on_picks_all_recent_or_favorites(void)
+{
+	start_ui s;
+	start_open(&s, START_RECENT);
+	CHECK(s.row == START_RECENT && s.in_use == START_RECENT); /* opens on the one in use */
+	CHECK(START_ALL == 0 && START_RECENT == 1 && START_FAVORITES == 2);
+	CHECK(start_event(&s, PEV_LEFT, -1) == STACT_NONE && s.row == START_RECENT); /* rows, no arrows */
+	start_event(&s, PEV_UP, -1);
+	start_event(&s, PEV_UP, -1);
+	CHECK(s.row == START_ALL && !strcmp(start_row_about(&s), "Every game"));
+	start_event(&s, PEV_DOWN, -1);
+	start_event(&s, PEV_DOWN, -1);
+	start_event(&s, PEV_DOWN, -1);
+	CHECK(s.row == START_FAVORITES && strstr(start_row_about(&s), "none"));
+	CHECK(start_event(&s, PEV_OK, -1) == STACT_PICK && s.row == START_FAVORITES);
+	CHECK(start_event(&s, PEV_BACK, -1) == STACT_BACK && start_event(&s, PEV_HOME, -1) == STACT_HOME);
+	int r[4];
+	settings_row_rect(START_ALL, r);
+	const int t = start_hit(r[0] + 5, r[1] + 5);
+	CHECK(t == START_ALL && start_hit(5, 5) == -1);
+	start_event(&s, PEV_TOUCH_DOWN, t);
+	CHECK(start_event(&s, PEV_TOUCH_UP, t) == STACT_NONE && s.row == START_ALL); /* a tap selects */
+	start_event(&s, PEV_TOUCH_DOWN, t);
+	CHECK(start_event(&s, PEV_TOUCH_UP, t) == STACT_PICK);                     /* a tap on the selected picks */
+	pause_key k[6];
+	int n = start_legend(&s, INPUT_PRO, k, 6);
+	CHECK(n == 4 && k[0].glyph == GLYPH_HOME && !strcmp(k[3].label, "OK"));
+	start_open(&s, 7); /* a bad value: Recent */
+	CHECK(s.row == START_RECENT);
 }
 
 /* ---- Settings > Games > ROM folder (2026-11-04) ---- */
@@ -869,6 +937,8 @@ int main(void)
 	RUN(fetch_covers_is_always_available);
 	RUN(games_legend_and_lines_while_fetching);
 	RUN(games_taps_select_then_act);
+	RUN(auto_resume_and_start_on_rows);
+	RUN(start_on_picks_all_recent_or_favorites);
 	RUN(browser_opens_drives_then_folders_and_uses_one);
 	RUN(browser_scrolls_long_lists);
 	RUN(browser_titles_values_and_legend);

@@ -699,14 +699,38 @@ void shots_setup()
 	sv.look.pick[LOOK_LAYOUT] = LAYOUT_LIST;
 	shot("theme-layout", v);
 	sv.screen = SETUP_GAMES; // Settings > Games: no game read as it opens
-	games_open(&sv.games, "SD card: /wiiu/our64/roms");
+	games_open(&sv.games, "SD card: /wiiu/our64/roms", 1, START_RECENT);
 	shot("games", v);
 	// one line: a long path loses its middle, the drive and the last folder stay
-	games_open(&sv.games, "USB drive OUR64 EXFAT: /Emulation/Nintendo64/No-Intro_2026-10/Every_cartridge_we_own_by_year/USA");
+	games_open(&sv.games, "USB drive OUR64 EXFAT: /Emulation/Nintendo64/No-Intro_2026-10/Every_cartridge_we_own_by_year/USA", 1, START_RECENT);
 	shot("games-usb-long", v);
-	games_open(&sv.games, "SD card: /wiiu/our64/roms");
+	games_open(&sv.games, "SD card: /wiiu/our64/roms", 1, START_RECENT);
 	sv.games.row = GAMES_COVERS;
 	shot("games-covers", v);
+	sv.games.row = GAMES_RESUME; // Auto-Resume: On or Off, A switches it (off asks first)
+	shot("games-auto-resume", v);
+	v.exit_ask = 1; // A on it while On: the question first, Cancel focused
+	v.exit_glyphs = INPUT_PRO;
+	snprintf(v.ask_title, sizeof(v.ask_title), "Are you sure?");
+	snprintf(v.ask_body, sizeof(v.ask_body), "You will lose all your current Auto-Saves.");
+	snprintf(v.ask_action, sizeof(v.ask_action), "Turn Off");
+	shot("games-auto-resume-ask", v);
+	v.exit_ask = 0;
+	v.ask_title[0] = 0;
+	sv.games.auto_resume = 0;
+	snprintf(sv.line, sizeof(sv.line), "Auto-Resume off. Auto-Saves deleted.");
+	shot("games-auto-resume-off", v);
+	sv.line[0] = 0;
+	sv.games.auto_resume = 1;
+	sv.games.row = GAMES_START;
+	shot("games-start-on", v);
+	sv.screen = SETUP_START; // A on Start on: its own page, the tab in use ticked
+	start_open(&sv.start, START_RECENT);
+	shot("start-on", v);
+	sv.start.row = START_FAVORITES;
+	shot("start-on-favorites", v);
+	sv.screen = SETUP_GAMES;
+	sv.games.row = GAMES_COVERS;
 	sv.screen = SETUP_FETCH; // A on Fetch covers: its own screen, like the loading screen
 	games_reading(&sv.games, 120, 340); // the headers not read yet, first
 	shot("games-fetch-reading", v);

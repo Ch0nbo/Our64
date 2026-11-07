@@ -333,14 +333,16 @@ int picture_legend(const picture_ui *p, int type, pause_key *keys, int max)
 
 /* ---- Settings > Games ---- */
 
-static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers" };
+static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers", "Auto-Resume", "Start on" };
 
 const char *games_row_name(int row) { return row >= 0 && row < GAMES_ROWS ? g_games_row[row] : ""; }
 
-void games_open(games_ui *g, const char *folder)
+void games_open(games_ui *g, const char *folder, int auto_resume, int start_on)
 {
 	memset(g, 0, sizeof(*g));
 	snprintf(g->folder, sizeof(g->folder), "%s", folder ? folder : "");
+	g->auto_resume = auto_resume;
+	g->start_on = start_on;
 	g->touched = -1;
 }
 
@@ -370,7 +372,12 @@ static int games_act(const games_ui *g)
 {
 	if (g->running)
 		return GACT_NONE;
-	return g->row == GAMES_FOLDER ? GACT_FOLDER : GACT_FETCH;
+	switch (g->row) {
+	case GAMES_FOLDER: return GACT_FOLDER;
+	case GAMES_RESUME: return g->auto_resume ? GACT_RESUME_OFF : GACT_RESUME_ON;
+	case GAMES_START: return GACT_START;
+	default: return GACT_FETCH;
+	}
 }
 
 int games_event(games_ui *g, int event, int target)
@@ -407,14 +414,19 @@ int games_event(games_ui *g, int event, int target)
 
 void games_value(const games_ui *g, int row, char *out, unsigned size)
 {
-	snprintf(out, size, "%s", row == GAMES_FOLDER ? g->folder : "");
+	snprintf(out, size, "%s", row == GAMES_FOLDER ? g->folder
+	                          : row == GAMES_RESUME ? (g->auto_resume ? "On" : "Off")
+	                          : row == GAMES_START ? start_name(g->start_on) : "");
 }
 
 const char *games_row_about(const games_ui *g)
 {
-	if (g->row == GAMES_FOLDER)
-		return "Where Our ROMs finds your games";
-	return "Fetches box art from the internet. Requires Wi-Fi";
+	switch (g->row) {
+	case GAMES_FOLDER: return "Where Our ROMs finds your games";
+	case GAMES_RESUME: return "Saves where you stop and picks up there next time";
+	case GAMES_START: return "The tab Our ROMs opens on";
+	default: return "Fetches box art from the internet. Requires Wi-Fi";
+	}
 }
 
 void games_fetch_step(const games_ui *g, char *out, unsigned size)
@@ -452,6 +464,74 @@ int games_legend(const games_ui *g, int type, pause_key *keys, int max)
 	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
 	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
 	keys_add(keys, &n, max, ok_glyph(type), "OK", games_act(g) == GACT_NONE);
+	return n;
+}
+
+/* ---- Settings > Games > Start on ---- */
+
+void start_open(start_ui *s, int in_use)
+{
+	memset(s, 0, sizeof(*s));
+	s->in_use = in_use >= 0 && in_use < STARTS ? in_use : START_RECENT;
+	s->row = s->in_use;
+	s->touched = -1;
+}
+
+int start_event(start_ui *s, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		int e = tap(&s->touched, event, target, target == s->row);
+		if (e == -2) {
+			s->row = target;
+			return STACT_NONE;
+		}
+		if (e < 0)
+			return STACT_NONE;
+		event = e;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = s->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < STARTS)
+			s->row = row;
+		break;
+	}
+	case PEV_OK: return STACT_PICK;
+	case PEV_BACK: return STACT_BACK;
+	case PEV_HOME: return STACT_HOME;
+	}
+	return STACT_NONE;
+}
+
+const char *start_row_about(const start_ui *s)
+{
+	switch (s->row) {
+	case START_ALL: return "Every game";
+	case START_RECENT: return "The games played last. All when the last game isn't there";
+	default: return "Your favorites. All when there are none";
+	}
+}
+
+int start_hit(int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < STARTS; row++) {
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row;
+	}
+	return -1;
+}
+
+int start_legend(const start_ui *s, int type, pause_key *keys, int max)
+{
+	(void)s;
+	int n = 0;
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", 0);
 	return n;
 }
 

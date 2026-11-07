@@ -725,10 +725,75 @@ static int run_fetch(games_ui *g)
 	return home;
 }
 
+/* Settings > Games > Start on: A picks the tab and goes back, saved at once
+ * (a write that fails changes nothing). 1: HOME, and leaving was confirmed. */
+static int run_start(games_ui *g)
+{
+	start_ui *st = &g_view.start;
+	start_open(st, g_settings.start_on);
+	g_view.screen = SETUP_START;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1;
+	for (;;) {
+		show();
+		read_frame(&f, start_hit, &touching, &target);
+		if (player_closing())
+			return 1;
+		for (int i = 0; i < f.n; i++) {
+			switch (start_event(st, f.events[i], f.targets[i])) {
+			case STACT_BACK: return 0;
+			case STACT_HOME:
+				if (home_ok())
+					return 1;
+				break;
+			case STACT_PICK: {
+				if (st->row == g_settings.start_on)
+					return 0;
+				const int keep = g_settings.start_on;
+				g_settings.start_on = st->row;
+				if (setup_save_settings()) {
+					g_settings.start_on = keep;
+					write_failed();
+					return 0;
+				}
+				g->start_on = st->row;
+				report_line("START ON: %s", start_name(st->row));
+				snprintf(g_view.line, sizeof(g_view.line), "Start on: %s", start_name(st->row));
+				return 0;
+			}
+			}
+		}
+	}
+}
+
+/* Auto-Resume: off only after "Are you sure?", which deletes every game's
+ * resume points once the setting is saved (a write that fails leaves it on
+ * and deletes nothing); on at once. */
+static void toggle_auto_resume(games_ui *g, int on)
+{
+	if (!on && !player_ask("Are you sure?", "You will lose all your current Auto-Saves.", "Turn Off"))
+		return; /* Cancel: still on */
+	g_settings.auto_resume = on;
+	if (setup_save_settings()) {
+		g_settings.auto_resume = !on;
+		write_failed();
+		return;
+	}
+	g->auto_resume = on;
+	report_line("AUTO-RESUME: %s", on ? "on" : "off");
+	if (on) {
+		line("Auto-Resume on.");
+	} else {
+		states_forget_all(report_sd_root());
+		line("Auto-Resume off. Auto-Saves deleted.");
+	}
+}
+
 static int run_games(void)
 {
 	games_ui *g = &g_view.games;
-	games_open(g, library_folder_label()); /* no game read here: Fetch covers reads them */
+	games_open(g, library_folder_label(), g_settings.auto_resume, g_settings.start_on); /* no game read here: Fetch covers reads them */
 	g_view.screen = SETUP_GAMES;
 	g_view.line[0] = 0;
 	frame_input f;
@@ -760,6 +825,19 @@ static int run_games(void)
 					return 1;
 				i = f.n; /* presses after A were the fetch screen's */
 				break;
+			case GACT_RESUME_OFF:
+			case GACT_RESUME_ON:
+				toggle_auto_resume(g, !g->auto_resume);
+				i = f.n; /* presses after A were the question's */
+				break;
+			case GACT_START: {
+				const int home = run_start(g);
+				g_view.screen = SETUP_GAMES;
+				if (home)
+					return 1;
+				i = f.n; /* presses after A were the Start on page's */
+				break;
+			}
 			}
 		}
 	}

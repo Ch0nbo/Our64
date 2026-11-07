@@ -1906,6 +1906,31 @@ void draw_games(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
+// Settings > Games > Start on: All, Recent and Favorites as rows, each with a
+// round mark at the right, filled on the one in use (one choice of three, as
+// a radio button shows it); A picks the selected one.
+void draw_start(const setup_view & sv)
+{
+	const start_ui & st = sv.start;
+	setup_header("START ON", sv.line[0] ? sv.line : nullptr);
+	for (int row = 0; row < STARTS; row++) {
+		int r[4];
+		settings_row_rect(row, r);
+		const bool sel = st.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+		text(r[0] + 20, r[1] + 12, start_name(row), 26, card_ink(sel, false));
+		const PixelColor ink = card_ink(sel, false);
+		const float cx = r[0] + r[2] - 44, cy = r[1] + r[3] / 2.0f;
+		box(cx - 14, cy - 14, 28, 28, PixelColor{ 0, 0, 0, 0 }, 14, 3, ink);
+		if (row == st.in_use)
+			box(cx - 8, cy - 8, 16, 16, ink, 8);
+	}
+	row_about(STARTS, start_row_about(&st));
+	pause_key keys[6];
+	int n = start_legend(&st, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
 // Settings > Games > Fetch covers: the loading screen's layout, with the
 // title, one bar, "Reading your games: 80 of 200" then "12 of 40" under it,
 // and HOME or B to stop.
@@ -1968,6 +1993,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_GAMES: draw_games(sv); break;
 	case SETUP_BROWSE: draw_browse(sv); break;
 	case SETUP_FETCH: draw_fetch(sv); break;
+	case SETUP_START: draw_start(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;

@@ -86,13 +86,14 @@ typedef struct {
 } loading_view;
 
 /* The setup screens (setup_wiiu.c fills it). */
-enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH };
+enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START };
 typedef struct {
 	int screen;              /* SETUP_ */
 	settings_ui settings;
 	picture_ui picture;
 	look_ui look;
 	games_ui games;
+	start_ui start;          /* Settings > Games > Start on */
 	browse_ui browse;        /* about 80 KB: setup_view is a static, never on the stack */
 	controllers_ui controllers;
 	order_ui order;
