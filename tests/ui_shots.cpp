@@ -895,10 +895,10 @@ void shots_other()
 	shot("paused-notices", v);
 
 	g_px.assign(size_t(UI_W) * K * UI_H * K * 3, 0.0f);
-	g_check.screen = "tv-card";
+	g_check.screen = "tv-black"; // GamePad only: the TV's black (the card went, a90aa0f)
 	g_check.boxes.clear();
-	draw_tv_card("Legend of Zelda, The - Majora's Mask");
-	write_png(g_out + "/tv-card.png");
+	draw_tv_black();
+	write_png(g_out + "/tv-black.png");
 }
 
 } // namespace
