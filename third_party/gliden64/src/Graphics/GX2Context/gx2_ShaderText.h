@@ -303,6 +303,10 @@ inline bool keepDiscardsInPlace(const char * _romName)
 // Conker's Bad Fur Day: the panther king's face and fist and the floor showed
 // speckles in the game over scene; "hplow" matches the PC (console GX2 replay,
 // 21 frames, 2026-11-08). "CONKER BFD" covers Europe, USA and the debug beta.
+// Super Smash Bros.: the locked characters' "?" slots on the character select
+// screen were covered in orange and red speckles; "hplow" matches the PC
+// (console GX2 replay, 12 frames, 2026-11-08). "SMASH BROTHERS" is every
+// region's header name.
 inline bool allHighp(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "Battle for Naboo") != nullptr ||
@@ -310,7 +314,7 @@ inline bool allHighp(const char * _romName)
 		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr ||
 		strstr(_romName, "DRACULA MOKUSHIROKU") != nullptr || // the Castlevanias in Japan
 		strstr(_romName, "Kirby64") != nullptr || strstr(_romName, "Lode Runner 3D") != nullptr ||
-		strstr(_romName, "CONKER BFD") != nullptr);
+		strstr(_romName, "CONKER BFD") != nullptr || strstr(_romName, "SMASH BROTHERS") != nullptr);
 }
 
 inline std::string highpEverywhere(std::string _ps)
