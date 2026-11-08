@@ -297,13 +297,20 @@ inline bool keepDiscardsInPlace(const char * _romName)
 // colored speckles on the console only; "hplow" draws them as soft blobs,
 // matching the PC (console GX2 replay of a 24-frame capture, 2026-11-08).
 // "Kirby64" is every region's header name.
+// Lode Runner 3D's blocks and rails were full of speckles on the console; "hplow"
+// matches the PC (console GX2 replay, 12 frames, 2026-11-08). "Lode Runner 3D"
+// is every region's header name.
+// Conker's Bad Fur Day: the panther king's face and fist and the floor showed
+// speckles in the game over scene; "hplow" matches the PC (console GX2 replay,
+// 21 frames, 2026-11-08). "CONKER BFD" covers Europe, USA and the debug beta.
 inline bool allHighp(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "Battle for Naboo") != nullptr ||
 		strstr(_romName, "Army Men Sarge") != nullptr || strstr(_romName, "ARMYMEN SARGE 2") != nullptr ||
 		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr ||
 		strstr(_romName, "DRACULA MOKUSHIROKU") != nullptr || // the Castlevanias in Japan
-		strstr(_romName, "Kirby64") != nullptr);
+		strstr(_romName, "Kirby64") != nullptr || strstr(_romName, "Lode Runner 3D") != nullptr ||
+		strstr(_romName, "CONKER BFD") != nullptr);
 }
 
 inline std::string highpEverywhere(std::string _ps)
