@@ -293,12 +293,17 @@ inline bool keepDiscardsInPlace(const char * _romName)
 // NASCAR 2000 needs it too (Zach on the console, 2026-10-29), and so do
 // Castlevania and Legacy of Darkness ("CASTLEVANIA2"), whose torches showed
 // the same wrong texels (Zach on the console, 2026-11-02).
+// Kirby 64's round shadows (under Kirby and the items) broke into scattered
+// colored speckles on the console only; "hplow" draws them as soft blobs,
+// matching the PC (console GX2 replay of a 24-frame capture, 2026-11-08).
+// "Kirby64" is every region's header name.
 inline bool allHighp(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "Battle for Naboo") != nullptr ||
 		strstr(_romName, "Army Men Sarge") != nullptr || strstr(_romName, "ARMYMEN SARGE 2") != nullptr ||
 		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr ||
-		strstr(_romName, "DRACULA MOKUSHIROKU") != nullptr); // the Castlevanias in Japan
+		strstr(_romName, "DRACULA MOKUSHIROKU") != nullptr || // the Castlevanias in Japan
+		strstr(_romName, "Kirby64") != nullptr);
 }
 
 inline std::string highpEverywhere(std::string _ps)
