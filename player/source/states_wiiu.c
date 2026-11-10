@@ -211,6 +211,7 @@ static const char *const g_copy_name[] = { "memcpy", "dcbt/dcbz", "locked cache 
                                            "3 cores DMA" };
 
 static double g_copy_ms = 10; /* the chosen copy's time in the startup test */
+static int g_copy_simple;      /* copy-simple: a capture goes when due, idle or not (the copy is ~64 ms) */
 
 static int uses_dma(int m) { return m == COPY_DMA || m == COPY_CORES_DMA; }
 
@@ -238,6 +239,23 @@ static void copy_test(void *dst)
 		if (ms < best_ahead) {
 			best_ahead = ms;
 			g_lines_ahead = ahead[i];
+		}
+	}
+	/* Dev build test switch copy-simple: no locked cache and no helper threads
+	 * (one at priority 1 on core 2): every capture copies on this core. The
+	 * SD writer on core 2 sat ready and never ran after a capture, and the
+	 * game froze (Harvest Moon 64 under resume-every, 2026-11-10). */
+	{
+		char path[256];
+		struct stat st;
+		const char *root = report_sd_root();
+		snprintf(path, sizeof(path), "%s/copy-simple", root ? root : "");
+		if (root && !stat(path, &st)) {
+			g_copy = COPY_COLD;
+			g_copy_ms = 70;
+			g_copy_simple = 1;
+			report_line("TEST: RDRAM copied on the CPU core alone, no locked cache or helper threads (copy-simple)");
+			return;
 		}
 	}
 	g_lc = lc_start();
@@ -714,7 +732,7 @@ void savestates_save(void)
 			g_exit_done = 1;
 		return;
 	}
-	if (!g_exit && !g_soon && !resume_fits(&g_timer, player_idle_left_us())) {
+	if (!g_exit && !g_soon && !g_copy_simple && !resume_fits(&g_timer, player_idle_left_us())) {
 		g_misses++;
 		return;
 	}
