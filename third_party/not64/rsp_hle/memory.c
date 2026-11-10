@@ -72,3 +72,6 @@ void store_u32(unsigned char* buffer, unsigned address, const uint32_t* src, siz
     memcpy(u32(buffer, address), src, count * sizeof(uint32_t));
 }
 
+
+/* Our64: audio accesses past N64 RAM (memory.h our64_hle_check), lists with a bad size, the audio ABI. */
+volatile unsigned our64_hle_oob, our64_hle_oob_addr, our64_hle_bad_lists, our64_hle_abi_v;

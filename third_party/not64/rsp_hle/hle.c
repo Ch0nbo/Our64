@@ -256,6 +256,7 @@ static ucode_func_t try_audio_task_detection(struct hle_t* hle)
     if (*dram_u32(hle, ucode_data) == 0x00000001) {
         if (*dram_u32(hle, ucode_data + 0x30) == 0xf0000f00) {
             v = *dram_u32(hle, ucode_data + 0x28);
+            { extern volatile unsigned our64_hle_abi_v; our64_hle_abi_v = v; }
             switch(v)
             {
             case 0x1e24138c: /* audio ABI (most common) */
@@ -269,6 +270,8 @@ static ucode_func_t try_audio_task_detection(struct hle_t* hle)
             }
         } else {
             v = *dram_u32(hle, ucode_data + 0x10);
+        { extern volatile unsigned our64_hle_abi_v; our64_hle_abi_v = v; }
+            { extern volatile unsigned our64_hle_abi_v; our64_hle_abi_v = v; }
             switch(v)
             {
             case 0x11181350: /* MarioKart, WaveRace (E) */
@@ -305,6 +308,7 @@ static ucode_func_t try_audio_task_detection(struct hle_t* hle)
         }
     } else {
         v = *dram_u32(hle, ucode_data + 0x10);
+        { extern volatile unsigned our64_hle_abi_v; our64_hle_abi_v = v; }
         switch(v)
         {
         case 0x00000001: /* MusyX v1

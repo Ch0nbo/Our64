@@ -135,49 +135,72 @@ static inline void dmem_store_u32(struct hle_t* hle, const uint32_t* src, uint16
     store_u32(hle->dmem, address & 0xfff, src, count);
 }
 
+/* Our64: N64 RAM here is 8 MB (rdram[], Not64's memory.c), and Not64's
+ * memory handler tables follow it, so an audio address past 8 MB reads or
+ * writes them. Counted, not changed: Harvest Moon 64 slowed and then froze
+ * with an audio task in flight (2026-11-10), and this says whether a task
+ * reached past RAM. */
+extern volatile unsigned our64_hle_oob, our64_hle_oob_addr;
+static inline void our64_hle_check(uint32_t address, size_t bytes)
+{
+    if (address + bytes > 0x800000) {
+        our64_hle_oob = our64_hle_oob + 1;
+        our64_hle_oob_addr = address;
+    }
+}
+
 /* convenient functions DRAM access */
 static inline uint8_t* dram_u8(struct hle_t* hle, uint32_t address)
 {
+    our64_hle_check(address & 0xffffff, 1);
     return u8(hle->dram, address & 0xffffff);
 }
 
 static inline uint16_t* dram_u16(struct hle_t* hle, uint32_t address)
 {
+    our64_hle_check(address & 0xffffff, 2);
     return u16(hle->dram, address & 0xffffff);
 }
 
 static inline uint32_t* dram_u32(struct hle_t* hle, uint32_t address)
 {
+    our64_hle_check(address & 0xffffff, 4);
     return u32(hle->dram, address & 0xffffff);
 }
 
 static inline void dram_load_u8(struct hle_t* hle, uint8_t* dst, uint32_t address, size_t count)
 {
+    our64_hle_check(address & 0xffffff, count * 1);
     load_u8(dst, hle->dram, address & 0xffffff, count);
 }
 
 static inline void dram_load_u16(struct hle_t* hle, uint16_t* dst, uint32_t address, size_t count)
 {
+    our64_hle_check(address & 0xffffff, count * 2);
     load_u16(dst, hle->dram, address & 0xffffff, count);
 }
 
 static inline void dram_load_u32(struct hle_t* hle, uint32_t* dst, uint32_t address, size_t count)
 {
+    our64_hle_check(address & 0xffffff, count * 4);
     load_u32(dst, hle->dram, address & 0xffffff, count);
 }
 
 static inline void dram_store_u8(struct hle_t* hle, const uint8_t* src, uint32_t address, size_t count)
 {
+    our64_hle_check(address & 0xffffff, count * 1);
     store_u8(hle->dram, address & 0xffffff, src, count);
 }
 
 static inline void dram_store_u16(struct hle_t* hle, const uint16_t* src, uint32_t address, size_t count)
 {
+    our64_hle_check(address & 0xffffff, count * 2);
     store_u16(hle->dram, address & 0xffffff, src, count);
 }
 
 static inline void dram_store_u32(struct hle_t* hle, const uint32_t* src, uint32_t address, size_t count)
 {
+    our64_hle_check(address & 0xffffff, count * 4);
     store_u32(hle->dram, address & 0xffffff, src, count);
 }
 

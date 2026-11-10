@@ -925,10 +925,12 @@ static void heartbeat(void)
 		return;
 	unsigned cmd;
 	const double busy = video_busy_s(&cmd);
+	extern volatile unsigned our64_hle_oob, our64_hle_oob_addr, our64_hle_bad_lists, our64_hle_abi_v; /* rsp_hle */
 	report_line("HB %.0f s: VI %u (+%d)%s; audio task %.1f ms; writer slot %d for %.0f ms; slowest log send %.1f ms; "
-	            "graphics core on one command %.2f s",
+	            "graphics core on one command %.2f s; audio past RAM %u (last 0x%X), bad lists %u, ABI %08X",
 	            report_now_us() / 1e6, (unsigned)v, dv, g_paused ? " paused" : "", audio_task_running_s() * 1e3,
-	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy);
+	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy, our64_hle_oob, our64_hle_oob_addr,
+	            our64_hle_bad_lists, our64_hle_abi_v);
 	if (!g_paused && dv < 40 && slow_traces < 40) {
 		slow_traces++;
 		char where[512];
