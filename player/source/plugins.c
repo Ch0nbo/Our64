@@ -1270,31 +1270,12 @@ double audio_task_running_s(void)
 /* Where the audio thread is: its pc, lr and return addresses (for the watchdog). */
 void audio_backtrace(char *out, unsigned size)
 {
-	int n = snprintf(out, size, "audio thread:");
+	extern void thread_stack(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t stack_hi, char *out, unsigned size);
 	if (g_au_on <= 0) {
-		snprintf(out + n, size - n, " not running");
+		snprintf(out, size, "audio thread: not running");
 		return;
 	}
-	OSSuspendThread(&g_au_thread);
-	for (int i = 0; i < 1000 && !OSIsThreadSuspended(&g_au_thread); i++)
-		OSSleepTicks(OSMicrosecondsToTicks(100));
-	if (!OSIsThreadSuspended(&g_au_thread)) {
-		OSResumeThread(&g_au_thread);
-		snprintf(out + n, size - n, " would not stop");
-		return;
-	}
-	const OSContext *c = &g_au_thread.context;
-	n += snprintf(out + n, size - n, " pc %08X lr %08X stack", (unsigned)c->srr0, (unsigned)c->lr);
-	const uintptr_t stack_lo = (uintptr_t)g_au_stack, stack_hi = stack_lo + sizeof(g_au_stack);
-	uintptr_t frame = c->gpr[1];
-	for (int depth = 0; depth < 24 && frame >= stack_lo && frame + 8 <= stack_hi && n < (int)size; depth++) {
-		const uintptr_t up = *(const uint32_t *)frame; /* the back chain */
-		if (up <= frame || up + 8 > stack_hi)
-			break;
-		n += snprintf(out + n, size - n, " %08X", (unsigned)*(const uint32_t *)(up + 4));
-		frame = up;
-	}
-	OSResumeThread(&g_au_thread);
+	thread_stack("audio thread", &g_au_thread, (uintptr_t)g_au_stack, (uintptr_t)g_au_stack + sizeof(g_au_stack), out, size);
 }
 
 /* At each GFX_INT event and VI: the task ends once a console's would have. Non-zero when an MI interrupt was raised. */

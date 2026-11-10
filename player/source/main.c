@@ -882,16 +882,17 @@ extern volatile unsigned our64_gx2_compile_vs_bytes, our64_gx2_compile_ps_bytes;
 static OSThread *g_emu_thread;          /* the emulation thread, for the heartbeat's backtrace */
 static uintptr_t g_emu_stack_lo, g_emu_stack_hi;
 
-/* Where a thread is: pc, lr and the return addresses on its stack. */
-static void thread_backtrace(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t stack_hi, char *out, unsigned size)
+/* Where a thread is: pc, lr and the return addresses on its stack (audio_backtrace too). */
+void thread_stack(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t stack_hi, char *out, unsigned size)
 {
+	/* Never suspended: suspending the CPU thread while it waited on the C
+	 * library's handle lock left this thread stuck for good (2026-11-10). A
+	 * waiting thread's registers are saved in its context, so they are read
+	 * as they are; a running one's are not, and it is only named as running. */
 	int n = snprintf(out, size, "%s:", name);
-	OSSuspendThread(t);
-	for (int i = 0; i < 1000 && !OSIsThreadSuspended(t); i++)
-		OSSleepTicks(OSMicrosecondsToTicks(100));
-	if (!OSIsThreadSuspended(t)) {
-		OSResumeThread(t);
-		snprintf(out + n, size - n, " would not stop");
+	const OSThreadState st = t->state;
+	if (!(st & OS_THREAD_STATE_WAITING)) {
+		snprintf(out + n, size - n, " %s (state %u)", st & OS_THREAD_STATE_RUNNING ? "running" : "ready", (unsigned)st);
 		return;
 	}
 	const OSContext *c = &t->context;
@@ -904,7 +905,6 @@ static void thread_backtrace(const char *name, OSThread *t, uintptr_t stack_lo, 
 		n += snprintf(out + n, size - n, " %08X", (unsigned)*(const uint32_t *)(up + 4));
 		frame = up;
 	}
-	OSResumeThread(t);
 }
 
 #ifndef OUR64_RELEASE
@@ -933,7 +933,7 @@ static void heartbeat(void)
 		slow_traces++;
 		char where[512];
 		if (g_emu_thread) {
-			thread_backtrace("CPU thread", g_emu_thread, g_emu_stack_lo, g_emu_stack_hi, where, sizeof(where));
+			thread_stack("CPU thread", g_emu_thread, g_emu_stack_lo, g_emu_stack_hi, where, sizeof(where));
 			report_line("  %s (code at %08X)", where, (unsigned)(uintptr_t)&heartbeat);
 		}
 		audio_backtrace(where, sizeof(where));
