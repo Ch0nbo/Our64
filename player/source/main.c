@@ -993,6 +993,16 @@ static void probes_start(void)
 	static int started;
 	if (started++)
 		return;
+	{ /* no-probes: none, to see whether the probes' wake-ups each second keep the stall away (2026-11-10) */
+		char path[256];
+		struct stat st;
+		const char *root = report_sd_root();
+		snprintf(path, sizeof(path), "%s/no-probes", root ? root : "");
+		if (root && !stat(path, &st)) {
+			report_line("TEST: no spin probes (no-probes)");
+			return;
+		}
+	}
 	for (int c = 0; c < 3; c++)
 		if (OSCreateThread(&g_probe_thread[c], probe, c, NULL, g_probe_stack[c] + sizeof(g_probe_stack[c]),
 		                   sizeof(g_probe_stack[c]), 0, (OSThreadAttributes)(1u << c))) {
