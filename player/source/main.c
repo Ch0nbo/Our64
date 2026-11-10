@@ -910,6 +910,54 @@ void thread_stack(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t s
 }
 
 #ifndef OUR64_RELEASE
+/* Every thread in the process (Our64's, the system's, Aroma plugins'), each
+ * second: the CPU time each used since the last call. During a stall, the
+ * ones that used any are logged. An SD writer job compressing on core 2 crawled
+ * and audio tasks there waited 13-45 ms to start while none of Our64's threads
+ * on core 2 used the time (Harvest Moon 64, 2026-11-10): this names what did. */
+#define CENSUS_MAX 128
+static struct { OSThread *t; uint64_t ns, wakes; } g_census[CENSUS_MAX];
+static unsigned g_census_n;
+
+static void thread_census(int log)
+{
+	OSThread *t = OSGetCurrentThread();
+	OSThreadLink link;
+	for (int guard = 0; guard < 512; guard++) { /* to the head of the active list */
+		OSGetActiveThreadLink(t, &link);
+		if (!link.prev)
+			break;
+		t = link.prev;
+	}
+	uint64_t total = 0;
+	for (int guard = 0; t && guard < CENSUS_MAX; guard++) {
+		const uint64_t ns = t->coreTimeConsumedNs, wakes = t->wakeCount;
+		unsigned k = 0;
+		while (k < g_census_n && g_census[k].t != t)
+			k++;
+		if (k == g_census_n && g_census_n < CENSUS_MAX) {
+			g_census[g_census_n].t = t;
+			g_census[g_census_n].ns = ns;
+			g_census[g_census_n++].wakes = wakes;
+		} else if (k < g_census_n) {
+			const uint64_t d = ns - g_census[k].ns, dw = wakes - g_census[k].wakes;
+			g_census[k].ns = ns;
+			g_census[k].wakes = wakes;
+			total += d;
+			if (log && d >= 2000000) {
+				const char *name = OSGetThreadName(t);
+				report_line("  thread %s: %.0f ms CPU in the last second, %llu wakes; priority %d, cores %X, state %u",
+				            name ? name : "?", d / 1e6, (unsigned long long)dw, (int)t->priority,
+				            (unsigned)(t->attr & 7), (unsigned)t->state);
+			}
+		}
+		OSGetActiveThreadLink(t, &link);
+		t = link.next;
+	}
+	if (log)
+		report_line("  threads: %.0f ms CPU in all in the last second (3 cores: 3000 at most)", total / 1e6);
+}
+
 /* Each second of play, one line over UDP and into the log: which part keeps
  * going and which stops. Harvest Moon 64 slowed for 10 s and then everything
  * stopped, the watchdog and the FTP server too, with nothing logged
@@ -933,6 +981,10 @@ static void heartbeat(void)
 	            report_now_us() / 1e6, (unsigned)v, dv, g_paused ? " paused" : "", audio_task_running_s() * 1e3,
 	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy, our64_hle_oob, our64_hle_oob_addr,
 	            our64_hle_bad_lists, our64_hle_abi_v);
+	static unsigned census_logs;
+	const int stalled = writer_job_ms() > 2000 || (!g_paused && dv < 40);
+	thread_census(stalled && census_logs < 30);
+	census_logs += stalled;
 	if (writer_job_ms() > 2000 && slow_traces < 40) { /* an SD job that does not end: where the writer waits */
 		extern void writer_backtrace(char *out, unsigned size);
 		char where[512];
