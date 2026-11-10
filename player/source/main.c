@@ -869,6 +869,8 @@ void new_vi(void)
  * is stuck. Without a VI for 10 s it saves the log with where things stand. ---- */
 
 static volatile int g_watch_on;
+static char g_crash_text[900];      /* the crash report (crash_report, below) */
+static volatile OSTime g_crash_t;   /* when crash_after began: the watchdog shows the crash if it gets stuck */
 static OSThread g_watch_thread __attribute__((aligned(16)));
 static uint8_t g_watch_stack[64 * 1024] __attribute__((aligned(16)));
 extern volatile long long our64_gx2_compile_start; /* gx2_GL.cpp: non-zero while CafeGLSL compiles */
@@ -884,6 +886,12 @@ static int watchdog(int argc, const char **argv)
 	int quiet_s = 0;
 	while (g_watch_on) {
 		OSSleepTicks(OSSecondsToTicks(5));
+		/* A crash whose report has not reached OSFatal in 5 s waits on a lock the
+		 * crashed thread held (malloc's, the log's): the screen froze on the game
+		 * with a tone and nothing logged (Harvest Moon 64, 2026-11-10). Shown
+		 * from here, its text is on the screen at least. */
+		if (g_crash_t && OSGetSystemTime() - g_crash_t > OSSecondsToTicks(5))
+			OSFatal(g_crash_text);
 		uint32_t v = g_bench.vis;
 		/* only while a game runs: menus, a missing controller and loading (a resume point took 7.5 s) are not hangs */
 		quiet_s = v == last_vis && g_running && !g_paused ? quiet_s + 5 : 0;
@@ -978,12 +986,12 @@ static const char *where(uint32_t a)
  * logged, 2026-10-17): it only notes what happened, then sends the thread
  * on, on a stack of its own, to crash_after, which logs it in the open and
  * shows it with OSFatal. */
-static char g_crash_text[900];
 static volatile int g_crashing;
 static uint8_t g_crash_stack[64 * 1024] __attribute__((aligned(16)));
 
 static void crash_after(void)
 {
+	g_crash_t = OSGetSystemTime();
 	report_line("%s", g_crash_text);
 	extern void gfx_notes_report(const char *prefix, unsigned n);
 	gfx_notes_report("CRASH: ", 16); /* the last RSP tasks and interrupts before it */
