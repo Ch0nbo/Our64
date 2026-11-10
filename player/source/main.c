@@ -888,14 +888,15 @@ void thread_stack(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t s
 {
 	/* Never suspended: suspending the CPU thread while it waited on the C
 	 * library's handle lock left this thread stuck for good (2026-11-10). A
-	 * waiting thread's registers are saved in its context, so they are read
-	 * as they are; a running one's are not, and it is only named as running. */
+	 * waiting or ready (preempted) thread's registers are saved in its
+	 * context, so they are read as they are; a running one's are not. */
 	int n = snprintf(out, size, "%s:", name);
 	const OSThreadState st = t->state;
-	if (!(st & OS_THREAD_STATE_WAITING)) {
-		snprintf(out + n, size - n, " %s (state %u)", st & OS_THREAD_STATE_RUNNING ? "running" : "ready", (unsigned)st);
+	if (st & OS_THREAD_STATE_RUNNING) { /* on another core now: its registers are not saved */
+		snprintf(out + n, size - n, " running (state %u)", (unsigned)st);
 		return;
 	}
+	n += snprintf(out + n, size - n, " %s", st & OS_THREAD_STATE_READY ? "ready" : "waiting");
 	const OSContext *c = &t->context;
 	n += snprintf(out + n, size - n, " pc %08X lr %08X stack", (unsigned)c->srr0, (unsigned)c->lr);
 	uintptr_t frame = c->gpr[1];
