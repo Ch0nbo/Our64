@@ -892,6 +892,21 @@ static int watchdog(int argc, const char **argv)
 		 * from here, its text is on the screen at least. */
 		if (g_crash_t && OSGetSystemTime() - g_crash_t > OSSecondsToTicks(5))
 			OSFatal(g_crash_text);
+		/* An audio task that never ends holds core 2 (see audio_task_running_s):
+		 * every line goes out (UDP too) before the save, which may wait on the
+		 * writer stuck behind it on core 2. */
+		extern double audio_task_running_s(void);
+		extern void audio_backtrace(char *out, unsigned size);
+		const double au = audio_task_running_s();
+		if (au >= 5 && (int)au % 10 < 5) {
+			report_line("WATCHDOG: the audio task on core 2 has run for %.0f s (VI %u)", au, (unsigned)g_bench.vis);
+			if (au < 10) {
+				char where[512];
+				audio_backtrace(where, sizeof(where));
+				report_line("  %s (code at %08X)", where, (unsigned)(uintptr_t)&watchdog);
+			}
+			report_save();
+		}
 		uint32_t v = g_bench.vis;
 		/* only while a game runs: menus, a missing controller and loading (a resume point took 7.5 s) are not hangs */
 		quiet_s = v == last_vis && g_running && !g_paused ? quiet_s + 5 : 0;
@@ -935,8 +950,11 @@ static int watchdog(int argc, const char **argv)
 static void watchdog_start(void)
 {
 	g_watch_on = 1;
+	/* Priority 0, above every thread of ours: at 20 an audio task stuck at 18 on
+	 * core 2 kept it from ever running (Harvest Moon 64, 2026-11-10). It sleeps
+	 * 5 s at a time. */
 	if (OSCreateThread(&g_watch_thread, watchdog, 0, NULL, g_watch_stack + sizeof(g_watch_stack),
-	                   sizeof(g_watch_stack), 20, OS_THREAD_ATTRIB_AFFINITY_CPU2))
+	                   sizeof(g_watch_stack), 0, OS_THREAD_ATTRIB_AFFINITY_CPU2))
 		OSResumeThread(&g_watch_thread);
 }
 

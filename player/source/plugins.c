@@ -1123,6 +1123,7 @@ static uint32_t g_au_sp[8], g_au_dpc[8], g_au_mi, g_au_pc;
 static unsigned long g_au_due;        /* Count when a console's RSP would be done */
 static volatile double g_au_us;
 static volatile int g_au_finished;
+static volatile OSTime g_au_go_t; /* when the task in flight was posted (audio_task_running_s) */
 static unsigned g_au_window_vi, g_au_window_tasks, g_au_window_waits, g_au_reports;
 static double g_au_window_worker_us, g_au_window_blocked_us;
 
@@ -1206,6 +1207,7 @@ static int audio_task(void)
 	g_au_due = reg_cop0[9] + g_au_counts; /* Count */
 	g_au_finished = 0;
 	g_au_busy = 1;
+	g_au_go_t = OSGetSystemTime();
 	OSMemoryBarrier();
 	OSSignalEvent(&g_au_go);
 	if (!g_gfx_event) { /* the check for its end (gfx_int_event) */
@@ -1245,13 +1247,54 @@ static void audio_collect(void)
 	g_au_window_worker_us += g_au_us;
 	g_au_window_blocked_us += blocked;
 	if (vi - g_au_window_vi >= 600) {
-		if (g_au_reports++ < 60)
+		if (g_au_reports++ < 60 || g_au_window_waits) /* the CPU waiting on core 2 is always told: hidden as "game" time otherwise */
 			report_line("AUDIO: %u lists on core 2 in %u VIs, %.2f ms each there; the CPU waited for %u, %.2f ms each",
 			            g_au_window_tasks, vi - g_au_window_vi, g_au_window_worker_us / g_au_window_tasks / 1000.0,
 			            g_au_window_waits, g_au_window_waits ? g_au_window_blocked_us / g_au_window_waits / 1000.0 : 0.0);
 		g_au_window_tasks = g_au_window_waits = 0;
 		g_au_window_worker_us = g_au_window_blocked_us = 0;
 	}
+}
+
+/* The watchdog: seconds the audio task in flight has run on core 2, 0 when
+ * none is running. A task that never ends holds core 2 at priority 18, so
+ * every thread below it there (the writer, the log) stops too: Harvest Moon
+ * 64 froze with a tone and nothing logged (2026-11-10). */
+double audio_task_running_s(void)
+{
+	if (g_au_on <= 0 || !g_au_busy || g_au_finished)
+		return 0;
+	return (double)OSTicksToMicroseconds(OSGetSystemTime() - g_au_go_t) / 1e6;
+}
+
+/* Where the audio thread is: its pc, lr and return addresses (for the watchdog). */
+void audio_backtrace(char *out, unsigned size)
+{
+	int n = snprintf(out, size, "audio thread:");
+	if (g_au_on <= 0) {
+		snprintf(out + n, size - n, " not running");
+		return;
+	}
+	OSSuspendThread(&g_au_thread);
+	for (int i = 0; i < 1000 && !OSIsThreadSuspended(&g_au_thread); i++)
+		OSSleepTicks(OSMicrosecondsToTicks(100));
+	if (!OSIsThreadSuspended(&g_au_thread)) {
+		OSResumeThread(&g_au_thread);
+		snprintf(out + n, size - n, " would not stop");
+		return;
+	}
+	const OSContext *c = &g_au_thread.context;
+	n += snprintf(out + n, size - n, " pc %08X lr %08X stack", (unsigned)c->srr0, (unsigned)c->lr);
+	const uintptr_t stack_lo = (uintptr_t)g_au_stack, stack_hi = stack_lo + sizeof(g_au_stack);
+	uintptr_t frame = c->gpr[1];
+	for (int depth = 0; depth < 24 && frame >= stack_lo && frame + 8 <= stack_hi && n < (int)size; depth++) {
+		const uintptr_t up = *(const uint32_t *)frame; /* the back chain */
+		if (up <= frame || up + 8 > stack_hi)
+			break;
+		n += snprintf(out + n, size - n, " %08X", (unsigned)*(const uint32_t *)(up + 4));
+		frame = up;
+	}
+	OSResumeThread(&g_au_thread);
 }
 
 /* At each GFX_INT event and VI: the task ends once a console's would have. Non-zero when an MI interrupt was raised. */
