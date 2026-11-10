@@ -24,6 +24,8 @@ void writer_unlock(void);
 /* A job's write that took over 2 s goes in the log, the public one too: a
  * player's report then shows a slow or nearly full card. */
 void writer_slow(const char *what, double ms);
+int writer_job_slot(void);           /* the job running now, -1 when idle (no lock: the watchdog) */
+double writer_job_ms(void);          /* how long it has run, 0 when idle */
 
 #ifdef __cplusplus
 }

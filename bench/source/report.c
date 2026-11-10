@@ -16,6 +16,15 @@
 #endif
 
 static char g_buf[256 * 1024];
+static volatile uint32_t g_send_max_us; /* the slowest WHBLogPrint (UDP) since report_send_max_us */
+
+/* The slowest line sent (UDP, console) since the last call, in us. */
+uint32_t report_send_max_us(void)
+{
+	const uint32_t m = g_send_max_us;
+	g_send_max_us = 0;
+	return m;
+}
 static size_t g_len;
 static char g_root[200];
 static char g_path[256];
@@ -65,7 +74,11 @@ void report_line(const char *fmt, ...)
 	vsnprintf(line, sizeof(line), fmt, ap);
 	va_end(ap);
 
+	const OSTime send_t0 = OSGetSystemTime();
 	WHBLogPrint(line);
+	const uint32_t send_us = (uint32_t)OSTicksToMicroseconds(OSGetSystemTime() - send_t0);
+	if (send_us > g_send_max_us)
+		g_send_max_us = send_us;
 #ifndef REPORT_NO_CONSOLE /* apps that draw with GX2 have no text console */
 	WHBLogConsoleDraw();
 #endif

@@ -879,13 +879,82 @@ extern volatile int our64_at_line;
 extern volatile unsigned our64_vi_w, our64_vi_h;
 extern volatile unsigned our64_gx2_compile_vs_bytes, our64_gx2_compile_ps_bytes;
 
+static OSThread *g_emu_thread;          /* the emulation thread, for the heartbeat's backtrace */
+static uintptr_t g_emu_stack_lo, g_emu_stack_hi;
+
+/* Where a thread is: pc, lr and the return addresses on its stack. */
+static void thread_backtrace(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t stack_hi, char *out, unsigned size)
+{
+	int n = snprintf(out, size, "%s:", name);
+	OSSuspendThread(t);
+	for (int i = 0; i < 1000 && !OSIsThreadSuspended(t); i++)
+		OSSleepTicks(OSMicrosecondsToTicks(100));
+	if (!OSIsThreadSuspended(t)) {
+		OSResumeThread(t);
+		snprintf(out + n, size - n, " would not stop");
+		return;
+	}
+	const OSContext *c = &t->context;
+	n += snprintf(out + n, size - n, " pc %08X lr %08X stack", (unsigned)c->srr0, (unsigned)c->lr);
+	uintptr_t frame = c->gpr[1];
+	for (int depth = 0; depth < 24 && frame >= stack_lo && frame + 8 <= stack_hi && n < (int)size; depth++) {
+		const uintptr_t up = *(const uint32_t *)frame; /* the back chain */
+		if (up <= frame || up + 8 > stack_hi)
+			break;
+		n += snprintf(out + n, size - n, " %08X", (unsigned)*(const uint32_t *)(up + 4));
+		frame = up;
+	}
+	OSResumeThread(t);
+}
+
+#ifndef OUR64_RELEASE
+/* Each second of play, one line over UDP and into the log: which part keeps
+ * going and which stops. Harvest Moon 64 slowed for 10 s and then everything
+ * stopped, the watchdog and the FTP server too, with nothing logged
+ * (2026-11-10). Below 40 VIs in a second, where the CPU and audio threads are. */
+static void heartbeat(void)
+{
+	static uint32_t vis;
+	static unsigned slow_traces;
+	extern double audio_task_running_s(void);
+	extern void audio_backtrace(char *out, unsigned size);
+	const uint32_t v = g_bench.vis;
+	const int dv = (int)(v - vis);
+	vis = v;
+	if (!g_running)
+		return;
+	unsigned cmd;
+	const double busy = video_busy_s(&cmd);
+	report_line("HB %.0f s: VI %u (+%d)%s; audio task %.1f ms; writer slot %d for %.0f ms; slowest log send %.1f ms; "
+	            "graphics core on one command %.2f s",
+	            report_now_us() / 1e6, (unsigned)v, dv, g_paused ? " paused" : "", audio_task_running_s() * 1e3,
+	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy);
+	if (!g_paused && dv < 40 && slow_traces < 40) {
+		slow_traces++;
+		char where[512];
+		if (g_emu_thread) {
+			thread_backtrace("CPU thread", g_emu_thread, g_emu_stack_lo, g_emu_stack_hi, where, sizeof(where));
+			report_line("  %s (code at %08X)", where, (unsigned)(uintptr_t)&heartbeat);
+		}
+		audio_backtrace(where, sizeof(where));
+		report_line("  %s", where);
+	}
+}
+#endif
+
 static int watchdog(int argc, const char **argv)
 {
 	(void)argc; (void)argv;
 	uint32_t last_vis = 0;
 	int quiet_s = 0;
+	unsigned tick = 0;
 	while (g_watch_on) {
-		OSSleepTicks(OSSecondsToTicks(5));
+		OSSleepTicks(OSSecondsToTicks(1));
+#ifndef OUR64_RELEASE
+		heartbeat();
+#endif
+		if (++tick % 5)
+			continue; /* the checks below every 5 s */
 		/* A crash whose report has not reached OSFatal in 5 s waits on a lock the
 		 * crashed thread held (malloc's, the log's): the screen froze on the game
 		 * with a tone and nothing logged (Harvest Moon 64, 2026-11-10). Shown
@@ -952,7 +1021,7 @@ static void watchdog_start(void)
 	g_watch_on = 1;
 	/* Priority 0, above every thread of ours: at 20 an audio task stuck at 18 on
 	 * core 2 kept it from ever running (Harvest Moon 64, 2026-11-10). It sleeps
-	 * 5 s at a time. */
+	 * a second at a time. */
 	if (OSCreateThread(&g_watch_thread, watchdog, 0, NULL, g_watch_stack + sizeof(g_watch_stack),
 	                   sizeof(g_watch_stack), 0, OS_THREAD_ATTRIB_AFFINITY_CPU2))
 		OSResumeThread(&g_watch_thread);
@@ -2293,6 +2362,9 @@ int main(int argc, char **argv)
 		g_playing = 1;
 		OSSetThreadName(&g_thread, "Our64 CPU");
 		OSResumeThread(&g_thread);
+		g_emu_thread = &g_thread;
+		g_emu_stack_lo = (uintptr_t)g_stack;
+		g_emu_stack_hi = (uintptr_t)g_stack + sizeof(g_stack);
 		watchdog_start();
 		/* System messages during play. A power press arrives as a foreground
 		 * release: the game stops first, and the loop below lets go of the

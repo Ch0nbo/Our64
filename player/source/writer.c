@@ -5,6 +5,7 @@
 #include <coreinit/condition.h>
 #include <coreinit/mutex.h>
 #include <coreinit/thread.h>
+#include <coreinit/time.h>
 
 static void (*g_job[WRITER_SLOTS])(void); /* waiting to run */
 static int g_running = -1;                /* the slot running now */
@@ -13,6 +14,7 @@ static OSMutex g_lock;
 static OSCondition g_wake, g_idle;
 static OSThread g_thread __attribute__((aligned(16)));
 static uint8_t g_stack[64 * 1024] __attribute__((aligned(16)));
+static volatile OSTime g_job_t; /* when the job running now began, 0 when none (writer_job_ms) */
 
 static int writer(int argc, const char **argv)
 {
@@ -32,8 +34,10 @@ static int writer(int argc, const char **argv)
 		void (*job)(void) = g_job[s];
 		g_job[s] = 0;
 		g_running = s;
+		g_job_t = OSGetSystemTime();
 		OSUnlockMutex(&g_lock);
 		job();
+		g_job_t = 0;
 		OSLockMutex(&g_lock);
 		g_running = -1;
 	}
@@ -109,4 +113,12 @@ void writer_slow(const char *what, double ms)
 {
 	if (ms > 2000)
 		report_line("SLOW SD: %s took %.1f s to write", what, ms / 1e3);
+}
+
+/* The watchdog's heartbeat, without the lock: the slot running and for how long, -1 and 0 when idle. */
+int writer_job_slot(void) { return g_running; }
+double writer_job_ms(void)
+{
+	const OSTime t = g_job_t;
+	return t ? (double)OSTicksToMicroseconds(OSGetSystemTime() - t) / 1e3 : 0;
 }
