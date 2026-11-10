@@ -13,13 +13,15 @@
 #include <stdlib.h>
 
 unsigned our64_heap_allocs, our64_heap_failures;
+static void *g_code_heap; /* the one heap in the JIT area, for our64_code_heap_stats */
 
 typedef struct extent { uint32_t start, size; struct extent *next; } extent;
 
 typedef struct {
 	extent   *free_list;
 	uint32_t *keys, *sizes;  /* open addressing: block start -> size; 0 = empty, 1 = deleted */
-	uint32_t  cap, used;
+	uint32_t  cap, used;     /* used: blocks alive and deleted slots */
+	uint32_t  live;          /* blocks alive */
 	uint32_t  align;
 } code_heap;
 
@@ -30,13 +32,18 @@ static uint32_t slot(code_heap *h, uint32_t key)
 
 static void table_put(code_heap *h, uint32_t key, uint32_t size);
 
+/* Rebuilt when blocks alive and deleted slots fill half the table: twice
+ * the size only when the blocks alive fill a quarter, else the same size
+ * with the deleted slots gone. It doubled every time, so it followed every
+ * block ever made, not the code alive: 2 million compiles with 3,000 blocks
+ * alive left 2 million slots, 16 MB (tests/test_lwp_heap.c). */
 static void table_grow(code_heap *h)
 {
 	uint32_t old_cap = h->cap, *old_keys = h->keys, *old_sizes = h->sizes;
-	h->cap = old_cap ? old_cap * 2 : 4096;
+	h->cap = !old_cap ? 4096 : (h->live + 1) * 4 > old_cap ? old_cap * 2 : old_cap;
 	h->keys = calloc(h->cap, 4);
 	h->sizes = calloc(h->cap, 4);
-	h->used = 0;
+	h->used = h->live = 0;
 	for (uint32_t i = 0; i < old_cap; i++)
 		if (old_keys[i] > 1)
 			table_put(h, old_keys[i], old_sizes[i]);
@@ -54,6 +61,7 @@ static void table_put(code_heap *h, uint32_t key, uint32_t size)
 	h->keys[i] = key;
 	h->sizes[i] = size;
 	h->used++;
+	h->live++;
 }
 
 static uint32_t table_take(code_heap *h, uint32_t key)
@@ -62,6 +70,7 @@ static uint32_t table_take(code_heap *h, uint32_t key)
 	while (h->keys[i]) {
 		if (h->keys[i] == key) {
 			h->keys[i] = 1;
+			h->live--;
 			return h->sizes[i];
 		}
 		i = (i + 1) & (h->cap - 1);
@@ -131,6 +140,7 @@ u32 __lwp_heap_init(heap_cntrl *heap, void *start, u32 size, u32 page_size)
 		h->free_list->next = NULL;
 		table_grow(h);
 		heap->handle = h;
+		g_code_heap = h;
 		return size;
 	}
 	heap->handle = MEMCreateExpHeapEx(start, size, MEM_HEAP_FLAG_USE_LOCK);
@@ -156,4 +166,23 @@ BOOL __lwp_heap_free(heap_cntrl *heap, void *ptr)
 	else
 		MEMFreeToExpHeap((MEMHeapHandle)heap->handle, ptr);
 	return TRUE;
+}
+
+/* The JIT area's heap: blocks alive, the block table's slots, and the free
+ * space with the pieces it is in (each allocation walks them). Call it on the
+ * thread that compiles. */
+void our64_code_heap_stats(unsigned *live, unsigned *slots, unsigned *free_kb, unsigned *pieces)
+{
+	code_heap *h = g_code_heap;
+	*live = *slots = *free_kb = *pieces = 0;
+	if (!h)
+		return;
+	*live = h->live;
+	*slots = h->cap;
+	uint32_t bytes = 0;
+	for (extent *e = h->free_list; e; e = e->next) {
+		bytes += e->size;
+		(*pieces)++;
+	}
+	*free_kb = bytes / 1024;
 }

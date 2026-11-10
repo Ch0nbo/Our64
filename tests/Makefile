@@ -2,11 +2,16 @@
 CC	?=	cc
 CFLAGS	:=	-std=gnu11 -O1 -g -Wall -Wextra -I../player/source
 BUILD	:=	build
-TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers
+TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers test_lwp_heap
 
 .PHONY: all clean shots
 all: $(addprefix $(BUILD)/,$(TESTS))
 	@for t in $(TESTS); do echo "$$t:"; $(BUILD)/$$t || exit 1; done
+
+# The JIT code heap (bench/source/lwp_heap.c), its coreinit calls on malloc (stub/).
+$(BUILD)/test_lwp_heap: test_lwp_heap.c ../bench/source/lwp_heap.c stub/coreinit/memexpheap.h stub/wut_types.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Istub -I../bench/shim -o $@ test_lwp_heap.c
 
 $(BUILD)/test_saves: test_saves.c ../player/source/saves.c ../player/source/saves.h
 	@mkdir -p $(BUILD)
