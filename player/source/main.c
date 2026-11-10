@@ -930,8 +930,16 @@ static void thread_census(int log)
 		t = link.prev;
 	}
 	uint64_t total = 0;
+	unsigned walked = 0;
 	for (int guard = 0; t && guard < CENSUS_MAX; guard++) {
 		const uint64_t ns = t->coreTimeConsumedNs, wakes = t->wakeCount;
+		walked++;
+		if (log == 2) { /* once, to check the walk: every thread with its raw counters */
+			const char *name = OSGetThreadName(t);
+			report_line("  census: %s: %llu ns, %llu wakes, priority %d, cores %X, state %u", name ? name : "?",
+			            (unsigned long long)ns, (unsigned long long)wakes, (int)t->priority, (unsigned)(t->attr & 7),
+			            (unsigned)t->state);
+		}
 		unsigned k = 0;
 		while (k < g_census_n && g_census[k].t != t)
 			k++;
@@ -955,7 +963,41 @@ static void thread_census(int log)
 		t = link.next;
 	}
 	if (log)
-		report_line("  threads: %.0f ms CPU in all in the last second (3 cores: 3000 at most)", total / 1e6);
+		report_line("  threads: %u found, %.0f ms CPU in all in the last second (3 cores: 3000 at most)", walked,
+		            total / 1e6);
+}
+
+/* Spin probes: a priority 0 thread on each core times the same fixed loop
+ * once a second. Only interrupts and the kernel outrank it, so a probe that
+ * takes longer than usual says they took that core's time. */
+static volatile uint32_t g_probe_us[3];
+static OSThread g_probe_thread[3] __attribute__((aligned(16)));
+static uint8_t g_probe_stack[3][16 * 1024] __attribute__((aligned(16)));
+
+static int probe(int core, const char **argv)
+{
+	(void)argv;
+	for (;;) { /* for the whole run: started once, never joined */
+		OSSleepTicks(OSSecondsToTicks(1));
+		const OSTime t0 = OSGetSystemTime();
+		for (volatile uint32_t i = 0; i < 400000; i++)
+			;
+		g_probe_us[core] = (uint32_t)OSTicksToMicroseconds(OSGetSystemTime() - t0);
+	}
+	return 0;
+}
+
+static void probes_start(void)
+{
+	static int started;
+	if (started++)
+		return;
+	for (int c = 0; c < 3; c++)
+		if (OSCreateThread(&g_probe_thread[c], probe, c, NULL, g_probe_stack[c] + sizeof(g_probe_stack[c]),
+		                   sizeof(g_probe_stack[c]), 0, (OSThreadAttributes)(1u << c))) {
+			OSSetThreadName(&g_probe_thread[c], "Our64 probe");
+			OSResumeThread(&g_probe_thread[c]);
+		}
 }
 
 /* Each second of play, one line over UDP and into the log: which part keeps
@@ -977,13 +1019,15 @@ static void heartbeat(void)
 	const double busy = video_busy_s(&cmd);
 	extern volatile unsigned our64_hle_oob, our64_hle_oob_addr, our64_hle_bad_lists, our64_hle_abi_v; /* rsp_hle */
 	report_line("HB %.0f s: VI %u (+%d)%s; audio task %.1f ms; writer slot %d for %.0f ms; slowest log send %.1f ms; "
-	            "graphics core on one command %.2f s; audio past RAM %u (last 0x%X), bad lists %u, ABI %08X",
+	            "graphics core on one command %.2f s; spin us core 0 %u, 1 %u, 2 %u; "
+	            "audio past RAM %u (last 0x%X), bad lists %u, ABI %08X",
 	            report_now_us() / 1e6, (unsigned)v, dv, g_paused ? " paused" : "", audio_task_running_s() * 1e3,
-	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy, our64_hle_oob, our64_hle_oob_addr,
+	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy, (unsigned)g_probe_us[0],
+	            (unsigned)g_probe_us[1], (unsigned)g_probe_us[2], our64_hle_oob, our64_hle_oob_addr,
 	            our64_hle_bad_lists, our64_hle_abi_v);
-	static unsigned census_logs;
+	static unsigned census_logs, beats;
 	const int stalled = writer_job_ms() > 2000 || (!g_paused && dv < 40);
-	thread_census(stalled && census_logs < 30);
+	thread_census(++beats == 20 ? 2 : stalled && census_logs < 30);
 	census_logs += stalled;
 	if (writer_job_ms() > 2000 && slow_traces < 40) { /* an SD job that does not end: where the writer waits */
 		extern void writer_backtrace(char *out, unsigned size);
@@ -1081,6 +1125,9 @@ static int watchdog(int argc, const char **argv)
 static void watchdog_start(void)
 {
 	g_watch_on = 1;
+#ifndef OUR64_RELEASE
+	probes_start();
+#endif
 	/* Priority 0, above every thread of ours: at 20 an audio task stuck at 18 on
 	 * core 2 kept it from ever running (Harvest Moon 64, 2026-11-10). It sleeps
 	 * a second at a time. */
