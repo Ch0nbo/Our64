@@ -154,6 +154,18 @@ bool report_save(void)
 		if (fclose(f) != 0)
 			g_saved_len = 0;
 	}
+	/* Past half the buffer, what is on the card leaves it and later saves
+	 * append: the buffer held only the first 25 minutes of a game (1.6 KB of
+	 * stats every 10 s), so a slowdown after an hour never reached the log
+	 * (2026-11-10). Lines logged during the write stay. */
+	lock();
+	if (f && g_saved_len == len && len > sizeof(g_buf) / 2) {
+		memmove(g_buf, g_buf + len, g_len - len + 1);
+		g_len -= len;
+		g_saved_len = 0;
+		g_append = true;
+	}
+	OSUnlockMutex(&g_lock);
 	OSUnlockMutex(&g_save_lock);
 	double ms = OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3;
 	if (ms > 100) /* in the next save: a slow card holds up the thread that saves the log */

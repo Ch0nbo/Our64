@@ -58,6 +58,13 @@ static unsigned int heapSize = 0;
 static unsigned int maxHeapSize = 0;
 static CacheMetaNode** cacheHeap = NULL;
 
+#ifdef __WIIU__
+/* Our64: how often a full cache made room, and the funcs that went (the player's stats). */
+unsigned our64_jit_releases, our64_jit_released, our64_lru_resets;
+unsigned our64_jit_cache_bytes(void){ return cacheSize; }
+unsigned our64_jit_cache_funcs(void){ return heapSize; }
+#endif
+
 static void heapSwap(int i, int j){
 	CacheMetaNode* t = cacheHeap[i];
 	cacheHeap[i] = cacheHeap[j];
@@ -290,6 +297,9 @@ static inline void update_lru(PowerPC_func* func){
 	func->lru = nextLRU++;
 
 	if(!nextLRU || nextLRU>0x80000000){
+#ifdef __WIIU__
+		our64_lru_resets++;
+#endif
 		// Handle nextLRU overflows
 		// By heap-sorting and assigning new LRUs
 		heapify();
@@ -311,6 +321,9 @@ static inline void update_lru(PowerPC_func* func){
 static void release(int minNeeded){
 	// Frees alloc'ed blocks so that at least minNeeded bytes are available
 	int toFree = minNeeded * 2; // Free 2x what is needed
+#ifdef __WIIU__
+	our64_jit_releases++;
+#endif
 	// Restore the heap properties to pop the LRU
 	heapify();
 	// Release nodes' memory until we've freed enough
@@ -319,6 +332,9 @@ static void release(int minNeeded){
 		CacheMetaNode* n = heapPop();
 		// Free the function it contains
 		free_func(n->func, n->addr);
+#ifdef __WIIU__
+		our64_jit_released++;
+#endif
 		toFree    -= n->size;
 		cacheSize -= n->size;
 		// And the cache node itself

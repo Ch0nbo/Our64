@@ -661,6 +661,26 @@ static void stats(double t)
 	}
 	report_line("  malloc and free: core 0 %.0f ms (%u calls), core 1 %.0f ms (%u), core 2 %.0f ms (%u)",
 	            alloc_ms[0], calls[0], alloc_ms[1], calls[1], alloc_ms[2], calls[2]);
+	/* What an hour of play fills (Harvest Moon 64 and Bomberman 64 lagged after
+	 * about an hour, 2026-11-10): the heap, and the JIT area's code, its block
+	 * table and free pieces, and how often a full area made room. */
+	{
+		extern unsigned our64_heap_allocs, our64_heap_failures, our64_jit_releases, our64_jit_released, our64_lru_resets;
+		extern unsigned our64_jit_cache_bytes(void), our64_jit_cache_funcs(void);
+		extern void our64_code_heap_stats(unsigned *live, unsigned *slots, unsigned *free_kb, unsigned *pieces);
+		static unsigned allocs0, releases0, released0;
+		unsigned live, slots, free_kb, pieces;
+		our64_code_heap_stats(&live, &slots, &free_kb, &pieces);
+		struct mallinfo mi = mallinfo();
+		report_line("  memory: heap %u KB in use of %u KB; generated code %u KB in %u funcs (%u blocks, table %u slots), "
+		            "%u blocks made (%u failed), %u KB free in %u pieces; full, made room %u times (%u funcs out); LRU resets %u",
+		            (unsigned)(mi.uordblks / 1024), (unsigned)(mi.arena / 1024), our64_jit_cache_bytes() / 1024,
+		            our64_jit_cache_funcs(), live, slots, our64_heap_allocs - allocs0, our64_heap_failures, free_kb, pieces,
+		            our64_jit_releases - releases0, our64_jit_released - released0, our64_lru_resets);
+		allocs0 = our64_heap_allocs;
+		releases0 = our64_jit_releases;
+		released0 = our64_jit_released;
+	}
 	static unsigned pushed0, dropped0;
 	unsigned pushed, lost, rate;
 	int playing;
