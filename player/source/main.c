@@ -952,10 +952,11 @@ static void thread_census(int log)
 			g_census[k].ns = ns;
 			g_census[k].wakes = wakes;
 			total += d;
-			if (log && d >= 2000000) {
+			/* coreTimeConsumedNs stays 0 on the console; wakes are counted */
+			if (log && (d >= 2000000 || dw >= 20)) {
 				const char *name = OSGetThreadName(t);
-				report_line("  thread %s: %.0f ms CPU in the last second, %llu wakes; priority %d, cores %X, state %u",
-				            name ? name : "?", d / 1e6, (unsigned long long)dw, (int)t->priority,
+				report_line("  thread %s: %llu wakes in the last second (%.0f ms CPU); priority %d, cores %X, state %u",
+				            name ? name : "?", (unsigned long long)dw, d / 1e6, (int)t->priority,
 				            (unsigned)(t->attr & 7), (unsigned)t->state);
 			}
 		}
