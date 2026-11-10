@@ -32,6 +32,7 @@
 #include "capture.h"
 #include "player.h"
 #include "writer.h"
+#include "states.h"
 #include "saves.h"
 #include "input.h"
 #include "theme.h"
@@ -931,6 +932,12 @@ static void heartbeat(void)
 	            report_now_us() / 1e6, (unsigned)v, dv, g_paused ? " paused" : "", audio_task_running_s() * 1e3,
 	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy, our64_hle_oob, our64_hle_oob_addr,
 	            our64_hle_bad_lists, our64_hle_abi_v);
+	if (writer_job_ms() > 2000 && slow_traces < 40) { /* an SD job that does not end: where the writer waits */
+		extern void writer_backtrace(char *out, unsigned size);
+		char where[512];
+		writer_backtrace(where, sizeof(where));
+		report_line("  %s", where);
+	}
 	if (!g_paused && dv < 40 && slow_traces < 40) {
 		slow_traces++;
 		char where[512];
@@ -1177,6 +1184,18 @@ static void read_test_switches(const char *root)
 	}
 	snprintf(path, sizeof(path), "%s/capture-at-start", root);
 	g_capture_at_start = !stat(path, &st);
+	/* resume-every: a resume point every N seconds instead of 60, so the SD
+	 * takes in a few minutes the writes a long session makes (Harvest Moon 64
+	 * froze with one resume point write that never ended, 2026-11-10). */
+	snprintf(path, sizeof(path), "%s/resume-every", root);
+	if ((f = fopen(path, "r"))) {
+		double s_every = 0;
+		if (fscanf(f, "%lf", &s_every) == 1 && s_every >= 1 && s_every <= 600) {
+			resume_every_us = s_every * 1e6;
+			report_line("TEST: a resume point every %.0f s (resume-every)", s_every);
+		}
+		fclose(f);
+	}
 	snprintf(path, sizeof(path), "%s/no-jr-cache", root);
 	jr_cache_on = stat(path, &st) != 0;
 	snprintf(path, sizeof(path), "%s/build-shaders", root);

@@ -122,6 +122,7 @@ typedef struct {
 	double cost_us;  /* what the last capture took */
 } resume_timer;
 enum { RESUME_WAIT, RESUME_DUE, RESUME_GIVE_UP };
+extern double resume_every_us; /* 60 s; a test switch can set it */
 void resume_timer_init(resume_timer *t, double now_us);
 /* save_since_us: when an in-game save started waiting, < 0 when none. */
 int  resume_decide(const resume_timer *t, double now_us, double save_since_us, int writer_busy);

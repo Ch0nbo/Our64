@@ -6,6 +6,7 @@
 #include <coreinit/mutex.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
+#include <stdint.h>
 
 static void (*g_job[WRITER_SLOTS])(void); /* waiting to run */
 static int g_running = -1;                /* the slot running now */
@@ -121,4 +122,11 @@ double writer_job_ms(void)
 {
 	const OSTime t = g_job_t;
 	return t ? (double)OSTicksToMicroseconds(OSGetSystemTime() - t) / 1e3 : 0;
+}
+
+/* Where the writer thread is (the heartbeat, for a job that does not end). */
+void writer_backtrace(char *out, unsigned size)
+{
+	extern void thread_stack(const char *name, OSThread *t, uintptr_t stack_lo, uintptr_t stack_hi, char *out, unsigned size);
+	thread_stack("SD writer", &g_thread, (uintptr_t)g_stack, (uintptr_t)g_stack + sizeof(g_stack), out, size);
 }
