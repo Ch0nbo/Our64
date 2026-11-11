@@ -51,6 +51,7 @@ enum {
  * between slices (the watchdog's guard against a resume point job that does
  * not end, 2026-11-10). The caller clears it before it starts. */
 extern volatile int statefile_abort;
+extern unsigned statefile_store_slice; /* the write's slice: 64 KB */
 
 /* Bytes of work space statefile_write needs for raw_size bytes of state. */
 unsigned statefile_work_size(unsigned raw_size);

@@ -1332,6 +1332,13 @@ static void read_test_switches(const char *root)
 	}
 	snprintf(path, sizeof(path), "%s/capture-at-start", root);
 	g_capture_at_start = !stat(path, &st);
+	/* write-whole: a state written in one fwrite, as before slices (2026-11-10): does
+	 * the one 800 KB write bring the stall back? */
+	snprintf(path, sizeof(path), "%s/write-whole", root);
+	if (!stat(path, &st)) {
+		statefile_store_slice = 0x7FFFFFFF;
+		report_line("TEST: states written in one fwrite (write-whole)");
+	}
 	/* resume-every: a resume point every N seconds instead of 60, so the SD
 	 * takes in a few minutes the writes a long session makes (Harvest Moon 64
 	 * froze with one resume point write that never ended, 2026-11-10). */

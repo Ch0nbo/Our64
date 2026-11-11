@@ -11,7 +11,9 @@
 #define HEADER_V3 32
 #define LEVEL  1 /* zlib's fastest: RDRAM is mostly zeros and repeats, and the writer runs on a spare core */
 #define PACK_SLICE (256u * 1024) /* statefile_abort is checked between slices: 32 a state */
-#define STORE_SLICE (64u * 1024)
+/* The write in slices of this many bytes; the dev build's test switch
+ * write-whole sets it to the whole state, as before 2026-11-10. */
+unsigned statefile_store_slice = 64u * 1024;
 
 volatile int statefile_abort;
 
@@ -111,12 +113,12 @@ int statefile_store_over(const char *path, const void *work, unsigned bytes)
 		room = (bytes + bytes / 4 + 0xFFFF) & ~0xFFFFu;
 	}
 	size_t n = 0;
-	for (unsigned at = 0; at < bytes; at += STORE_SLICE) { /* in slices, so statefile_abort is seen */
+	for (unsigned at = 0; at < bytes; at += statefile_store_slice) { /* in slices, so statefile_abort is seen */
 		if (statefile_abort) {
 			fclose(f); /* the file is left part written: its CRC fails and resume_load takes the other */
 			return STATEFILE_ABORTED;
 		}
-		const unsigned k = bytes - at < STORE_SLICE ? bytes - at : STORE_SLICE;
+		const unsigned k = bytes - at < statefile_store_slice ? bytes - at : statefile_store_slice;
 		const size_t done = fwrite((const unsigned char *)work + at, 1, k, f);
 		n += done;
 		if (done != k)
