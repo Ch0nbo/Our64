@@ -1561,6 +1561,8 @@ void FrameBufferList::OverscanBuffer::draw(u32 _fullHeight, bool _PAL)
 	drawer.copyTexturedRect(blitParams);
 }
 
+extern "C" { volatile int our64_pic_rect[6]; } // Our64: renderBuffer's picture rectangle
+
 void FrameBufferList::renderBuffer()
 {
 	OUR64_AT();
@@ -1687,6 +1689,14 @@ void FrameBufferList::renderBuffer()
 						vOffset + static_cast<s32>(dstY0*dstScaleY),
 						hOffset + dstX1,
 						vOffset + static_cast<s32>(dstY1*dstScaleY) };
+	// Our64: where the game's picture went in the window, for the player's edge
+	// measurement (video.cpp, the sweep): x0, y0, x1, y1 as drawn, then the window.
+	our64_pic_rect[0] = dstCoord[0];
+	our64_pic_rect[1] = dstCoord[1];
+	our64_pic_rect[2] = dstCoord[2];
+	our64_pic_rect[3] = dstCoord[3];
+	our64_pic_rect[4] = static_cast<s32>(m_overscan.getBufferWidth());
+	our64_pic_rect[5] = static_cast<s32>(m_overscan.getBufferHeight());
 
 	ObjectHandle readBuffer;
 

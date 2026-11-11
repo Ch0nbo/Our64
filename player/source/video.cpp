@@ -869,6 +869,89 @@ static void dump_screen()
 		report_line("FRAME DUMP: done, %u screens in framedump/", g_dump_index);
 }
 
+// ---- edge measurement (the sweep): the black border at each edge of the
+// picture, against where GLideN64 placed the game's picture (#36: "black
+// borders, thicker at the bottom", 2026-11-11). Graphics core; every 5 s. ----
+extern "C" volatile int our64_pic_rect[6]; // FrameBuffer.cpp renderBuffer: x0, y0, x1, y1, window w, h
+static volatile bool g_edges_on;
+static OSTime g_edges_last;
+static unsigned g_edges_n;
+static int g_edge_min[4], g_edge_max[4];  // black rows/columns: left, right, top, bottom (screen order)
+static int g_rect_min[4], g_rect_max[4];  // our64_pic_rect x0, y0, x1, y1 over the samples
+static int g_rect_w, g_rect_h, g_edge_w, g_edge_h;
+
+static bool dark(const uint8_t * p) { return p[0] <= 16 && p[1] <= 16 && p[2] <= 16; }
+
+static void edge_scan()
+{
+	int w = 0, h = 0;
+	ReadScreen2(nullptr, &w, &h, 0);
+	if (w <= 0 || h <= 0 || w > 640 || h > 480)
+		return;
+	static uint8_t * rgb;
+	if (rgb == nullptr)
+		rgb = static_cast<uint8_t *>(malloc(640 * 480 * 3));
+	if (rgb == nullptr)
+		return;
+	ReadScreen2(rgb, &w, &h, 0);
+	// Rows come bottom-up: screen row r is buffer row h - 1 - r.
+	auto row_dark = [&](int r) {
+		const uint8_t * p = rgb + size_t(h - 1 - r) * w * 3;
+		for (int x = 0; x < w; x++)
+			if (!dark(p + x * 3))
+				return false;
+		return true;
+	};
+	auto col_dark = [&](int c) {
+		for (int r = 0; r < h; r++)
+			if (!dark(rgb + (size_t(h - 1 - r) * w + c) * 3))
+				return false;
+		return true;
+	};
+	int e[4] = {0, 0, 0, 0};
+	while (e[2] < h && row_dark(e[2])) e[2]++;
+	while (e[3] < h - e[2] && row_dark(h - 1 - e[3])) e[3]++;
+	while (e[0] < w && col_dark(e[0])) e[0]++;
+	while (e[1] < w - e[0] && col_dark(w - 1 - e[1])) e[1]++;
+	int rc[4];
+	for (int i = 0; i < 4; i++)
+		rc[i] = our64_pic_rect[i];
+	for (int i = 0; i < 4; i++) {
+		if (g_edges_n == 0 || e[i] < g_edge_min[i]) g_edge_min[i] = e[i];
+		if (g_edges_n == 0 || e[i] > g_edge_max[i]) g_edge_max[i] = e[i];
+		if (g_edges_n == 0 || rc[i] < g_rect_min[i]) g_rect_min[i] = rc[i];
+		if (g_edges_n == 0 || rc[i] > g_rect_max[i]) g_rect_max[i] = rc[i];
+	}
+	g_rect_w = our64_pic_rect[4];
+	g_rect_h = our64_pic_rect[5];
+	g_edge_w = w;
+	g_edge_h = h;
+	g_edges_n++;
+}
+
+extern "C" void video_edges_start(void)
+{
+	g_edges_n = 0;
+	g_edges_last = OSGetSystemTime();
+	g_edges_on = true;
+}
+
+// One line for the sweep: the black edges (smallest and largest over the samples:
+// the smallest is the border that never goes away) and GLideN64's picture rectangle.
+extern "C" void video_edges_line(char * out, unsigned size)
+{
+	g_edges_on = false;
+	if (g_edges_n == 0) {
+		snprintf(out, size, "edges: no samples");
+		return;
+	}
+	snprintf(out, size, "edges of %dx%d, black rows/columns over %u samples: left %d-%d, right %d-%d, top %d-%d, "
+	         "bottom %d-%d; picture rect x0 %d-%d y0 %d-%d x1 %d-%d y1 %d-%d in %dx%d",
+	         g_edge_w, g_edge_h, g_edges_n, g_edge_min[0], g_edge_max[0], g_edge_min[1], g_edge_max[1], g_edge_min[2],
+	         g_edge_max[2], g_edge_min[3], g_edge_max[3], g_rect_min[0], g_rect_max[0], g_rect_min[1], g_rect_max[1],
+	         g_rect_min[2], g_rect_max[2], g_rect_min[3], g_rect_max[3], g_rect_w, g_rect_h);
+}
+
 extern "C" int video_frame_dump_on(void) { return g_frame_dump; }
 extern "C" void video_frame_dump_start(void)
 {
@@ -991,6 +1074,10 @@ void run(Slot & s)
 		g_screen_vi = 0; // presents outside a VI show no VI
 		if (g_started && g_dump_left > 0)
 			dump_screen();
+		if (g_started && g_edges_on && OSGetSystemTime() - g_edges_last >= OSSecondsToTicks(5)) {
+			g_edges_last = OSGetSystemTime();
+			edge_scan();
+		}
 		g_screen_us += now_us() - t;
 		break;
 	}

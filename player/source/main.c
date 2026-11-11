@@ -1963,6 +1963,10 @@ static int play_game(int index)
 	}
 	g_stats_from_us = report_now_us();
 	g_sweep_t0_us = g_stats_from_us;
+	if (g_sweep_s) { /* the picture's black edges, for the sweep line (#36) */
+		extern void video_edges_start(void);
+		video_edges_start();
+	}
 	g_sweep_low = 1e9;
 	g_sweep_vis0 = g_bench.vis;
 	g_sweep_tasks0 = gfx_tasks_posted();
@@ -2307,7 +2311,7 @@ static void sweep(void)
 		g_sweep_t0_us = 0;
 		g_game_fc[0] = 0; /* before the game: play_game fills it (cleared after, every line lost it) */
 		const int r = play_game(i);
-		char line[1100];
+		char line[1500];
 		if (!g_sweep_t0_us) {
 			snprintf(line, sizeof(line), "%s: did not start (could not read it, or graphics did not start)  CHECK", file);
 		} else {
@@ -2328,6 +2332,12 @@ static void sweep(void)
 			         our64_gx2_links - g_sweep_links0, check ? "  CHECK" : "");
 			if (g_game_fc[0]) /* the pacing and frame check: games that do worse on the TV clock than the old pacing */
 				snprintf(line + strlen(line), sizeof(line) - strlen(line), " | %s", g_game_fc);
+			{
+				extern void video_edges_line(char *out, unsigned size);
+				char edges[300];
+				video_edges_line(edges, sizeof(edges));
+				snprintf(line + strlen(line), sizeof(line) - strlen(line), " | %s", edges);
+			}
 			checks += check;
 		}
 		build_note("sweep-results.txt", "a", line);
