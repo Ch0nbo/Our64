@@ -997,8 +997,9 @@ int states_take_action(void)
 	return a;
 }
 
-/* Outside go(): the card read last replaces the game. Then an autosave of
- * it at the first boundary, so the next start is not the game left behind. */
+/* Outside go(): the card read last replaces the game. No resume point of it
+ * is taken now (Zach, 2026-11-10: only HOME, exit, power-down and in-game
+ * saves take one); the next of those does. */
 void states_load_now(void)
 {
 	OSTime t0 = OSGetSystemTime();
@@ -1009,10 +1010,9 @@ void states_load_now(void)
 	states_after_reset();
 }
 
+/* After a load or reset: once a resume point was taken here at once, so a crash
+ * soon after resumed the loaded game; now none is (every resume point is a
+ * chance of the core 2 stall, 2026-11-10). g_soon stays for that path. */
 void states_after_reset(void)
 {
-	if (!resume_on())
-		return;
-	g_soon = 1;
-	savestates_job |= SAVESTATE;
 }

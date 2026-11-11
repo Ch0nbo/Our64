@@ -208,7 +208,7 @@ screens:
           result: "The Start-up ROM Category page opens"
       states:
         - "Opening this page reads no game: the reading is on the fetch screen"
-        - "Auto-Resume Off: no resume point is read at launch or written (no 60 s timer, pause, exit or after-load captures); a game starts fresh and running, not paused; in-game saves go to the SD at once"
+        - "Auto-Resume Off: no resume point is read at launch or written (no pause, exit, power-down or in-game-save captures); a game starts fresh and running, not paused; in-game saves go to the SD at once"
         - "a write to the SD fails: OUR-0203; Auto-Resume or Start-up ROM Category keeps its old value and nothing is deleted"
   - id: start-on
     title: "Start-up ROM Category"

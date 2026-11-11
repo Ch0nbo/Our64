@@ -9,7 +9,7 @@ domain_rules:
   - "The screen mode prompt shows on every launch, with the last choice pre-selected (Zach, 2026-10-16)."
   - "Each launch resumes the last game from its newest resume point; the game list comes in build step 6. With Settings > Games' Auto-Resume Off (2026-11-06) no resume point is read or written: the game starts fresh and running."
   - "HOME leaves Our64 for the Wii U Menu through a last resume point until the pause menu exists (build step 5)."
-  - "A hard power cut (unplug) may lose up to 60 s of play; players expect that (Zach, 2026-10-16). A power press loses nothing."
+  - "A hard power cut (unplug) loses the play since the last HOME pause, exit or in-game save: there are no timed resume points (Zach, 2026-11-10: one every 60 s stalled core 2 and froze the console). A power press loses nothing."
   - "The system HOME Menu is off: HOME is Our64's own button."
   - "Nothing is drawn over a running game: notices and the SD write icon show only at the launch prompt, the pause menu and the closing screen (Zach, 2026-10-16). The notices and write-icon screens below are to be redesigned to that rule."
   - "One exception: controller notices (a player joined, a controller disconnected or came back, a low battery) show at the top over the running game (Zach, 2026-10-16: \"this one earns its keep\")."
@@ -96,7 +96,7 @@ screens:
           why: "Status is visible without covering the middle of the picture"
           story: 3
         - what: "Success notices for 3 s, then they fade: \"Game saved to SD card\" after each in-game save, \"Resumed from 21:40\" after a resume"
-          why: "The player sees each save of their progress land; a resume point every 60 s gets only the write icon, so notices do not nag"
+          why: "The player sees each save of their progress land; a resume point (HOME, exit, power-down) gets only the write icon, so notices do not nag"
           story: 3
         - what: "Fallback notices for 6 s, naming what happened and what it means: \"Save file damaged: loaded the backup from 14 Oct 21:40\""
           why: "The player knows which copy of their progress they have"

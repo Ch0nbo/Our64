@@ -15,7 +15,7 @@ domain_rules:
   - "HOME opens the pause menu on every controller and cannot be rebound, so a binding mistake can never lock the player out (design rule 7)."
   - "Destructive actions ask, name the action, and back it up: the confirm button says what it does, sits on the right, and focus starts on Cancel; overwriting and loading first save an automatic copy. Delete is the only action with no backup (design rule 3)."
   - "Every SD write is visible outside play: the pause screens show each write and its result (design rule 4)."
-  - "A resume point is written every 60 s of play and when Our64 closes; leaving loses nothing (built in step 2). Only with Settings > Games' Auto-Resume On (the default, 2026-11-06); Off, none is written and in-game saves go to the SD at once."
+  - "A resume point is written at HOME, when leaving the game, at power-down and before an in-game save; leaving loses nothing (built in step 2; the 60 s timer and the capture after a load or reset went on 2026-11-10: they stalled core 2 and froze the console). Only with Settings > Games' Auto-Resume On (the default, 2026-11-06); Off, none is written and in-game saves go to the SD at once."
   - "A disconnect pauses the game with a controller notice (built in step 4); the pause menu does not replace that."
   - "Three kinds of save, kept apart: the game's own in-game saves, save states, and the resume point. None ever reads, writes or changes another: loading a save state or resetting leaves the in-game saves as they are, and the Load state screen lists save states only (Zach, 2026-10-16)."
 left_out:
