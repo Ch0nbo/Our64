@@ -986,6 +986,7 @@ static void thread_census(int log)
  * once a second. Only interrupts and the kernel outrank it, so a probe that
  * takes longer than usual says they took that core's time. */
 static volatile uint32_t g_probe_us[3];
+static int g_abort_saves;  /* test switch abort-saves */
 static uint32_t g_hb_us; /* how long the last heartbeat took (core 2, above every app thread): slower means interrupts or the system took core 2 */
 static OSThread g_probe_thread[3] __attribute__((aligned(16)));
 static uint8_t g_probe_stack[3][16 * 1024] __attribute__((aligned(16)));
@@ -1053,12 +1054,20 @@ static void heartbeat(void)
 	            (unsigned)g_probe_us[1], (unsigned)g_probe_us[2], report_send_core_max_us(0) / 1e3,
 	            report_send_core_max_us(1) / 1e3, report_send_core_max_us(2) / 1e3, g_hb_us / 1e3, our64_hle_oob, our64_hle_oob_addr,
 	            our64_hle_bad_lists, our64_hle_abi_v);
-	/* Safety: a resume point job past 1.5 s (normal under 0.6 s on core 2) is
-	 * stopped; the heartbeat then shows whether core 2 recovers (2026-11-10). */
-	if (writer_job_slot() == WRITER_RESUME && writer_job_ms() > 1500 && !statefile_abort) {
-		statefile_abort = 1;
-		report_line("SAFETY: a resume point job has run %.0f ms (normal under 0.6 s): aborting it", writer_job_ms());
-	}
+	/* A resume point job past 5 s is told once, not stopped: stopping one on core 2
+	 * did not bring the core back (2026-11-10), and on core 0 a heavy game's
+	 * normal job takes 1-1.5 s (Banjo-Tooie). The test switch abort-saves stops it
+	 * at 5 s instead. */
+	static int long_told;
+	if (writer_job_slot() == WRITER_RESUME && writer_job_ms() > 5000) {
+		if (!long_told++) {
+			report_line("SAFETY: a resume point job has run %.0f ms (normal under 1.5 s)%s", writer_job_ms(),
+			            g_abort_saves ? ": aborting it" : "");
+			if (g_abort_saves)
+				statefile_abort = 1;
+		}
+	} else
+		long_told = 0;
 	static unsigned census_logs, beats;
 	const int stalled = writer_job_ms() > 2000 || (!g_paused && dv < 40);
 	if (writer_job_ms() > 2000) {
@@ -1332,6 +1341,8 @@ static void read_test_switches(const char *root)
 	}
 	snprintf(path, sizeof(path), "%s/capture-at-start", root);
 	g_capture_at_start = !stat(path, &st);
+	snprintf(path, sizeof(path), "%s/abort-saves", root);
+	g_abort_saves = !stat(path, &st);
 	/* write-whole: a state written in one fwrite, as before slices (2026-11-10): does
 	 * the one 800 KB write bring the stall back? */
 	snprintf(path, sizeof(path), "%s/write-whole", root);
