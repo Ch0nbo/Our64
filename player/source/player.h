@@ -41,6 +41,7 @@ void cpuprof_save(const char *name); /* before cpu_deinit: profile/cpu-<name>-<k
 void cpuprof_restart(void);       /* a reset: the samples so far are dropped */
 int  video_wait_task(unsigned task, double timeout_us); /* < 0: no timeout; 1 when decoded */
 void video_sync(void);            /* waits until the graphics core is idle */
+int  video_res_height(void);      /* lines GLideN64 draws at: 480, or 720 with the dev test switch res-720 */
 int  video_frame_dump_on(void);   /* sd:/wiiu/our64/frame-dump: GamePad minus saves screens */
 void video_frame_dump_start(void);
 void video_reset_rsp(void);       /* after a reset or load: GLideN64 starts the next task afresh */

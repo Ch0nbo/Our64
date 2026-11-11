@@ -360,7 +360,8 @@ static int ft_begin(void)
 	g_ft_run = runs + 1;
 	g_ft_state = 0;
 	g_ft_vi0 = g_bench.vis;
-	snprintf(g_ft_base, sizeof(g_ft_base), "%s/%s-run%d-%s", dir, id, g_ft_run, g_ft_fix ? "tv" : "old");
+	snprintf(g_ft_base, sizeof(g_ft_base), "%s/%s-run%d-%s%s", dir, id, g_ft_run, g_ft_fix ? "tv" : "old",
+	         video_res_height() == 720 ? "-720" : "");
 	/* shown 2 s into play (ft_tick): a game resumed from its autosave opens paused */
 	snprintf(g_ft_l1, sizeof(g_ft_l1), "Frame test: %s run %d%s", g_ft_name, g_ft_run, g_ft_fix ? "" : ", old pacing");
 	snprintf(g_ft_l2, sizeof(g_ft_l2), "%d saved before. Play until Saved shows", complete);
@@ -391,8 +392,8 @@ static int ft_write(int done)
 	char age[200];
 	snprintf(age, sizeof(age), "input age at the game's polls: median %.2f ms, 95%% %.2f, 99%% %.2f, most %.2f (%u polls)\n",
 	         am, a95, a99, amost, polls);
-	int ok = fprintf(f, "game %s\nrun %d\npacing %s\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s%s", g_ft_name,
-	                 g_ft_run, g_ft_fix ? "TV clock" : "old", measured, FT_MEASURE_VIS,
+	int ok = fprintf(f, "game %s\nrun %d\npacing %s\ndrawn at %d lines\nmeasured %u VIs of %u\naudio underruns %u\n%s\n%s%s%s", g_ft_name,
+	                 g_ft_run, g_ft_fix ? "TV clock" : "old", video_res_height(), measured, FT_MEASURE_VIS,
 	                 audio_underruns() - g_ft_under0, fc, age, gpu, done ? "COMPLETE\n" : "") > 0;
 	ok = fclose(f) == 0 && ok;
 	return ok;

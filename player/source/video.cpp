@@ -842,6 +842,42 @@ static bool g_gx2_drain, g_frame_dump;
 static volatile int g_dump_left;
 static unsigned g_dump_index;
 
+// The read-back buffer for GLideN64's window (ReadScreen2: 3 bytes a pixel),
+// kept between calls and grown when the window is larger (720 lines).
+static uint8_t * screen_rgb(int w, int h)
+{
+	static uint8_t * rgb;
+	static size_t size;
+	const size_t need = size_t(w) * size_t(h) * 3;
+	if (need > size) {
+		free(rgb);
+		rgb = static_cast<uint8_t *>(malloc(need));
+		size = rgb != nullptr ? need : 0;
+	}
+	return rgb;
+}
+
+// GLideN64's window: 640x480, or 960x720 while the dev build's test switch
+// sd:/wiiu/our64/res-720 is on the card (the 480 against 720 measurement for
+// 1.2.0, #22 and #35). Read at each game start.
+static int g_res_h = 480;
+
+static int res_height_from_card()
+{
+#ifndef OUR64_RELEASE
+	if (const char * root = report_sd_root()) {
+		char path[256];
+		struct stat st;
+		snprintf(path, sizeof(path), "%s/res-720", root);
+		if (stat(path, &st) == 0)
+			return 720;
+	}
+#endif
+	return 480;
+}
+
+extern "C" int video_res_height(void) { return res_height_from_card(); }
+
 static void dump_screen()
 {
 	const char * root = report_sd_root();
@@ -851,10 +887,8 @@ static void dump_screen()
 	ReadScreen2(nullptr, &w, &h, 0);
 	if (w <= 0 || h <= 0)
 		return;
-	static uint8_t * rgb;
+	uint8_t * rgb = screen_rgb(w, h);
 	if (rgb == nullptr)
-		rgb = static_cast<uint8_t *>(malloc(640 * 480 * 3));
-	if (rgb == nullptr || w > 640 || h > 480)
 		return;
 	ReadScreen2(rgb, &w, &h, 0);
 	char path[256];
@@ -890,11 +924,9 @@ static void edge_scan()
 {
 	int w = 0, h = 0;
 	ReadScreen2(nullptr, &w, &h, 0);
-	if (w <= 0 || h <= 0 || w > 640 || h > 480)
+	if (w <= 0 || h <= 0)
 		return;
-	static uint8_t * rgb;
-	if (rgb == nullptr)
-		rgb = static_cast<uint8_t *>(malloc(640 * 480 * 3));
+	uint8_t * rgb = screen_rgb(w, h);
 	if (rgb == nullptr)
 		return;
 	ReadScreen2(rgb, &w, &h, 0);
@@ -1318,13 +1350,16 @@ void start_on_graphics_core(void * result)
 			            g_pace_log ? "" : ": no memory for the record");
 		}
 	}
-	static char settings[160];
+	g_res_h = res_height_from_card();
+	static char settings[224];
 	snprintf(settings, sizeof(settings),
-	         "EnableCopyColorToRDRAM=%d,AsyncShaderCompilation=%d,EnableInaccurateTextureCoordinates=%d,AspectRatio=%d",
-	         copy, async, inexact, g_aspect);
+	         "EnableCopyColorToRDRAM=%d,AsyncShaderCompilation=%d,EnableInaccurateTextureCoordinates=%d,AspectRatio=%d,"
+	         "ScreenWidth=%d,ScreenHeight=%d",
+	         copy, async, inexact, g_aspect, g_res_h * 4 / 3, g_res_h);
 	our64_config_override(settings);
-	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s.", copy,
-	            async ? "in the background" : "before drawing");
+	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s. Drawn at %dx%d%s.", copy,
+	            async ? "in the background" : "before drawing", g_res_h * 4 / 3, g_res_h,
+	            g_res_h != 480 ? " (TEST: res-720)" : "");
 
 	GFX_INFO gi = {};
 	gi.HEADER = g_mem.header;
