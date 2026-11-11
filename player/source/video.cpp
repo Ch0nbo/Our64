@@ -871,17 +871,21 @@ static void dump_screen()
 
 // ---- edge measurement (the sweep): the black border at each edge of the
 // picture, against where GLideN64 placed the game's picture (#36: "black
-// borders, thicker at the bottom", 2026-11-11). Graphics core; every 5 s. ----
+// borders, thicker at the bottom", 2026-11-11). Graphics core; every second. ----
 extern "C" volatile int our64_pic_rect[6]; // FrameBuffer.cpp renderBuffer: x0, y0, x1, y1, window w, h
 static volatile bool g_edges_on;
 static OSTime g_edges_last;
-static unsigned g_edges_n;
-static int g_edge_min[4], g_edge_max[4];  // black rows/columns: left, right, top, bottom (screen order)
-static int g_rect_min[4], g_rect_max[4];  // our64_pic_rect x0, y0, x1, y1 over the samples
+static unsigned g_edges_n, g_edges_skipped;     // samples kept, mostly black ones left out
+constexpr unsigned kEdgeSamples = 64;
+static int16_t g_edge_s[kEdgeSamples][4];       // kept samples' black rows/columns: left, right, top, bottom
+static int g_rect_min[4], g_rect_max[4];        // our64_pic_rect x0, y0, x1, y1 over every sample
+static unsigned g_rect_n;
 static int g_rect_w, g_rect_h, g_edge_w, g_edge_h;
 
 static bool dark(const uint8_t * p) { return p[0] <= 16 && p[1] <= 16 && p[2] <= 16; }
 
+// Once a second (the sweep): a frame mostly black (a fade, a logo on black)
+// says nothing about the border and is left out; the rest are kept.
 static void edge_scan()
 {
 	int w = 0, h = 0;
@@ -917,39 +921,71 @@ static void edge_scan()
 	for (int i = 0; i < 4; i++)
 		rc[i] = our64_pic_rect[i];
 	for (int i = 0; i < 4; i++) {
-		if (g_edges_n == 0 || e[i] < g_edge_min[i]) g_edge_min[i] = e[i];
-		if (g_edges_n == 0 || e[i] > g_edge_max[i]) g_edge_max[i] = e[i];
-		if (g_edges_n == 0 || rc[i] < g_rect_min[i]) g_rect_min[i] = rc[i];
-		if (g_edges_n == 0 || rc[i] > g_rect_max[i]) g_rect_max[i] = rc[i];
+		if (g_rect_n == 0 || rc[i] < g_rect_min[i]) g_rect_min[i] = rc[i];
+		if (g_rect_n == 0 || rc[i] > g_rect_max[i]) g_rect_max[i] = rc[i];
 	}
+	g_rect_n++;
 	g_rect_w = our64_pic_rect[4];
 	g_rect_h = our64_pic_rect[5];
 	g_edge_w = w;
 	g_edge_h = h;
-	g_edges_n++;
+	if ((e[0] + e[1]) * 2 >= w || (e[2] + e[3]) * 2 >= h) {
+		g_edges_skipped++; // under half the width or height shows anything
+		return;
+	}
+	if (g_edges_n < kEdgeSamples) {
+		for (int i = 0; i < 4; i++)
+			g_edge_s[g_edges_n][i] = int16_t(e[i]);
+		g_edges_n++;
+	}
 }
 
 extern "C" void video_edges_start(void)
 {
-	g_edges_n = 0;
+	g_edges_n = g_edges_skipped = g_rect_n = 0;
 	g_edges_last = OSGetSystemTime();
 	g_edges_on = true;
 }
 
-// One line for the sweep: the black edges (smallest and largest over the samples:
-// the smallest is the border that never goes away) and GLideN64's picture rectangle.
+// One side's most common value over the kept samples (the border that stays),
+// with how many samples had it, and the smallest.
+static void edge_mode(int side, int * mode, unsigned * count, int * least)
+{
+	*mode = -1;
+	*count = 0;
+	*least = 1 << 30;
+	for (unsigned i = 0; i < g_edges_n; i++) {
+		const int v = g_edge_s[i][side];
+		if (v < *least)
+			*least = v;
+		unsigned c = 0;
+		for (unsigned j = 0; j < g_edges_n; j++)
+			c += g_edge_s[j][side] == v;
+		if (c > *count || (c == *count && v < *mode)) {
+			*count = c;
+			*mode = v;
+		}
+	}
+}
+
+// One line for the sweep: the black edges (most common and smallest over the
+// kept samples) and GLideN64's picture rectangle over every sample.
 extern "C" void video_edges_line(char * out, unsigned size)
 {
 	g_edges_on = false;
-	if (g_edges_n == 0) {
-		snprintf(out, size, "edges: no samples");
-		return;
+	int n = snprintf(out, size, "edges of %dx%d: %u frames kept, %u mostly black left out", g_edge_w, g_edge_h, g_edges_n,
+	                 g_edges_skipped);
+	static const char * const side[4] = {"left", "right", "top", "bottom"};
+	for (int i = 0; i < 4 && g_edges_n > 0 && n < int(size); i++) {
+		int mode, least;
+		unsigned count;
+		edge_mode(i, &mode, &count, &least);
+		n += snprintf(out + n, size - n, "%s %s %d (%u, least %d)", i ? "," : ";", side[i], mode, count, least);
 	}
-	snprintf(out, size, "edges of %dx%d, black rows/columns over %u samples: left %d-%d, right %d-%d, top %d-%d, "
-	         "bottom %d-%d; picture rect x0 %d-%d y0 %d-%d x1 %d-%d y1 %d-%d in %dx%d",
-	         g_edge_w, g_edge_h, g_edges_n, g_edge_min[0], g_edge_max[0], g_edge_min[1], g_edge_max[1], g_edge_min[2],
-	         g_edge_max[2], g_edge_min[3], g_edge_max[3], g_rect_min[0], g_rect_max[0], g_rect_min[1], g_rect_max[1],
-	         g_rect_min[2], g_rect_max[2], g_rect_min[3], g_rect_max[3], g_rect_w, g_rect_h);
+	if (g_rect_n > 0 && n < int(size))
+		snprintf(out + n, size - n, "; picture rect x0 %d-%d y0 %d-%d x1 %d-%d y1 %d-%d in %dx%d", g_rect_min[0], g_rect_max[0],
+		         g_rect_min[1], g_rect_max[1], g_rect_min[2], g_rect_max[2], g_rect_min[3], g_rect_max[3], g_rect_w,
+		         g_rect_h);
 }
 
 extern "C" int video_frame_dump_on(void) { return g_frame_dump; }
@@ -1074,7 +1110,7 @@ void run(Slot & s)
 		g_screen_vi = 0; // presents outside a VI show no VI
 		if (g_started && g_dump_left > 0)
 			dump_screen();
-		if (g_started && g_edges_on && OSGetSystemTime() - g_edges_last >= OSSecondsToTicks(5)) {
+		if (g_started && g_edges_on && OSGetSystemTime() - g_edges_last >= OSSecondsToTicks(1)) {
 			g_edges_last = OSGetSystemTime();
 			edge_scan();
 		}

@@ -2334,7 +2334,7 @@ static void sweep(void)
 				snprintf(line + strlen(line), sizeof(line) - strlen(line), " | %s", g_game_fc);
 			{
 				extern void video_edges_line(char *out, unsigned size);
-				char edges[300];
+				char edges[400];
 				video_edges_line(edges, sizeof(edges));
 				snprintf(line + strlen(line), sizeof(line) - strlen(line), " | %s", edges);
 			}
