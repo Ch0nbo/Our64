@@ -522,6 +522,8 @@ static int g_count_switch;         /* sd:/wiiu/our64/count-per-op holds 1-4: eve
 static int g_build_shaders;        /* sd:/wiiu/our64/build-shaders exists: build every game's shaders, then stop */
 /* sd:/wiiu/our64/sweep exists: play every game for g_sweep_s seconds with nobody at the controls, then stop */
 static int g_sweep_s;
+static void build_note(const char *file, const char *mode, const char *line); /* below: a line into sd:/wiiu/our64/<file> */
+static int g_edges_switch; /* sd:/wiiu/our64/edges: the picture's black edges measured in normal play too (edges-results.txt) */
 static char g_game_fc[640];  /* the last game's pacing and frame check, for its sweep line */
 static double g_sweep_t0_us, g_sweep_low;  /* when the game started playing; its lowest 10 s VI/s (no menu in them) */
 static uint32_t g_sweep_vis0, g_sweep_tasks0, g_sweep_under0, g_sweep_yields0, g_sweep_links0;
@@ -1341,6 +1343,10 @@ static void read_test_switches(const char *root)
 	}
 	snprintf(path, sizeof(path), "%s/capture-at-start", root);
 	g_capture_at_start = !stat(path, &st);
+	snprintf(path, sizeof(path), "%s/edges", root);
+	g_edges_switch = !stat(path, &st);
+	if (g_edges_switch)
+		report_line("TEST: the picture's black edges are measured in each game (edges)");
 	snprintf(path, sizeof(path), "%s/abort-saves", root);
 	g_abort_saves = !stat(path, &st);
 	/* write-whole: a state written in one fwrite, as before slices (2026-11-10): does
@@ -1963,7 +1969,7 @@ static int play_game(int index)
 	}
 	g_stats_from_us = report_now_us();
 	g_sweep_t0_us = g_stats_from_us;
-	if (g_sweep_s) { /* the picture's black edges, for the sweep line (#36) */
+	if (g_sweep_s || g_edges_switch) { /* the picture's black edges, for the sweep line or edges-results.txt (#36) */
 		extern void video_edges_start(void);
 		video_edges_start();
 	}
@@ -2021,6 +2027,14 @@ static int play_game(int index)
 	input_set_notices(0);
 	result = g_quit == QUIT_ROMS ? PLAY_ROMS : PLAY_EXIT;
 	report_line("Stopped after %u VIs (%s).", g_bench.vis, result == PLAY_ROMS ? "to Our ROMs" : "leaving");
+	if (g_edges_switch && !g_sweep_s) { /* the hands-on pass's line: the sweep's own goes on its sweep line */
+		extern void video_edges_line(char *out, unsigned size);
+		char edges[400], line[600];
+		video_edges_line(edges, sizeof(edges));
+		snprintf(line, sizeof(line), "%s: %.0f s | %s", played, (report_now_us() - g_sweep_t0_us) / 1e6, edges);
+		build_note("edges-results.txt", "a", line);
+		report_line("EDGES: %s", line);
+	}
 	{ /* the one line a public build keeps per game: which ROM and how it ran */
 		char low[48] = "", id[64];
 		if (g_sweep_low < 1e9)
