@@ -962,6 +962,17 @@ static void thread_census(int log)
 				            name ? name : "?", (unsigned long long)dw, (int)t->priority, (unsigned)(t->attr & 7),
 				            (unsigned)t->state);
 			}
+			/* A thread on core 2 that wants to run and ranks above the SD writer
+			 * (internal 88; the audio thread is 82): where it is. During a stall
+			 * a 2.6 ms loop at internal 64 ran at full speed, so what holds the
+			 * writer and audio back ranks between them (2026-11-10). */
+			if (log && t != OSGetCurrentThread() && (t->attr & 4) && (t->state & OS_THREAD_STATE_READY) &&
+			    t->priority < 88) {
+				char where[512];
+				const char *name = OSGetThreadName(t);
+				thread_stack(name ? name : "?", t, (uintptr_t)t->stackEnd, (uintptr_t)t->stackStart, where, sizeof(where));
+				report_line("  ready above the writer on core 2: %s (priority %d)", where, (int)t->priority);
+			}
 		}
 		OSGetActiveThreadLink(t, &link);
 		t = link.next;

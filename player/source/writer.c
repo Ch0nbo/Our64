@@ -2,6 +2,8 @@
 #include "writer.h"
 #include "report.h"
 
+#include <stdio.h>
+#include <sys/stat.h>
 #include <coreinit/condition.h>
 #include <coreinit/mutex.h>
 #include <coreinit/thread.h>
@@ -52,8 +54,23 @@ int writer_start(void)
 	OSInitCond(&g_wake);
 	OSInitCond(&g_idle);
 	g_on = 1;
-	if (!OSCreateThread(&g_thread, writer, 0, NULL, g_stack + sizeof(g_stack), sizeof(g_stack), 24,
-	                    OS_THREAD_ATTRIB_AFFINITY_CPU2)) {
+	/* Dev build test switch writer-core0: the writer on core 0 (graphics, mostly
+	 * idle). On core 2 a resume point job stalled and core 2 stopped running its
+	 * ready threads but on a ~16 ms tick (Harvest Moon 64, 2026-11-10). */
+	OSThreadAttributes core = OS_THREAD_ATTRIB_AFFINITY_CPU2;
+#ifndef OUR64_RELEASE
+	{
+		char path[256];
+		struct stat st;
+		const char *root = report_sd_root();
+		snprintf(path, sizeof(path), "%s/writer-core0", root ? root : "");
+		if (root && !stat(path, &st)) {
+			core = OS_THREAD_ATTRIB_AFFINITY_CPU0;
+			report_line("TEST: the SD writer runs on core 0 (writer-core0)");
+		}
+	}
+#endif
+	if (!OSCreateThread(&g_thread, writer, 0, NULL, g_stack + sizeof(g_stack), sizeof(g_stack), 24, core)) {
 		g_on = 0;
 		return -1;
 	}
