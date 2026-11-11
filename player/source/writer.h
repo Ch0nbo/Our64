@@ -1,4 +1,4 @@
-/* Our64 player: one thread on core 2 for every SD write, so the game never
+/* Our64 player: one thread on core 0 for every SD write, so the game never
  * waits for the card. A job is a function run on that thread. Jobs in lower
  * slots run first: a resume point always reaches the SD before the in-game
  * saves captured with it, so a power cut can never leave a resume point

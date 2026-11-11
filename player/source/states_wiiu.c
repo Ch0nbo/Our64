@@ -39,6 +39,7 @@
 #include "report.h"
 
 #include <coreinit/cache.h>
+#include <coreinit/core.h>
 #include <coreinit/event.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
@@ -522,10 +523,10 @@ static void write_job(void)
 	OSTime t2 = OSGetSystemTime();
 	writer_slow(strrchr(path, '/') + 1, OSTicksToMicroseconds(t2 - t1) / 1e3);
 	if (r == STATEFILE_OK) {
-		report_line("RESUME: point %u written to %s: %u KB in %.0f ms (compress %.0f, write %.0f; core 2)",
+		report_line("RESUME: point %u written to %s: %u KB in %.0f ms (compress %.0f, write %.0f; core %u)",
 		            (unsigned)info.counter, strrchr(path, '/') + 1, bytes / 1024,
 		            OSTicksToMicroseconds(t2 - t0) / 1e3, OSTicksToMicroseconds(t1 - t0) / 1e3,
-		            OSTicksToMicroseconds(t2 - t1) / 1e3);
+		            OSTicksToMicroseconds(t2 - t1) / 1e3, (unsigned)OSGetCoreId());
 		g_plan.next_file = 1 - g_plan.next_file;
 		g_plan.next_counter++;
 		g_last_ok = info.saved_at;

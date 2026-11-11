@@ -116,9 +116,10 @@ int  resume_forget_all(const char *root, void (*each)(int done, int total, void 
 int  resume_games_with_points(const char *root); /* games that have resume points */
 int  resume_point_file(const char *name);
 
-/* When a resume point is captured. Due every 60 s, and at once when an
- * in-game save waits for one (the resume point goes to the SD first, so the
- * two never disagree). A due capture happens at the start of a VI only when
+/* When a resume point is captured during play. Due at once when an in-game
+ * save waits for one (the resume point goes to the SD first, so the two never
+ * disagree), and on a timer only when resume_every_us is set (a test switch;
+ * HOME, exit and power-down take theirs in states_wiiu.c). A due capture happens at the start of a VI only when
  * the time that VI would spend waiting anyway is at least 1.2x the last
  * capture's cost (resume_fits): the copy uses time the CPU core would sleep,
  * so it costs no speed. A save that waited 5 s with no chance gives up: the
@@ -129,7 +130,7 @@ typedef struct {
 	double cost_us;  /* what the last capture took */
 } resume_timer;
 enum { RESUME_WAIT, RESUME_DUE, RESUME_GIVE_UP };
-extern double resume_every_us; /* 60 s; a test switch can set it */
+extern double resume_every_us; /* 0: no timed resume points; a test switch can set one */
 void resume_timer_init(resume_timer *t, double now_us);
 /* save_since_us: when an in-game save started waiting, < 0 when none. */
 int  resume_decide(const resume_timer *t, double now_us, double save_since_us, int writer_busy);

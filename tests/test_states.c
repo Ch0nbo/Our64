@@ -549,12 +549,26 @@ static void forget_all_deletes_every_games_resume_points_only(void)
 
 /* ---- when to capture ---- */
 
-static void nothing_is_due_before_a_minute(void)
+/* No timer: resume points are taken at HOME, exit and power-down (and for an
+ * in-game save, below). A timed one every minute stalled core 2 and froze the
+ * console (Harvest Moon 64, 2026-11-10). */
+static void nothing_is_due_on_a_timer(void)
 {
+	resume_timer t;
+	resume_timer_init(&t, 0);
+	CHECK(resume_every_us == 0);
+	CHECK(resume_decide(&t, 3600e6, -1, 0) == RESUME_WAIT);
+}
+
+/* The dev build's resume-every switch sets an interval. */
+static void nothing_is_due_before_the_interval(void)
+{
+	resume_every_us = 60e6;
 	resume_timer t;
 	resume_timer_init(&t, 0);
 	CHECK(resume_decide(&t, 59e6, -1, 0) == RESUME_WAIT);
 	CHECK(resume_decide(&t, 60e6, -1, 0) == RESUME_DUE);
+	resume_every_us = 0;
 }
 
 static void a_waiting_save_is_due_at_once(void)
@@ -574,20 +588,24 @@ static void a_save_with_no_chance_gives_up_after_five_seconds(void)
 
 static void a_busy_writer_waits(void)
 {
+	resume_every_us = 60e6;
 	resume_timer t;
 	resume_timer_init(&t, 0);
 	CHECK(resume_decide(&t, 61e6, -1, 1) == RESUME_WAIT);
 	CHECK(resume_decide(&t, 12e6, 10e6, 1) == RESUME_WAIT);
 	CHECK(resume_decide(&t, 15e6, 10e6, 1) == RESUME_GIVE_UP);
+	resume_every_us = 0;
 }
 
-static void a_capture_restarts_the_minute(void)
+static void a_capture_restarts_the_interval(void)
 {
+	resume_every_us = 60e6;
 	resume_timer t;
 	resume_timer_init(&t, 0);
 	resume_captured(&t, 30e6, 3000);
 	CHECK(resume_decide(&t, 89e6, -1, 0) == RESUME_WAIT);
 	CHECK(resume_decide(&t, 90e6, -1, 0) == RESUME_DUE);
+	resume_every_us = 0;
 }
 
 static void a_capture_fits_in_idle_time_with_a_fifth_to_spare(void)
@@ -789,11 +807,12 @@ int main(void)
 	RUN(a_state_of_many_slices_reads_back);
 	RUN(an_abort_stops_packing);
 	RUN(an_aborted_write_keeps_the_file_it_was_to_replace);
-	RUN(nothing_is_due_before_a_minute);
+	RUN(nothing_is_due_on_a_timer);
+	RUN(nothing_is_due_before_the_interval);
 	RUN(a_waiting_save_is_due_at_once);
 	RUN(a_save_with_no_chance_gives_up_after_five_seconds);
 	RUN(a_busy_writer_waits);
-	RUN(a_capture_restarts_the_minute);
+	RUN(a_capture_restarts_the_interval);
 	RUN(a_capture_fits_in_idle_time_with_a_fifth_to_spare);
 	RUN(the_first_capture_assumes_ten_ms);
 	char cmd[300];

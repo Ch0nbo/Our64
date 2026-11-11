@@ -492,9 +492,11 @@ int resume_forget_all(const char *root, void (*each)(int done, int total, void *
 
 /* ---- when to capture ---- */
 
-/* How often a resume point is taken: 60 s; the dev build's test switch
- * sd:/wiiu/our64/resume-every sets it (main.c), to write the SD many times faster. */
-double resume_every_us = 60e6;
+/* No timed resume points: they are taken at HOME, exit and power-down, after
+ * a load or reset, and before an in-game save. One every 60 s stalled core 2
+ * and froze the console about once an hour (Harvest Moon 64, 2026-11-10).
+ * The dev build's test switch resume-every sets an interval (0: none). */
+double resume_every_us = 0;
 #define SAVE_WAIT_US 5e6
 #define FIRST_COST_US 10000.0 /* replaced by the first measurement */
 
@@ -509,7 +511,8 @@ int resume_decide(const resume_timer *t, double now_us, double save_since_us, in
 	int save_waiting = save_since_us >= 0;
 	if (save_waiting && now_us - save_since_us >= SAVE_WAIT_US)
 		return RESUME_GIVE_UP;
-	if (writer_busy || !(save_waiting || now_us - t->last_us >= resume_every_us))
+	const int timed = resume_every_us > 0 && now_us - t->last_us >= resume_every_us;
+	if (writer_busy || !(save_waiting || timed))
 		return RESUME_WAIT;
 	return RESUME_DUE;
 }

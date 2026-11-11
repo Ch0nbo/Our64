@@ -1,4 +1,4 @@
-/* Our64 player: one thread on core 2 for every SD write (see writer.h). */
+/* Our64 player: one thread on core 0 for every SD write (see writer.h). */
 #include "writer.h"
 #include "report.h"
 
@@ -54,19 +54,21 @@ int writer_start(void)
 	OSInitCond(&g_wake);
 	OSInitCond(&g_idle);
 	g_on = 1;
-	/* Dev build test switch writer-core0: the writer on core 0 (graphics, mostly
-	 * idle). On core 2 a resume point job stalled and core 2 stopped running its
-	 * ready threads but on a ~16 ms tick (Harvest Moon 64, 2026-11-10). */
-	OSThreadAttributes core = OS_THREAD_ATTRIB_AFFINITY_CPU2;
+	/* Core 0 (graphics, mostly idle, and the writer's priority is below the
+	 * graphics thread's). On core 2 a resume point job stalled: the core ran
+	 * its ready threads only on a ~16 ms tick, then everything stopped. It
+	 * froze after 18-1,714 saves there and none in 2,200 on core 0 (Harvest
+	 * Moon 64, 2026-11-10). The dev build's test switch writer-core2 puts it back. */
+	OSThreadAttributes core = OS_THREAD_ATTRIB_AFFINITY_CPU0;
 #ifndef OUR64_RELEASE
 	{
 		char path[256];
 		struct stat st;
 		const char *root = report_sd_root();
-		snprintf(path, sizeof(path), "%s/writer-core0", root ? root : "");
+		snprintf(path, sizeof(path), "%s/writer-core2", root ? root : "");
 		if (root && !stat(path, &st)) {
-			core = OS_THREAD_ATTRIB_AFFINITY_CPU0;
-			report_line("TEST: the SD writer runs on core 0 (writer-core0)");
+			core = OS_THREAD_ATTRIB_AFFINITY_CPU2;
+			report_line("TEST: the SD writer runs on core 2 (writer-core2)");
 		}
 	}
 #endif
