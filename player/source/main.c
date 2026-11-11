@@ -2554,15 +2554,17 @@ int main(int argc, char **argv)
 		g_emu_stack_hi = (uintptr_t)g_stack + sizeof(g_stack);
 		watchdog_start();
 		/* System messages during play. A power press arrives as a foreground
-		 * release: the game stops first, and the loop below lets go of the
-		 * screen (WHBProcIsRunning) only after that. The system waits. */
+		 * release: the game stops and saves first, then Our64 lets go of the
+		 * screen. The system waits for that answer. */
 		OSTime asked = 0;
+		ProcUIStatus told_to = PROCUI_STATUS_IN_FOREGROUND;
 		while (!OSIsThreadTerminated(&g_thread)) {
 			if (!g_quit && !g_closing) {
 				ProcUIStatus st = ProcUIProcessMessages(TRUE);
 				if (st == PROCUI_STATUS_RELEASE_FOREGROUND || st == PROCUI_STATUS_EXITING) {
 					report_line("SYSTEM: told to %s during play (power button?)", st == PROCUI_STATUS_EXITING ? "exit" : "give up the screen");
 					asked = OSGetSystemTime();
+					told_to = st;
 					g_closing = 1;
 				}
 			}
@@ -2573,6 +2575,17 @@ int main(int argc, char **argv)
 		if (asked)
 			report_line("SYSTEM: game stopped and saved %.0f ms after the system asked", OSTicksToMicroseconds(OSGetSystemTime() - asked) / 1e3);
 		watchdog_stop();
+		/* The answer WHBProcIsRunning gives when it reads the message itself. This
+		 * loop read it, so WHBProcIsRunning below never sees it: without the answer
+		 * the system waited for good and a power press during play hung the
+		 * console after the save (1.1.1 too; Zach, 2026-11-11). */
+		if (told_to == PROCUI_STATUS_RELEASE_FOREGROUND) {
+			ui_restore_screens();
+			ProcUIDrawDoneRelease();
+			report_line("SYSTEM: screen given up after the save");
+		} else if (told_to == PROCUI_STATUS_EXITING) {
+			WHBProcStopRunning();
+		}
 	}
 	usbfs_stop(); /* every thread that read a USB file is done */
 	audio_stop();
