@@ -870,6 +870,7 @@ void new_vi(void)
  * is stuck. Without a VI for 10 s it saves the log with where things stand. ---- */
 
 static volatile int g_watch_on;
+static int g_abort_saves;  /* test switch abort-saves (dev build: the heartbeat stops a resume point job past 5 s) */
 static char g_crash_text[900];      /* the crash report (crash_report, below) */
 static volatile OSTime g_crash_t;   /* when crash_after began: the watchdog shows the crash if it gets stuck */
 static OSThread g_watch_thread __attribute__((aligned(16)));
@@ -986,7 +987,6 @@ static void thread_census(int log)
  * once a second. Only interrupts and the kernel outrank it, so a probe that
  * takes longer than usual says they took that core's time. */
 static volatile uint32_t g_probe_us[3];
-static int g_abort_saves;  /* test switch abort-saves */
 static uint32_t g_hb_us; /* how long the last heartbeat took (core 2, above every app thread): slower means interrupts or the system took core 2 */
 static OSThread g_probe_thread[3] __attribute__((aligned(16)));
 static uint8_t g_probe_stack[3][16 * 1024] __attribute__((aligned(16)));
