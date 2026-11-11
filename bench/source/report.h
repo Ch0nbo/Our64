@@ -13,5 +13,6 @@ void report_continue(size_t keep); /* one file across starts, the oldest dropped
 void report_restart(void); /* saves, then empties the buffer; later saves append to the file (the sweep: no 256 KB cap) */
 const char *report_sd_root(void); /* "<sd mount>/wiiu/our64", or NULL when no SD */
 double report_now_us(void);
-uint32_t report_send_max_us(void); /* the slowest line sent (UDP) since the last call, us */
+uint32_t report_send_max_us(void);
+uint32_t report_send_core_max_us(unsigned core); /* the same, per core of the sender */ /* the slowest line sent (UDP) since the last call, us */
 #endif

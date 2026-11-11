@@ -953,25 +953,29 @@ static void thread_census(int log)
 			g_census[k].wakes = wakes;
 			total += d;
 			/* coreTimeConsumedNs stays 0 on the console; wakes are counted */
-			if (log && (d >= 2000000 || dw >= 20)) {
+			/* coreTimeConsumedNs reads 0, and a read racing its update gave 274 ms then
+			 * 2^64 - 273 ms for ftpiiu (2026-11-10): wakes only */
+			(void)d;
+			if (log && dw >= 20) {
 				const char *name = OSGetThreadName(t);
-				report_line("  thread %s: %llu wakes in the last second (%.0f ms CPU); priority %d, cores %X, state %u",
-				            name ? name : "?", (unsigned long long)dw, d / 1e6, (int)t->priority,
-				            (unsigned)(t->attr & 7), (unsigned)t->state);
+				report_line("  thread %s: %llu wakes in the last second; priority %d, cores %X, state %u",
+				            name ? name : "?", (unsigned long long)dw, (int)t->priority, (unsigned)(t->attr & 7),
+				            (unsigned)t->state);
 			}
 		}
 		OSGetActiveThreadLink(t, &link);
 		t = link.next;
 	}
+	(void)total;
 	if (log)
-		report_line("  threads: %u found, %.0f ms CPU in all in the last second (3 cores: 3000 at most)", walked,
-		            total / 1e6);
+		report_line("  threads: %u found", walked);
 }
 
 /* Spin probes: a priority 0 thread on each core times the same fixed loop
  * once a second. Only interrupts and the kernel outrank it, so a probe that
  * takes longer than usual says they took that core's time. */
 static volatile uint32_t g_probe_us[3];
+static uint32_t g_hb_us; /* how long the last heartbeat took (core 2, above every app thread): slower means interrupts or the system took core 2 */
 static OSThread g_probe_thread[3] __attribute__((aligned(16)));
 static uint8_t g_probe_stack[3][16 * 1024] __attribute__((aligned(16)));
 
@@ -1030,11 +1034,13 @@ static void heartbeat(void)
 	const double busy = video_busy_s(&cmd);
 	extern volatile unsigned our64_hle_oob, our64_hle_oob_addr, our64_hle_bad_lists, our64_hle_abi_v; /* rsp_hle */
 	report_line("HB %.0f s: VI %u (+%d)%s; audio task %.1f ms; writer slot %d for %.0f ms; slowest log send %.1f ms; "
-	            "graphics core on one command %.2f s; spin us core 0 %u, 1 %u, 2 %u; "
+	            "graphics core on one command %.2f s; spin us core 0 %u, 1 %u, 2 %u; sends by core %.1f/%.1f/%.1f ms, "
+	            "last heartbeat took %.1f ms; "
 	            "audio past RAM %u (last 0x%X), bad lists %u, ABI %08X",
 	            report_now_us() / 1e6, (unsigned)v, dv, g_paused ? " paused" : "", audio_task_running_s() * 1e3,
 	            writer_job_slot(), writer_job_ms(), report_send_max_us() / 1e3, busy, (unsigned)g_probe_us[0],
-	            (unsigned)g_probe_us[1], (unsigned)g_probe_us[2], our64_hle_oob, our64_hle_oob_addr,
+	            (unsigned)g_probe_us[1], (unsigned)g_probe_us[2], report_send_core_max_us(0) / 1e3,
+	            report_send_core_max_us(1) / 1e3, report_send_core_max_us(2) / 1e3, g_hb_us / 1e3, our64_hle_oob, our64_hle_oob_addr,
 	            our64_hle_bad_lists, our64_hle_abi_v);
 	static unsigned census_logs, beats;
 	const int stalled = writer_job_ms() > 2000 || (!g_paused && dv < 40);
@@ -1068,7 +1074,11 @@ static int watchdog(int argc, const char **argv)
 	while (g_watch_on) {
 		OSSleepTicks(OSSecondsToTicks(1));
 #ifndef OUR64_RELEASE
-		heartbeat();
+		{
+			const OSTime hb_t0 = OSGetSystemTime();
+			heartbeat();
+			g_hb_us = (uint32_t)OSTicksToMicroseconds(OSGetSystemTime() - hb_t0);
+		}
 #endif
 		if (++tick % 5)
 			continue; /* the checks below every 5 s */

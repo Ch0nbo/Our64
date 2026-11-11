@@ -1,5 +1,6 @@
 #include "report.h"
 
+#include <coreinit/core.h>
 #include <coreinit/mutex.h>
 #include <coreinit/time.h>
 #include <whb/log.h>
@@ -17,6 +18,17 @@
 
 static char g_buf[256 * 1024];
 static volatile uint32_t g_send_max_us; /* the slowest WHBLogPrint (UDP) since report_send_max_us */
+static volatile uint32_t g_send_core_max_us[3]; /* the same, per core of the sender */
+
+/* The slowest line sent from core c since the last call for it, in us (0: none). */
+uint32_t report_send_core_max_us(unsigned c)
+{
+	if (c >= 3)
+		return 0;
+	const uint32_t m = g_send_core_max_us[c];
+	g_send_core_max_us[c] = 0;
+	return m;
+}
 
 /* The slowest line sent (UDP, console) since the last call, in us. */
 uint32_t report_send_max_us(void)
@@ -79,6 +91,9 @@ void report_line(const char *fmt, ...)
 	const uint32_t send_us = (uint32_t)OSTicksToMicroseconds(OSGetSystemTime() - send_t0);
 	if (send_us > g_send_max_us)
 		g_send_max_us = send_us;
+	const uint32_t send_core = OSGetCoreId();
+	if (send_core < 3 && send_us > g_send_core_max_us[send_core])
+		g_send_core_max_us[send_core] = send_us;
 #ifndef REPORT_NO_CONSOLE /* apps that draw with GX2 have no text console */
 	WHBLogConsoleDraw();
 #endif
