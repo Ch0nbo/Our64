@@ -1044,6 +1044,16 @@ static void heartbeat(void)
 	            our64_hle_bad_lists, our64_hle_abi_v);
 	static unsigned census_logs, beats;
 	const int stalled = writer_job_ms() > 2000 || (!g_paused && dv < 40);
+	if (writer_job_ms() > 2000) {
+		/* Only in a stall, so nothing changes before one: the fixed loop the spin
+		 * probes time (2.6 ms on a free core), here on core 2 above every app
+		 * thread. Longer means the system or interrupts took core 2's time. */
+		const OSTime t0 = OSGetSystemTime();
+		for (volatile uint32_t i = 0; i < 400000; i++)
+			;
+		report_line("  core 2 spin in a stall: %u us (2.6 ms on a free core)",
+		            (unsigned)OSTicksToMicroseconds(OSGetSystemTime() - t0));
+	}
 	thread_census(++beats == 20 ? 2 : stalled && census_logs < 30);
 	census_logs += stalled;
 	if (writer_job_ms() > 2000 && slow_traces < 40) { /* an SD job that does not end: where the writer waits */
