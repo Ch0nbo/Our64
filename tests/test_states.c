@@ -690,6 +690,58 @@ static void a_torn_write_falls_back_to_the_other_file(void)
 	CHECK(plan.loaded_file == 1 && !memcmp(g_out, g_raw, RAW) && plan.next_counter == 4);
 }
 
+/* Packed and written a slice at a time (statefile_abort is checked between
+ * slices): a state of several slices reads back whole. */
+#define BIG (1000u * 1000)
+static unsigned char g_big[BIG], g_big_out[BIG], g_big_work[BIG + BIG / 8 + 4096];
+
+static void a_state_of_many_slices_reads_back(void)
+{
+	for (unsigned i = 0; i < BIG; i++)
+		g_big[i] = (unsigned char)(i % 251 < 120 ? 0 : (i * 13) ^ (i >> 9));
+	state_info info = { .crc1 = 1, .crc2 = 0x22222222, .counter = 9 };
+	unsigned bytes = 0;
+	CHECK(statefile_pack(&info, g_big, BIG, 0, g_big_work, sizeof(g_big_work), &bytes) == STATEFILE_OK);
+	char p[256];
+	path(p, "resume-a.o64s");
+	CHECK(statefile_store_over(p, g_big_work, bytes) == STATEFILE_OK);
+	unsigned got = 0;
+	CHECK(statefile_read(p, 1, 0x22222222, &info, g_big_out, BIG, &got) == STATEFILE_OK);
+	CHECK(got == BIG && info.counter == 9 && !memcmp(g_big, g_big_out, BIG));
+}
+
+static void an_abort_stops_packing(void)
+{
+	fill(2);
+	state_info info = { .crc1 = 1, .crc2 = 0x22222222, .counter = 1 };
+	unsigned bytes = 0;
+	statefile_abort = 1;
+	CHECK(statefile_pack(&info, g_raw, RAW, 0, g_work, sizeof(g_work), &bytes) == STATEFILE_ABORTED);
+	statefile_abort = 0;
+	CHECK(statefile_pack(&info, g_raw, RAW, 0, g_work, sizeof(g_work), &bytes) == STATEFILE_OK);
+}
+
+/* An abort before the write's first slice changes nothing on the card. */
+static void an_aborted_write_keeps_the_file_it_was_to_replace(void)
+{
+	resume_plan plan;
+	unsigned size;
+	CHECK(store_over("resume-a.o64s", 1, 6, RAW) == STATEFILE_OK);
+	CHECK(store_over("resume-b.o64s", 2, 7, RAW) == STATEFILE_OK);
+	char p[256];
+	path(p, "resume-a.o64s");
+	unsigned bytes = pack(3, 8, RAW);
+	statefile_abort = 1;
+	CHECK(statefile_store_over(p, g_work, bytes) == STATEFILE_ABORTED);
+	statefile_abort = 0;
+	CHECK(resume(&plan, &size) == STATEFILE_OK);
+	fill(7);
+	CHECK(plan.loaded_file == 1 && !memcmp(g_out, g_raw, RAW) && plan.next_counter == 3);
+	state_info info;
+	unsigned got = 0;
+	CHECK(statefile_read(p, 1, 0x22222222, &info, g_out, RAW, &got) == STATEFILE_OK && info.counter == 1);
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fresh_dir(); fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 int main(void)
@@ -734,6 +786,9 @@ int main(void)
 	RUN(a_smaller_state_keeps_the_file_and_reads_back);
 	RUN(a_state_bigger_than_the_file_writes_it_anew);
 	RUN(a_torn_write_falls_back_to_the_other_file);
+	RUN(a_state_of_many_slices_reads_back);
+	RUN(an_abort_stops_packing);
+	RUN(an_aborted_write_keeps_the_file_it_was_to_replace);
 	RUN(nothing_is_due_before_a_minute);
 	RUN(a_waiting_save_is_due_at_once);
 	RUN(a_save_with_no_chance_gives_up_after_five_seconds);

@@ -44,7 +44,13 @@ enum {
 	STATEFILE_TOO_BIG,       /* bigger than the caller's buffer */
 	STATEFILE_WRITE_FAILED,
 	STATEFILE_BACKUP_FAILED, /* the old copy could not be kept, so nothing changed */
+	STATEFILE_ABORTED,       /* statefile_abort was set: packing or writing stopped part way */
 };
+
+/* Set from another thread to stop statefile_pack and statefile_store_over
+ * between slices (the watchdog's guard against a resume point job that does
+ * not end, 2026-11-10). The caller clears it before it starts. */
+extern volatile int statefile_abort;
 
 /* Bytes of work space statefile_write needs for raw_size bytes of state. */
 unsigned statefile_work_size(unsigned raw_size);

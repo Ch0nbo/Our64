@@ -10,6 +10,10 @@
 #define HEADER    64
 #define HEADER_V3 32
 #define LEVEL  1 /* zlib's fastest: RDRAM is mostly zeros and repeats, and the writer runs on a spare core */
+#define PACK_SLICE (256u * 1024) /* statefile_abort is checked between slices: 32 a state */
+#define STORE_SLICE (64u * 1024)
+
+volatile int statefile_abort;
 
 static void put32(unsigned char *p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
 static uint32_t get32(const unsigned char *p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
@@ -25,8 +29,33 @@ int statefile_pack(const state_info *info, const void *raw, unsigned raw_size, i
 	unsigned char *w = work;
 	if (work_size < statefile_work_size(raw_size))
 		return STATEFILE_WRITE_FAILED;
-	uLongf packed = work_size - HEADER;
-	if (compress2(w + HEADER, &packed, raw, raw_size, LEVEL) != Z_OK)
+	/* compress2's stream, fed a slice at a time so statefile_abort is seen */
+	z_stream z;
+	memset(&z, 0, sizeof(z));
+	if (deflateInit(&z, LEVEL) != Z_OK)
+		return STATEFILE_WRITE_FAILED;
+	z.next_out = w + HEADER;
+	z.avail_out = work_size - HEADER;
+	const unsigned char *in = raw;
+	unsigned left = raw_size;
+	int zr = Z_OK;
+	while (zr == Z_OK) {
+		if (statefile_abort) {
+			deflateEnd(&z);
+			return STATEFILE_ABORTED;
+		}
+		const unsigned slice = left < PACK_SLICE ? left : PACK_SLICE;
+		z.next_in = (Bytef *)in;
+		z.avail_in = slice;
+		in += slice;
+		left -= slice;
+		zr = deflate(&z, left ? Z_NO_FLUSH : Z_FINISH);
+		if (zr == Z_OK && !left && z.avail_out == 0)
+			zr = Z_BUF_ERROR; /* no room to finish */
+	}
+	const uLongf packed = z.total_out;
+	deflateEnd(&z);
+	if (zr != Z_STREAM_END)
 		return STATEFILE_WRITE_FAILED;
 	memset(w, 0, HEADER);
 	memcpy(w, "O64S", 4);
@@ -81,7 +110,18 @@ int statefile_store_over(const char *path, const void *work, unsigned bytes)
 			return STATEFILE_WRITE_FAILED;
 		room = (bytes + bytes / 4 + 0xFFFF) & ~0xFFFFu;
 	}
-	size_t n = fwrite(work, 1, bytes, f);
+	size_t n = 0;
+	for (unsigned at = 0; at < bytes; at += STORE_SLICE) { /* in slices, so statefile_abort is seen */
+		if (statefile_abort) {
+			fclose(f); /* the file is left part written: its CRC fails and resume_load takes the other */
+			return STATEFILE_ABORTED;
+		}
+		const unsigned k = bytes - at < STORE_SLICE ? bytes - at : STORE_SLICE;
+		const size_t done = fwrite((const unsigned char *)work + at, 1, k, f);
+		n += done;
+		if (done != k)
+			break;
+	}
 	for (unsigned at = bytes; n == bytes && at < room; at += sizeof(zeros)) {
 		unsigned k = room - at < sizeof(zeros) ? room - at : sizeof(zeros);
 		if (fwrite(zeros, 1, k, f) != k)

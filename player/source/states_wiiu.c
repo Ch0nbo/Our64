@@ -513,7 +513,9 @@ static void write_job(void)
 	info.saved_at = (uint32_t)time(NULL);
 	const char *path = g_path[g_plan.next_file];
 	unsigned bytes = 0;
+	statefile_abort = 0;
 	int r = statefile_pack(&info, src, size, 0, g_work, g_work_size, &bytes);
+	const int aborted_packing = r == STATEFILE_ABORTED;
 	OSTime t1 = OSGetSystemTime();
 	if (r == STATEFILE_OK)
 		r = statefile_store_over(path, g_work, bytes);
@@ -528,6 +530,10 @@ static void write_job(void)
 		g_plan.next_counter++;
 		g_last_ok = info.saved_at;
 		g_last_ok_launch = 0;
+	} else if (r == STATEFILE_ABORTED) {
+		report_line("SAFETY: resume point %u to %s aborted after %.0f ms, %s; the last one written stays",
+		            (unsigned)info.counter, strrchr(path, '/') + 1, OSTicksToMicroseconds(OSGetSystemTime() - t0) / 1e3,
+		            aborted_packing ? "while compressing" : "while writing");
 	} else {
 		report_line("RESUME FAILED: point not written to %s (SD full, locked or removed?)", path);
 	}

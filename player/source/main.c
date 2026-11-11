@@ -1053,6 +1053,12 @@ static void heartbeat(void)
 	            (unsigned)g_probe_us[1], (unsigned)g_probe_us[2], report_send_core_max_us(0) / 1e3,
 	            report_send_core_max_us(1) / 1e3, report_send_core_max_us(2) / 1e3, g_hb_us / 1e3, our64_hle_oob, our64_hle_oob_addr,
 	            our64_hle_bad_lists, our64_hle_abi_v);
+	/* Safety: a resume point job past 1.5 s (normal under 0.6 s on core 2) is
+	 * stopped; the heartbeat then shows whether core 2 recovers (2026-11-10). */
+	if (writer_job_slot() == WRITER_RESUME && writer_job_ms() > 1500 && !statefile_abort) {
+		statefile_abort = 1;
+		report_line("SAFETY: a resume point job has run %.0f ms (normal under 0.6 s): aborting it", writer_job_ms());
+	}
 	static unsigned census_logs, beats;
 	const int stalled = writer_job_ms() > 2000 || (!g_paused && dv < 40);
 	if (writer_job_ms() > 2000) {
