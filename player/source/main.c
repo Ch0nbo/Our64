@@ -31,6 +31,7 @@
 #include "report.h"
 #include "capture.h"
 #include "player.h"
+#include "speed.h"
 #include "gameopt.h"
 #include "writer.h"
 #include "states.h"
@@ -766,17 +767,13 @@ double player_idle_left_us(void)
 	return due > now ? (double)OSTicksToMicroseconds(due - now) : 0;
 }
 
-/* The speed display (Settings > Picture): once a second, one percentage for
- * how the game is running. It is the speed (VIs emulated against the game's
- * own 59.94 or 50 a second) times the share of the last two seconds' game
- * frames that stayed on the TV as long as the game meant. Speed alone read
- * 98-101% in GoldenEye at 720p while a third of its frames were held wrong
- * (Zach, 2026-11-11). A gap of over two seconds (the pause menu) starts over.
- * The number shown falls at once and climbs back 4 points a second. */
+/* The speed display (Settings > Picture): speed.h's number, fed each VI.
+ * The dev build logs each reading with its parts, the game's frames and how
+ * often a graphics task was still decoding when a VI came (gfx_late:
+ * plugins.c), to set beside what the player saw (Zach, 2026-11-12: "still
+ * doesn't seem to be fully accurate for detecting slowdowns"). */
 static int g_speed_on;
-static double g_speed_t0;
-static unsigned g_speed_vi0, g_speed_frames0, g_speed_wrong0, g_speed_frames_prev, g_speed_wrong_prev;
-static double g_speed_shown = -1; /* the number on screen; below 0: none yet */
+static speed_meter g_speed = { .shown = -1 };
 static int is_pal(void);
 
 const char *player_rom_file(void)
@@ -788,46 +785,32 @@ const char *player_rom_file(void)
 void player_speed_display(int on)
 {
 	g_speed_on = on;
-	g_speed_t0 = 0;
-	if (!on)
-		ui_speed(-1);
+	speed_restart(&g_speed);
+	ui_speed(-1); /* the next game's first number is its own */
 }
 
 static void speed_tick(void)
 {
 	if (!g_speed_on)
 		return;
-	const double now = report_now_us();
-	unsigned frames, wrong;
-	if (g_speed_t0 == 0 || now - g_speed_t0 > 2e6) {
-		video_hold_counts(&g_speed_frames0, &g_speed_wrong0);
-		g_speed_frames_prev = g_speed_wrong_prev = 0;
-		g_speed_shown = -1;
-		g_speed_t0 = now;
-		g_speed_vi0 = g_bench.vis;
-	} else if (now - g_speed_t0 >= 1e6) {
-		const double rate = (g_bench.vis - g_speed_vi0) * 1e6 / (now - g_speed_t0);
-		double percent = rate * 100.0 / (is_pal() ? 50.0 : 59.94);
-		video_hold_counts(&frames, &wrong);
-		const unsigned f = frames - g_speed_frames0, w = wrong - g_speed_wrong0;
-		const unsigned f2 = f + g_speed_frames_prev, w2 = w + g_speed_wrong_prev; /* this second and the one before */
-		if (f2 > 0 && w2 <= f2)
-			percent *= 1.0 - (double)w2 / (double)f2;
-		/* A drop shows at once and wears off slowly, 4 points a second: a bad
-		 * half second is felt for longer than it lasts, and a number back at
-		 * 100% a second later hid it (Zach, 2026-11-11). */
-		if (g_speed_shown < 0 || percent < g_speed_shown)
-			g_speed_shown = percent;
-		else
-			g_speed_shown = percent < g_speed_shown + 4 ? percent : g_speed_shown + 4;
-		ui_speed((int)(g_speed_shown + 0.5));
-		g_speed_frames_prev = f;
-		g_speed_wrong_prev = w;
-		g_speed_frames0 = frames;
-		g_speed_wrong0 = wrong;
-		g_speed_t0 = now;
-		g_speed_vi0 = g_bench.vis;
-	}
+	unsigned frames, wrong, skipped;
+	video_hold_counts(&frames, &wrong, &skipped);
+	if (!speed_vi(&g_speed, report_now_us(), g_bench.vis, frames, wrong, skipped, g_holds, is_pal() ? 50.0 : 59.94))
+		return;
+	ui_speed(g_speed.shown);
+#ifndef OUR64_RELEASE
+	static unsigned flight0, late0, game0;
+	unsigned flight, late;
+	gfx_late(&flight, &late);
+	const unsigned game = video_game_frames();
+	report_line("SPEED: %d%% shown; this second %.0f%%: %u VIs (%.1f%%), %u of %u game frames on the TV held wrong, "
+	            "%u VIs the TV skipped; the game made %u frames; a graphics task in flight at %u VIs, over a whole VI at %u",
+	            g_speed.shown, g_speed.raw, g_speed.vis, g_speed.speed, g_speed.wrong, g_speed.frames, g_speed.skipped,
+	            game - game0, flight - flight0, late - late0);
+	flight0 = flight;
+	late0 = late;
+	game0 = game;
+#endif
 }
 
 void new_vi(void)

@@ -864,13 +864,17 @@ static uint8_t * screen_rgb(int w, int h)
 static int g_res_h = 480;
 static int g_res_wanted = 480; // the game's own (Our ROMs > Options), set before it starts
 
-// For the speed display (main.c): game frames that reached the TV, and those of
-// them held the wrong number of vsyncs, since the app started. No side effects.
-extern "C" void video_hold_counts(unsigned * frames, unsigned * wrong)
+// For the speed display (main.c): game frames that reached the TV, those of
+// them held the wrong number of vsyncs, and VIs the TV skipped, since the app
+// started. No side effects.
+extern "C" void video_hold_counts(unsigned * frames, unsigned * wrong, unsigned * skipped)
 {
 	*frames = g_fc_frames;
 	*wrong = g_fc_short + g_fc_long;
+	*skipped = g_fc_skipped;
 }
+
+extern "C" unsigned video_game_frames(void) { return g_game_frames; }
 
 extern "C" void video_set_lines(int lines) { g_res_wanted = lines == 720 ? 720 : 480; }
 
@@ -1583,7 +1587,7 @@ extern "C" void video_set_picture(int wide)
 }
 
 namespace {
-// The TV-only shaders are drawn in ui_gfx_scan, on the graphics core.
+// The filters are drawn in ui_gfx_scan, on the graphics core.
 void shader_on_graphics_core(void * arg) { ui_gfx_set_shader(*static_cast<int *>(arg)); }
 } // namespace
 

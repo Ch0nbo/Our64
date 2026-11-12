@@ -1477,8 +1477,32 @@ static void gfx_notes_dump(void)
 	}
 }
 
+/* For the speed display's log line (main.c): VIs that came while a graphics
+ * task was still decoding, and those where it was the same task as at the VI
+ * before (it has taken a whole VI or more: the game gets its interrupt, and
+ * so starts its next frame, later than with a decoder that kept up). */
+static unsigned g_late_flight, g_late_over;
+static uint32_t g_late_task;
+static int g_late_had;
+
+void gfx_late(unsigned *in_flight, unsigned *over_a_vi)
+{
+	*in_flight = g_late_flight;
+	*over_a_vi = g_late_over;
+}
+
 void gfx_watch_vi(unsigned vi)
 {
+	if (g_gfx_finished != g_gfx_tasks && g_gfx_yield != GFX_YIELDED &&
+	    (int32_t)(video_tasks_done() - g_gfx_finished) <= 0) {
+		g_late_flight++;
+		if (g_late_had && g_late_task == g_gfx_finished)
+			g_late_over++;
+		g_late_task = g_gfx_finished;
+		g_late_had = 1;
+	} else {
+		g_late_had = 0;
+	}
 	boot_patches_vi();
 	pak_watch_vi(vi);
 	if (gb_poll() | audio_poll())
