@@ -43,8 +43,17 @@ void library_game_init(library_game *g, const char *file);
  * then Recent (2026-10-18), All, #, and A to Z. A title's category is its
  * first letter, or # for a digit or a symbol. Recent lists the games played
  * last, Favorites the starred ones, A to Z like the rest. */
-#define LIBRARY_CATEGORIES 30
+#define LIBRARY_CATEGORIES 31
 enum { LIBRARY_FAVORITES, LIBRARY_RECENT, LIBRARY_ALL, LIBRARY_HASH };
+/* Search (2026-11-11, #22): the last category in number and the bar's first
+ * tab, a magnifier left of the star; the bar going round, it is left of the
+ * star and right of Z. Its games are those whose title or file name holds
+ * every word of library_search_set's text, in All's order. */
+#define LIBRARY_LAST_LETTER 29
+#define LIBRARY_SEARCH 30
+void library_search_set(const char *text);
+const char *library_search_text(void);
+int  library_search_matches(const library_game *g); /* 1 when the game is among Search's */
 int  library_category_of(const char *title);     /* LIBRARY_HASH for #, the 26 after it for A-Z */
 const char *library_category_label(int category, char *out, unsigned size); /* "★", "Recent", "All", "#", "A" */
 /* Marks the games whose files are among recent (k names), clears the rest. */

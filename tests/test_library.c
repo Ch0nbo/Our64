@@ -93,16 +93,16 @@ static void the_letter_bar_is_favorites_recent_all_then_hash_then_a_to_z(void)
 	CHECK(!strcmp(library_category_label(LIBRARY_ALL, label, sizeof(label)), "All"));
 	CHECK(!strcmp(library_category_label(LIBRARY_HASH, label, sizeof(label)), "#"));
 	CHECK(!strcmp(library_category_label(LIBRARY_HASH + 1, label, sizeof(label)), "A"));
-	CHECK(!strcmp(library_category_label(LIBRARY_CATEGORIES - 1, label, sizeof(label)), "Z"));
+	CHECK(!strcmp(library_category_label(LIBRARY_LAST_LETTER, label, sizeof(label)), "Z"));
 	CHECK(library_category_of("banjo") == LIBRARY_HASH + 2);
 	CHECK(library_category_of("1080 Snowboarding") == LIBRARY_HASH);
 	CHECK(library_category_of("'98 Koshien") == LIBRARY_HASH);
 	CHECK(library_category_of("") == LIBRARY_HASH);
 	/* the bar's tabs sit side by side, left to right, inside the 854-wide screen */
 	int a[4], b[4];
-	library_bar_rect(0, a);
-	CHECK(a[0] >= 10);
-	for (int c = 1; c < LIBRARY_CATEGORIES; c++) {
+	library_bar_rect(LIBRARY_SEARCH, a); /* the magnifier first, then the star */
+	CHECK(a[0] >= 4 && library_bar_hit(a[0] + a[2] / 2, a[1] + 4) == LIBRARY_SEARCH);
+	for (int c = 0; c <= LIBRARY_LAST_LETTER; c++) {
 		library_bar_rect(c, b);
 		CHECK(b[0] == a[0] + a[2]);
 		CHECK(library_bar_hit(b[0] + b[2] / 2, b[1] + 4) == c);
@@ -131,9 +131,11 @@ static void a_letter_shows_its_games_and_all_shows_every_game(void)
 	CHECK(library_next_category(has, LIBRARY_ALL, +1) == LIBRARY_HASH);
 	CHECK(library_next_category(has, LIBRARY_HASH, +1) == library_category_of("B"));
 	CHECK(library_next_category(has, library_category_of("B"), +1) == library_category_of("D"));
-	CHECK(library_next_category(has, library_category_of("F"), +1) == LIBRARY_ALL); /* no favorites or Recent games */
+	CHECK(library_next_category(has, library_category_of("F"), +1) == LIBRARY_SEARCH); /* past the last letter: Search, the bar's first tab (2026-11-11) */
+	CHECK(library_next_category(has, LIBRARY_SEARCH, +1) == LIBRARY_ALL); /* no favorites or Recent games */
 	CHECK(library_next_category(has, library_category_of("B"), -1) == LIBRARY_HASH);
-	CHECK(library_next_category(has, LIBRARY_ALL, -1) == library_category_of("F")); /* no favorites or Recent games */
+	CHECK(library_next_category(has, LIBRARY_ALL, -1) == LIBRARY_SEARCH); /* no favorites or Recent games: Search is left of All */
+	CHECK(library_next_category(has, LIBRARY_SEARCH, -1) == library_category_of("F"));
 }
 
 static void recent_shows_the_games_played_last_a_to_z(void)
@@ -151,8 +153,8 @@ static void recent_shows_the_games_played_last_a_to_z(void)
 	int has[LIBRARY_CATEGORIES];
 	library_categories(g, 5, has);
 	CHECK(has[LIBRARY_RECENT] && library_next_category(has, LIBRARY_ALL, -1) == LIBRARY_RECENT);
-	CHECK(library_next_category(has, LIBRARY_RECENT, -1) == library_category_of("F")); /* Left on Recent: the last letter */
-	CHECK(library_next_category(has, library_category_of("F"), +1) == LIBRARY_RECENT);
+	CHECK(library_next_category(has, LIBRARY_RECENT, -1) == LIBRARY_SEARCH); /* Left on Recent: Search, then the last letter */
+	CHECK(library_next_category(has, LIBRARY_SEARCH, +1) == LIBRARY_RECENT);
 	library_mark_recent(g, 5, recent, 0);
 	CHECK(library_show(g, 5, LIBRARY_RECENT, shown) == 0);
 }
@@ -179,8 +181,20 @@ static void favorites_show_the_starred_games_and_keep_the_rest_of_the_file(void)
 	library_categories(g, 5, has);
 	/* the star is the bar's first tab: left from it wraps to the last letter, right from that comes back */
 	CHECK(has[LIBRARY_FAVORITES] && !has[LIBRARY_RECENT] && library_next_category(has, LIBRARY_ALL, -1) == LIBRARY_FAVORITES);
-	CHECK(library_next_category(has, LIBRARY_FAVORITES, -1) == library_category_of("F"));
-	CHECK(library_next_category(has, library_category_of("F"), +1) == LIBRARY_FAVORITES);
+	CHECK(library_next_category(has, LIBRARY_FAVORITES, -1) == LIBRARY_SEARCH); /* the magnifier is left of the star */
+	CHECK(library_next_category(has, LIBRARY_SEARCH, +1) == LIBRARY_FAVORITES);
+	/* Search: every word typed, in the title or the file name, any case */
+	library_game sg;
+	library_game_init(&sg, "Legend of Zelda, The - Majora's Mask (USA).z64");
+	library_search_set("zelda mask");
+	CHECK(library_search_matches(&sg));
+	library_search_set("ZELDA usa");
+	CHECK(library_search_matches(&sg)); /* (USA) is in the file name only */
+	library_search_set("zelda ocarina");
+	CHECK(!library_search_matches(&sg));
+	library_search_set("   ");
+	CHECK(!library_search_matches(&sg)); /* nothing typed finds nothing */
+	library_search_set("");
 	/* with Recent games too, the star comes before Recent */
 	const char recent[1][128] = { "Diddy Kong Racing.z64" };
 	library_mark_recent(g, 5, recent, 1);

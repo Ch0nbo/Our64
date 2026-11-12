@@ -1001,8 +1001,8 @@ void stage_cover(const roms_view & rv, int at, float d)
 void draw_bar(const roms_view & rv)
 {
 	int first[4], last[4];
-	library_bar_rect(0, first);
-	library_bar_rect(LIBRARY_CATEGORIES - 1, last);
+	library_bar_rect(LIBRARY_SEARCH, first); // the magnifier is the bar's first tab
+	library_bar_rect(LIBRARY_LAST_LETTER, last);
 	box(first[0] - 6, first[1] - 3, last[0] + last[2] - first[0] + 12, first[3] + 6, rgb(T.bar.fill)); // square, as the box art (Zach, 2026-10-25)
 	// The selected tab first, so the letters beside it draw on top. Its pill
 	// grows past the label so the white frame clears the glyph, and stays inside
@@ -1016,9 +1016,9 @@ void draw_bar(const roms_view & rv)
 	library_bar_rect(rv.category, t);
 	char sel_label[8];
 	library_category_label(rv.category, sel_label, sizeof(sel_label));
-	const bool one = strlen(sel_label) == 1 || rv.category == LIBRARY_FAVORITES; // the star is one glyph too
+	const bool one = strlen(sel_label) <= 1 || rv.category == LIBRARY_FAVORITES; // the star and the magnifier are one glyph too
 	const float frame = one ? 2 : 3, room = one ? 2 : 6;
-	float pw = text_width(sel_label, 20) + 2 * (frame + room);
+	float pw = (rv.category == LIBRARY_SEARCH ? 20 : text_width(sel_label, 20)) + 2 * (frame + room);
 	if (!one && pw < t[2] + 4)
 		pw = t[2] + 4;
 	const float ph = t[3] + 4;
@@ -1036,6 +1036,14 @@ void draw_bar(const roms_view & rv)
 		library_category_label(c, label, sizeof(label));
 		const bool sel = rv.category == c;
 		const PixelColor ink = sel ? (focus ? rgb(T.select.ink) : rgb(T.bar.accent)) : rv.has[c] ? rgb(T.bar.ink) : off_ink();
+		if (c == LIBRARY_SEARCH) { // a magnifier: a ring and its handle, down to the right
+			const float cx = r[0] + r[2] / 2.0f - 2, cy = r[1] + r[3] / 2.0f - 2;
+			box(cx - 7, cy - 7, 14, 14, PixelColor{ 0, 0, 0, 0 }, 7, 2.5f, ink);
+			box(cx + 4, cy + 4, 3, 3, ink);
+			box(cx + 6, cy + 6, 3, 3, ink);
+			box(cx + 8, cy + 8, 3, 3, ink);
+			continue;
+		}
 		text(r[0] + r[2] / 2, r[1] + 6, label, 20, ink, GUI_TEXT_JUSTIFY_CENTER);
 	}
 }

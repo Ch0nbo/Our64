@@ -55,6 +55,8 @@ const char *library_category_label(int category, char *out, unsigned size)
 		snprintf(out, size, "Recent");
 	else if (category == LIBRARY_ALL)
 		snprintf(out, size, "All");
+	else if (category == LIBRARY_SEARCH)
+		snprintf(out, size, "%s", ""); /* a magnifier is drawn for it */
 	else if (category == LIBRARY_HASH)
 		snprintf(out, size, "#");
 	else
@@ -136,14 +138,23 @@ int library_favorites_text(char *out, unsigned size)
 #define BAR_Y 12       /* the row of covers: at the top, no header (2026-10-30) */
 #define BAR_Y_LIST 126 /* the list: under the header */
 #define BAR_H 32
+#define BAR_SEARCH_W 30 /* the magnifier, first (2026-11-11); Recent and All gave it the room */
 #define BAR_STAR_W 34
-#define BAR_RECENT_W 84
-#define BAR_ALL_W 54
+#define BAR_RECENT_W 74
+#define BAR_ALL_W 46
 #define BAR_STEP 24
 
 void library_bar_rect(int category, int r[4])
 {
-	const int x0 = (854 - (BAR_STAR_W + BAR_RECENT_W + BAR_ALL_W + (LIBRARY_CATEGORIES - LIBRARY_HASH) * BAR_STEP)) / 2;
+	const int left = (854 - (BAR_SEARCH_W + BAR_STAR_W + BAR_RECENT_W + BAR_ALL_W + (LIBRARY_LAST_LETTER + 1 - LIBRARY_HASH) * BAR_STEP)) / 2;
+	const int x0 = left + BAR_SEARCH_W;
+	if (category == LIBRARY_SEARCH) {
+		r[0] = left;
+		r[1] = theme_roms_list() ? BAR_Y_LIST : BAR_Y;
+		r[2] = BAR_SEARCH_W;
+		r[3] = BAR_H;
+		return;
+	}
 	r[0] = category == LIBRARY_FAVORITES ? x0
 	     : category == LIBRARY_RECENT ? x0 + BAR_STAR_W
 	     : category == LIBRARY_ALL ? x0 + BAR_STAR_W + BAR_RECENT_W
@@ -182,10 +193,44 @@ int library_show(const library_game *g, int n, int category, int *shown)
 	int k = 0;
 	for (int i = 0; i < n; i++)
 		if (!g[i].deleted && (category == LIBRARY_ALL || (category == LIBRARY_RECENT ? g[i].recent
+		                                : category == LIBRARY_SEARCH ? library_search_matches(&g[i])
 		                                : category == LIBRARY_FAVORITES ? g[i].favorite
 		                                                                : library_category_of(g[i].title) == category)))
 			shown[k++] = i;
 	return k;
+}
+
+/* ---- Search ---- */
+
+static char g_search[128];
+
+void library_search_set(const char *text) { snprintf(g_search, sizeof(g_search), "%s", text ? text : ""); }
+
+const char *library_search_text(void) { return g_search; }
+
+static int holds(const char *hay, const char *word, size_t n)
+{
+	for (; *hay; hay++)
+		if (!strncasecmp(hay, word, n))
+			return 1;
+	return 0;
+}
+
+int library_search_matches(const library_game *g)
+{
+	int words = 0;
+	for (const char *w = g_search; *w;) {
+		while (*w == ' ')
+			w++;
+		const size_t n = strcspn(w, " ");
+		if (!n)
+			break;
+		words++;
+		if (!holds(g->title, w, n) && !holds(g->file, w, n))
+			return 0;
+		w += n;
+	}
+	return words > 0;
 }
 
 int library_start_category(int start_on, const int has[LIBRARY_CATEGORIES], int last_recent)
@@ -204,6 +249,7 @@ void library_categories(const library_game *g, int n, int has[LIBRARY_CATEGORIES
 		if (g[i].deleted)
 			continue;
 		has[LIBRARY_ALL] = 1;
+		has[LIBRARY_SEARCH] = 1; /* there to be searched whenever there is a game */
 		has[library_category_of(g[i].title)] = 1;
 		has[LIBRARY_RECENT] |= g[i].recent;
 		has[LIBRARY_FAVORITES] |= g[i].favorite;

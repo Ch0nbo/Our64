@@ -579,9 +579,44 @@ static void prepare(int sel)
 
 /* The letter bar's category: its games, with the game the player was on
  * still selected when it is among them (All), else the first. */
+/* The Search tab (2026-11-11, #22): the keyboard, starting from the last
+ * search; then the games whose title or file name holds every word typed.
+ * Cancel, nothing typed or no game found: the tab it was on stays, with a
+ * line saying so. 1 when Search has games to show. */
+static int search_ask(void)
+{
+	roms_view *v = &g_view;
+	char typed[128];
+	const int k = keyboard_ask(library_search_text(), typed, sizeof(typed));
+	input_read(); /* the press that closed the keyboard is not a press here */
+	if (k < 0)
+		snprintf(v->notice, sizeof(v->notice), "Couldn't open the keyboard.");
+	if (k <= 0)
+		return 0;
+	char before[128];
+	snprintf(before, sizeof(before), "%s", library_search_text());
+	library_search_set(typed);
+	int n = 0;
+	for (int i = 0; i < g_count; i++)
+		n += !g_games[i].deleted && library_search_matches(&g_games[i]);
+	report_line("OUR ROMS: search \"%s\": %d games", typed, n);
+	if (n == 0) {
+		char shown[64];
+		snprintf(shown, sizeof(shown), "%.48s", typed);
+		snprintf(v->notice, sizeof(v->notice), shown[0] ? "No games match \"%s\"" : "Nothing typed%s", shown[0] ? shown : "");
+		if (v->category == LIBRARY_SEARCH)
+			library_search_set(before); /* the results on screen stay what they were */
+		return 0;
+	}
+	snprintf(v->notice, sizeof(v->notice), "%d game%s for \"%.48s\"", n, n == 1 ? "" : "s", typed);
+	return 1;
+}
+
 static void pick_category(int category)
 {
 	roms_view *v = &g_view;
+	if (category == LIBRARY_SEARCH && !search_ask())
+		return;
 	int game = v->count > 0 ? g_shown[v->sel] : -1;
 	v->category = category;
 	v->count = library_show(g_games, g_count, category, g_shown);
@@ -927,6 +962,10 @@ int library_run(int *game, const char *notice)
 			if (dir)
 				side = dir;
 			dir = 0;
+			if (ok && v->category == LIBRARY_SEARCH) { /* A on the magnifier: search again */
+				pick_category(LIBRARY_SEARCH);
+				continue;
+			}
 			if (down || ok || back)
 				v->bar_focus = 0;
 			ok = 0;
