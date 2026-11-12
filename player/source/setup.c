@@ -156,8 +156,7 @@ int picture_in_use(const picture_ui *p, int row)
 
 int picture_off(const picture_ui *p, int row, int i)
 {
-	return (row == PIC_SCREEN && !p->gamepad && mode_uses_gamepad(i)) ||
-	       (row == PIC_SHADER && p->mode == MODE_GAMEPAD && shader_tv_only(i));
+	return row == PIC_SCREEN && !p->gamepad && mode_uses_gamepad(i);
 }
 
 const char *picture_value_name(int row, int i)
@@ -277,10 +276,12 @@ const char *picture_row_about(const picture_ui *p)
 		/* the same whatever is picked (Zach, 2026-10-23): it says what each shape is */
 		return "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.";
 	default:
-		/* by the pick: the TV-only ones say so (Zach, 2026-11-04) */
+		/* by the pick; on the GamePad too since 2026-11-12 (they were TV only) */
 		switch (p->pick[PIC_SHADER]) {
 		case SHADER_OFF: return "No filter: the picture as the game draws it";
-		default: return "TV only: Does not apply to GamePad";
+		case SHADER_SCANLINES: return "The dark lines of a tube TV";
+		case SHADER_CRT: return "A tube TV's lines, softness and glow";
+		default: return "CRT, with the bend of a tube's glass";
 		}
 	}
 }

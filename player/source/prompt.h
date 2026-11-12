@@ -41,12 +41,14 @@ enum { THEME_STANDARD, THEME_COMRADE, THEMES };
 const char *theme_name(int theme); /* "Standard", "Comrade" */
 enum { LAYOUT_COVERS, LAYOUT_LIST, LAYOUTS };
 const char *layout_name(int layout); /* "Covers": the row of covers; "List": the drawer and names */
-/* "Shader = CRT": Settings > Picture. Off shows on both screens; the rest are
- * drawn at the TV's own size, TV only (2026-11-04: the GamePad has 2 pixels
- * per N64 line). "Smooth" (GLideN64's FXAA, dropped 2026-11-04) reads as Off. */
+/* "Shader = CRT": Settings > Picture's Filter. Off is the plain picture; the
+ * rest are drawn for each screen at its own size: the TV's, and since
+ * 2026-11-12 the GamePad's, which has 2 rows per N64 line, so its lines are
+ * locked to its rows (tv_mesh.h). "Smooth" (GLideN64's FXAA, dropped
+ * 2026-11-04) reads as Off. */
 enum { SHADER_OFF, SHADER_SCANLINES, SHADER_CRT, SHADER_CURVED, SHADERS };
 const char *shader_name(int shader); /* "Off", "Scanlines", "CRT", "CRT Curved" */
-int shader_tv_only(int shader);
+int shader_is_filter(int shader);
 /* "Start on = recent": Settings > Games, the tab Our ROMs opens on (library_start_category). */
 enum { START_ALL, START_RECENT, START_FAVORITES, STARTS };
 const char *start_name(int start); /* "All", "Recent", "Favorites" */

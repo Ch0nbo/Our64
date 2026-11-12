@@ -210,8 +210,8 @@ static void shader_and_rom_folder_defaults(void)
 	CHECK(s.shader == SHADER_OFF && s.rom_folder[0] == 0); /* "": sd:/wiiu/our64/roms */
 	CHECK(settings_parse("Shader = Sepia\n", &s) == SETTINGS_DAMAGED && s.shader == SHADER_OFF);
 	CHECK(!strcmp(shader_name(SHADER_SCANLINES), "Scanlines") && !strcmp(shader_name(SHADER_CRT), "CRT"));
-	CHECK(!shader_tv_only(SHADER_OFF));
-	CHECK(shader_tv_only(SHADER_SCANLINES) && shader_tv_only(SHADER_CRT) && shader_tv_only(SHADER_CURVED));
+	CHECK(!shader_is_filter(SHADER_OFF));
+	CHECK(shader_is_filter(SHADER_SCANLINES) && shader_is_filter(SHADER_CRT) && shader_is_filter(SHADER_CURVED));
 }
 
 static void a_long_recent_list_and_folder_still_fit(void)

@@ -145,34 +145,33 @@ static void shader_steps_one_value_at_a_time_and_stops_at_the_ends(void)
 	CHECK(p.shader == SHADER_CURVED);
 }
 
-static void shader_line_names_what_the_gamepad_does_not_show(void)
+static void filter_line_says_what_each_filter_is(void)
 {
 	picture_ui p;
 	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
 	p.row = PIC_SHADER;
 	CHECK(!strcmp(picture_row_about(&p), "No filter: the picture as the game draws it"));
-	for (int i = SHADER_SCANLINES; i < SHADERS; i++) {
-		p.pick[PIC_SHADER] = i;
-		CHECK(!strcmp(picture_row_about(&p), "TV only: Does not apply to GamePad"));
-	}
+	p.pick[PIC_SHADER] = SHADER_SCANLINES;
+	CHECK(!strcmp(picture_row_about(&p), "The dark lines of a tube TV"));
+	p.pick[PIC_SHADER] = SHADER_CRT;
+	CHECK(!strcmp(picture_row_about(&p), "A tube TV's lines, softness and glow"));
+	p.pick[PIC_SHADER] = SHADER_CURVED;
+	CHECK(!strcmp(picture_row_about(&p), "CRT, with the bend of a tube's glass"));
 	p.row = PIC_SCREEN; /* Screen mode and Shape: the same whatever is picked (Zach, 2026-10-23) */
 	CHECK(!strcmp(picture_row_about(&p), "Which screens show the game. The prompt at each start begins on it."));
 	p.row = PIC_SHAPE;
 	CHECK(!strcmp(picture_row_about(&p), "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV."));
 }
 
-static void tv_only_shaders_are_off_in_gamepad_only_mode(void)
+/* The filters are drawn on the GamePad too (2026-11-12): GamePad only no longer greys them. */
+static void filters_can_be_chosen_in_gamepad_only_mode(void)
 {
 	picture_ui p;
 	picture_open(&p, MODE_GAMEPAD, PICTURE_43, SHADER_OFF, 0, 1);
 	p.row = PIC_SHADER;
-	picture_event(&p, PEV_RIGHT, -1); /* Scanlines: shown, greyed, A does nothing */
-	CHECK(p.pick[PIC_SHADER] == SHADER_SCANLINES && picture_off(&p, PIC_SHADER, SHADER_SCANLINES));
-	CHECK(picture_event(&p, PEV_OK, -1) == PICT_NONE);
-	CHECK(!strcmp(picture_row_about(&p), "TV only: Does not apply to GamePad"));
-	pause_key keys[6];
-	int n = picture_legend(&p, INPUT_PRO, keys, 6);
-	CHECK(n == 4 && !strcmp(keys[3].label, "Apply") && keys[3].dim);
+	picture_event(&p, PEV_RIGHT, -1);
+	CHECK(p.pick[PIC_SHADER] == SHADER_SCANLINES && !picture_off(&p, PIC_SHADER, SHADER_SCANLINES));
+	CHECK(picture_event(&p, PEV_OK, -1) == PICT_SHADER);
 }
 
 static void gamepad_only_is_skipped_without_a_gamepad_on_picture(void)
@@ -910,8 +909,8 @@ int main(void)
 	RUN(settings_taps);
 	RUN(picture_applies_what_left_right_picked);
 	RUN(shader_steps_one_value_at_a_time_and_stops_at_the_ends);
-	RUN(shader_line_names_what_the_gamepad_does_not_show);
-	RUN(tv_only_shaders_are_off_in_gamepad_only_mode);
+	RUN(filter_line_says_what_each_filter_is);
+	RUN(filters_can_be_chosen_in_gamepad_only_mode);
 	RUN(gamepad_only_is_skipped_without_a_gamepad_on_picture);
 	RUN(leaving_a_picture_row_drops_its_unapplied_pick);
 	RUN(picture_taps_and_the_cycler_arrows);

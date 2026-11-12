@@ -52,7 +52,7 @@ extern "C" const char * our64_gx2_shader_dir; // gx2_ShaderCache.cpp
 extern "C" const char * our64_gx2_shader_source_dir; // gx2_GL.cpp
 #include <coreinit/memdefaultheap.h>
 // The player's TV-only shaders (player/source/tv_pass.cpp).
-bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool picture_43, bool clear);
+bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool picture_43, bool clear, bool gamepad);
 #endif
 
 namespace {
@@ -167,7 +167,7 @@ GX2ColorBuffer * tvfx(GX2ColorBuffer * screen)
 		report_line("gx2-tvfx: shader %d, %s, at %ux%u", g_tvfx_shader, g_tvfx_43 ? "4:3" : "16:9",
 		            unsigned(g_tvfx.surface.width), unsigned(g_tvfx.surface.height));
 	}
-	if (!tv_pass_draw(screen, &g_tvfx, g_tvfx_shader, g_tvfx_43, g_tvfx_clear))
+	if (!tv_pass_draw(screen, &g_tvfx, g_tvfx_shader, g_tvfx_43, g_tvfx_clear, false))
 		return screen;
 	g_tvfx_clear = false;
 	return &g_tvfx;

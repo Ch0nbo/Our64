@@ -113,6 +113,29 @@ static const char kTvCurvedVertexShader[] =
 	"  vZEdge = vec4(aTexCoord1, aRectPosition.w, 0.0);\n"
 	"}\n";
 
+// CRT Curved on the GamePad (tv_mesh.h's row-locked lines, 2026-11-12): the
+// same, but the lines follow the screen's rows, not the bent frame's (bent
+// lines against 2 rows a line drew ripples): vLine.x is the row over 2 from
+// the vertex's own place on the screen (aRectPosition.y, 1 at the top;
+// uSize.y the screen's rows), so the first row of each pair is a line's
+// middle and the second lies between two lines. The pixel shaders are CRT's
+// and CRT Curved's own, reading the bent frame around each pixel's own point.
+static const char kTvCurvedRowsVertexShader[] =
+	TV_VERTEX_COMMON
+	"in vec2 aTexCoord1;\n"
+	"out vec3 vU;\n"
+	"out vec4 vLine;\n"
+	"out vec4 vZEdge;\n"
+	"void main()\n"
+	"{\n"
+	"  corner();\n"
+	"  vBeam.w *= aRectPosition.z;\n"
+	"  vU = aTexCoord0.x + vec3(0.0, -" TV_SOFT ", " TV_SOFT ");\n"
+	"  float line = 1.0 / uSize.z;\n"
+	"  vLine = vec4((1.0 - aRectPosition.y) * uSize.y * 0.25 - 0.25, aTexCoord0.y, aTexCoord0.y + line, line);\n"
+	"  vZEdge = vec4(aTexCoord1, aRectPosition.w, 0.0);\n"
+	"}\n";
+
 // What the three share. beam(): the picture as a CRT's beams draw it. Each
 // game line is one beam that follows the game's own lines (vLine), not the
 // TV's rows: a pixel takes the two lines around it, a and b, f of a line

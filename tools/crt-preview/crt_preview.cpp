@@ -5,7 +5,9 @@
 // needs no display.
 //
 // Usage: crt-preview <shader 0-3> <in.ppm> <out.ppm> <tv width> <tv height>
-//                    <43 or 169> [lines]
+//                    <43 or 169> [lines] [rows]
+//   rows: the GamePad's picture (854 480): the lines locked to the screen's
+//         rows (tv_mesh.h's tv_rows_lines), not the game's
 //   shader: 0 Off (plain bilinear stretch), 1 Scanlines, 2 CRT, 3 CRT Curved
 //   lines: the game's line count as tv_pass.cpp sends it (default 240;
 //          288 PAL, 480 or 576 for a game in an interlaced 480-line mode)
@@ -167,6 +169,7 @@ int main(int argc, char ** argv)
 		const std::string d = argv[2];
 		writeFile(d + "/tv.vert", kTvVertexShader);
 		writeFile(d + "/curved.vert", kTvCurvedVertexShader);
+		writeFile(d + "/curved-rows.vert", kTvCurvedRowsVertexShader);
 		writeFile(d + "/scanlines.frag", kTvScanlinesShader);
 		writeFile(d + "/crt.frag", kTvCrtShader);
 		writeFile(d + "/curved.frag", kTvCurvedShader);
@@ -181,7 +184,12 @@ int main(int argc, char ** argv)
 	const int shader = atoi(argv[1]);
 	const int W = atoi(argv[4]), H = atoi(argv[5]);
 	const bool picture_43 = strcmp(argv[6], "43") == 0;
-	const float lines = argc > 7 ? float(atof(argv[7])) : 240.0f;
+	float lines = argc > 7 ? float(atof(argv[7])) : 240.0f;
+	// "rows": as tv_pass.cpp draws the GamePad's picture, the lines locked to the screen's rows (tv_mesh.h)
+	const bool rows = argc > 8 && strcmp(argv[8], "rows") == 0;
+	const double over_v = rows ? tv_rows_overscan(unsigned(H)) : double(kTvOverscan);
+	if (rows)
+		lines = float(tv_rows_lines(unsigned(H)) * (lines >= 360.0f ? 2.0 : 1.0));
 	int fw, fh;
 	std::vector<unsigned char> frame;
 	if (!readPpm(argv[2], fw, fh, frame)) {
@@ -207,8 +215,9 @@ int main(int argc, char ** argv)
 	}
 
 	const char * ps = shader == 1 ? kTvScanlinesShader : shader == 2 || shader == 3 ? kTvCrtShader : kPlainShader;
-	const GLuint prog = link(shader == 3 ? kTvCurvedVertexShader : kTvVertexShader, ps);
-	const GLuint edge = shader == 3 ? link(kTvCurvedVertexShader, kTvCurvedShader) : 0;
+	const char * curved_vs = rows ? kTvCurvedRowsVertexShader : kTvCurvedVertexShader;
+	const GLuint prog = link(shader == 3 ? curved_vs : kTvVertexShader, ps);
+	const GLuint edge = shader == 3 ? link(curved_vs, kTvCurvedShader) : 0;
 
 	// The frame: rows top first, as the console's (v = 0 is the top row).
 	GLuint tex;
@@ -235,11 +244,12 @@ int main(int argc, char ** argv)
 	// tv_pass.cpp's quad (RectVertex: x y z w, s t, unused).
 	// Off shows the whole frame; the filters the frame less its overscan (tv_mesh.h).
 	const float lo = shader == 0 ? 0.0f : tv_overscan(0.0), hi = shader == 0 ? 1.0f : tv_overscan(1.0);
+	const float top = shader == 0 ? 0.0f : tv_overscan(0.0, over_v), bottom = shader == 0 ? 1.0f : tv_overscan(1.0, over_v);
 	const float quad[4][8] = {
-		{-1.0f, -1.0f, 0.0f, 1.0f, lo, hi, 0.0f, 0.0f},
-		{ 1.0f, -1.0f, 0.0f, 1.0f, hi, hi, 0.0f, 0.0f},
-		{-1.0f,  1.0f, 0.0f, 1.0f, lo, lo, 0.0f, 0.0f},
-		{ 1.0f,  1.0f, 0.0f, 1.0f, hi, lo, 0.0f, 0.0f},
+		{-1.0f, -1.0f, 0.0f, 1.0f, lo, bottom, 0.0f, 0.0f},
+		{ 1.0f, -1.0f, 0.0f, 1.0f, hi, bottom, 0.0f, 0.0f},
+		{-1.0f,  1.0f, 0.0f, 1.0f, lo, top, 0.0f, 0.0f},
+		{ 1.0f,  1.0f, 0.0f, 1.0f, hi, top, 0.0f, 0.0f},
 	};
 	// tv_pass_draw's picture rect and uniform.
 	int w = picture_43 ? ((H * 4 / 3 + 1) & ~1) : W;
@@ -250,7 +260,7 @@ int main(int argc, char ** argv)
 	// CRT Curved: tv_pass.cpp's grid for the picture.
 	std::vector<TvMeshVertex> mesh(kTvMeshMaxVertices);
 	std::vector<uint16_t> index(kTvMeshMaxIndices);
-	const TvMesh m = tv_mesh_build(mesh.data(), index.data(), unsigned(w), unsigned(H), kTvMeshBend);
+	const TvMesh m = tv_mesh_build(mesh.data(), index.data(), unsigned(w), unsigned(H), kTvMeshBend, over_v);
 	GLuint vao, vbo, ibo;
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);

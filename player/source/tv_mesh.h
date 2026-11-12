@@ -50,7 +50,25 @@ constexpr float kTvMeshBend = 0.04f; // the curvature
 // most N64 games leave (8 of 640 pixels left and right, 6 of 480 below) are
 // off the screen. tv_overscan: a frame coordinate 0..1 to the part shown.
 constexpr float kTvOverscan = 0.03f; // 2% left part of the bars games draw themselves (Super Mario 64: 14 rows above)
-inline float tv_overscan(double s) { return float(kTvOverscan + s * (1.0 - 2.0 * kTvOverscan)); }
+inline float tv_overscan(double s, double o = kTvOverscan) { return float(o + s * (1.0 - 2.0 * o)); }
+// The GamePad (Zach, 2026-11-12): its 480 rows give a game line 2 rows, and
+// 2.13 with the overscan, so beams that follow the game's lines land on its
+// rows at a phase that drifts down the screen: bands, or with no overscan no
+// lines at all (both rows of a line the same quarter line from its middle).
+// There the shaders are told the frame has as many lines as the screen has
+// row pairs, the first of each pair on a line's middle (f = 0) and the second
+// between two lines (f = 0.5): the same beams, locked to the screen's rows
+// instead of the game's lines. The lines' count is the uniform's (the frame's
+// whole height in lines); the phase is in the overscan up and down, the
+// nearest to kTvOverscan that puts the first row n whole lines in:
+// o * lines - 0.25 = n with lines = (h / 2) / (1 - 2 o). 2.85% at 480 rows.
+inline double tv_rows_overscan(unsigned h)
+{
+	const double half = h / 2.0;
+	const double n = std::floor(kTvOverscan * half / (1.0 - 2.0 * kTvOverscan) - 0.25 + 0.5);
+	return (n + 0.25) / (half + 2.0 * n + 0.5);
+}
+inline double tv_rows_lines(unsigned h) { return h / 2.0 / (1.0 - 2.0 * tv_rows_overscan(h)); }
 constexpr unsigned kTvMeshRows = 16;
 constexpr unsigned kTvMeshMaxCols = 32; // 2 * round(8 * as) up to as = 2
 constexpr unsigned kTvMeshMaxVertices = (kTvMeshMaxCols + 1) * (kTvMeshRows + 1);
@@ -90,8 +108,10 @@ inline float tv_mesh_light(const TvMeshVertex & v)
 
 // The grid for a w x h picture on the TV (in TV pixels) and the bend (the
 // uniform's uSize.w). Grid lines fall on even pixels, so the cells' rows
-// and columns cut no 2x2 block.
-inline TvMesh tv_mesh_build(TvMeshVertex * v, uint16_t * index, unsigned w, unsigned h, float bend)
+// and columns cut no 2x2 block. overscan_v: the overscan up and down (the
+// GamePad's own, tv_rows_overscan).
+inline TvMesh tv_mesh_build(TvMeshVertex * v, uint16_t * index, unsigned w, unsigned h, float bend,
+                            double overscan_v = kTvOverscan)
 {
 	TvMesh m;
 	const double as = double(w) / double(h);
@@ -120,7 +140,7 @@ inline TvMesh tv_mesh_build(TvMeshVertex * v, uint16_t * index, unsigned w, unsi
 			o.z = float(1.0 - 0.06 * r2);
 			o.w = float(0.0064 * px + 0.5);
 			o.s0 = tv_overscan(gx * 0.5 + 0.5);
-			o.t0 = tv_overscan(gy * 0.5 + 0.5);
+			o.t0 = tv_overscan(gy * 0.5 + 0.5, overscan_v);
 			o.s1 = float((std::fabs(gx * as) - (as - 0.08)) * root);
 			o.t1 = float((std::fabs(gy) - 0.92) * root);
 		}

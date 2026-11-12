@@ -1,7 +1,8 @@
-// Our64 player: Settings > Picture's TV-only shaders (Scanlines, CRT, CRT
-// Curved). The game's frame is drawn through one of tv_shaders.h's programs
-// into a buffer at the TV's own size, which then goes to the TV in place of
-// the frame (ui_wiiu.cpp's ui_gfx_scan). The GamePad keeps the plain frame.
+// Our64 player: Settings > Picture's filters (Scanlines, CRT, CRT Curved).
+// The game's frame is drawn through one of tv_shaders.h's programs into a
+// buffer at the TV's own size, which then goes to the TV in place of the
+// frame (ui_wiiu.cpp's ui_gfx_scan), and into one at the GamePad's size for
+// the GamePad (2026-11-12), the lines there locked to its rows (tv_mesh.h).
 // On the graphics core, while a game runs.
 //
 // The programs go through the GX2 backend's GL layer (gx2_GL.cpp): it starts
@@ -58,8 +59,11 @@ extern "C" uint64_t GX2GPUTimeToCPUTime(uint64_t gpu_time);
 namespace {
 
 // The shader pairs: Scanlines, CRT, and CRT Curved's two (its inner cells,
-// CRT's pixel shader with its vertex shader, and its edge cells).
-enum { PROG_SCANLINES, PROG_CRT, PROG_CURVED_INNER, PROG_CURVED_EDGE, PROGS };
+// CRT's pixel shader with its vertex shader, and its edge cells); the
+// GamePad's CRT Curved has its own two (kTvCurvedRowsVertexShader), its
+// Scanlines and CRT are the TV's.
+enum { PROG_SCANLINES, PROG_CRT, PROG_CURVED_INNER, PROG_CURVED_EDGE, PROG_PAD_CURVED_INNER, PROG_PAD_CURVED_EDGE, PROGS };
+enum { TV, PAD, TARGETS };
 struct TvProgram {
 	GLuint name = 0;
 	GLint size = -1; // uSize
@@ -69,35 +73,44 @@ struct TvProgram {
 TvProgram g_programs[PROGS];
 GX2ContextState * g_ctx;
 GX2Sampler g_sampler;
-gx2::RectVertex * g_quad;
+gx2::RectVertex * g_quad; // 8: the TV's quad, then the GamePad's
+uint32_t g_pad_quad_h;    // the rows the GamePad's quad was made for, 0: not yet
 bool g_setup_tried, g_setup_ok;
 
-// CRT Curved's grid, for the picture size it was built for; allocated the
-// first time CRT Curved is drawn, at the largest grid's size, and kept.
-TvMeshVertex * g_mesh;
-uint16_t * g_mesh_index;
-TvMesh g_mesh_info;
-uint32_t g_mesh_w, g_mesh_h; // 0: not built
-bool g_mesh_drawn;           // the GPU may still read it
+// CRT Curved's grid, one for the TV and one for the GamePad, each for the
+// picture size it was built for; allocated the first time CRT Curved is
+// drawn there, at the largest grid's size, and kept.
+struct Mesh {
+	TvMeshVertex * v;
+	uint16_t * index;
+	TvMesh info;
+	uint32_t w, h; // 0: not built
+	bool drawn;    // the GPU may still read it
+};
+Mesh g_meshes[TARGETS];
 
-// The pass's GPU time: two clock samples around it, read a frame or more
-// later (never waited for), summed and logged for the first kTimeLogs 10 s
-// windows of each game and of each shader chosen during one: a whole game's
-// worth of lines would fill report.c's repeat filter.
+// The pass's GPU time, the TV's and the GamePad's each: two clock samples
+// around it, read a frame or more later (never waited for), summed and
+// logged for the first kTimeLogs 10 s windows of each game and of each
+// shader chosen during one: a whole game's worth of lines would fill
+// report.c's repeat filter.
 constexpr unsigned kTimeLogs = 3;
-unsigned g_time_logs;
-int g_timed_shader = -1;
-uint64_t * g_stamps;
-bool g_armed;
-unsigned g_armed_frames;
-uint64_t g_gpu_sum;
-unsigned g_gpu_n;
-OSTime g_log_at;
+struct Timing {
+	unsigned logs;
+	int shader = -1;
+	uint64_t * stamps;
+	bool armed;
+	unsigned armed_frames;
+	uint64_t gpu_sum;
+	unsigned gpu_n;
+	OSTime log_at;
+};
+Timing g_timing[TARGETS];
 
 bool g_order_known, g_swapped; // the counter as written, or byte-swapped
 double g_rate;                  // counts a second (measure_rate); 0 until the first timed pass
 
-// prompt.c's shader_name and shader_tv_only, here so the GX2 Replay app can
+// prompt.c's shader_name and shader_is_filter, here so the GX2 Replay app can
 // link this file alone (its gx2-tvfx.txt test switch).
 bool tv_only(int shader) { return shader >= SHADER_SCANLINES && shader < SHADERS; }
 const char * tv_name(int shader)
@@ -107,13 +120,23 @@ const char * tv_name(int shader)
 
 const char * pixel_source(int prog)
 {
-	return prog == PROG_SCANLINES ? kTvScanlinesShader : prog == PROG_CURVED_EDGE ? kTvCurvedShader : kTvCrtShader;
+	return prog == PROG_SCANLINES ? kTvScanlinesShader
+	     : prog == PROG_CURVED_EDGE || prog == PROG_PAD_CURVED_EDGE ? kTvCurvedShader : kTvCrtShader;
 }
 
 const char * vertex_source(int prog)
 {
-	return prog == PROG_CURVED_INNER || prog == PROG_CURVED_EDGE ? kTvCurvedVertexShader : kTvVertexShader;
+	return prog == PROG_PAD_CURVED_INNER || prog == PROG_PAD_CURVED_EDGE ? kTvCurvedRowsVertexShader
+	     : prog == PROG_CURVED_INNER || prog == PROG_CURVED_EDGE ? kTvCurvedVertexShader : kTvVertexShader;
 }
+
+// A shader's first and last program on a screen.
+int first_program(int shader, int target)
+{
+	return shader == SHADER_SCANLINES ? PROG_SCANLINES : shader == SHADER_CRT ? PROG_CRT
+	     : target == PAD ? PROG_PAD_CURVED_INNER : PROG_CURVED_INNER;
+}
+int last_program(int shader, int target) { return first_program(shader, target) + (shader == SHADER_CURVED ? 1 : 0); }
 
 bool setup()
 {
@@ -121,9 +144,10 @@ bool setup()
 		return g_setup_ok;
 	g_setup_tried = true;
 	g_ctx = static_cast<GX2ContextState *>(MEMAllocFromDefaultHeapEx(sizeof(GX2ContextState), GX2_CONTEXT_STATE_ALIGNMENT));
-	g_quad = static_cast<gx2::RectVertex *>(MEMAllocFromDefaultHeapEx(4 * sizeof(gx2::RectVertex), GX2_VERTEX_BUFFER_ALIGNMENT));
-	g_stamps = static_cast<uint64_t *>(MEMAllocFromDefaultHeapEx(64, 64));
-	if (g_ctx == nullptr || g_quad == nullptr || g_stamps == nullptr) {
+	g_quad = static_cast<gx2::RectVertex *>(MEMAllocFromDefaultHeapEx(8 * sizeof(gx2::RectVertex), GX2_VERTEX_BUFFER_ALIGNMENT));
+	for (Timing & t : g_timing)
+		t.stamps = static_cast<uint64_t *>(MEMAllocFromDefaultHeapEx(64, 64));
+	if (g_ctx == nullptr || g_quad == nullptr || g_timing[TV].stamps == nullptr || g_timing[PAD].stamps == nullptr) {
 		report_line("TV SHADER: no memory for its GPU state");
 		return false;
 	}
@@ -139,10 +163,33 @@ bool setup()
 		{ 1.0f,  1.0f, 0.0f, 1.0f, hi, lo, 0.0f, 0.0f},
 	};
 	memcpy(g_quad, quad, sizeof(quad));
-	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, g_quad, sizeof(quad));
+	memcpy(g_quad + 4, quad, sizeof(quad)); // the GamePad's, until pad_quad
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, g_quad, 2 * sizeof(quad));
 	GX2InitSampler(&g_sampler, GX2_TEX_CLAMP_MODE_CLAMP, GX2_TEX_XY_FILTER_MODE_LINEAR);
 	g_setup_ok = true;
 	return true;
+}
+
+// The GamePad's quad for a screen of h rows: the frame less the overscan
+// that locks the lines to its rows up and down (tv_mesh.h). Made once (the
+// GamePad's rows never change).
+void pad_quad(uint32_t h)
+{
+	if (g_pad_quad_h == h)
+		return;
+	if (g_pad_quad_h != 0)
+		GX2DrawDone(); // the last draw may still read it
+	const double o = tv_rows_overscan(h);
+	const float lo = tv_overscan(0.0), hi = tv_overscan(1.0), top = tv_overscan(0.0, o), bottom = tv_overscan(1.0, o);
+	const gx2::RectVertex quad[4] = {
+		{-1.0f, -1.0f, 0.0f, 1.0f, lo, bottom, 0.0f, 0.0f},
+		{ 1.0f, -1.0f, 0.0f, 1.0f, hi, bottom, 0.0f, 0.0f},
+		{-1.0f,  1.0f, 0.0f, 1.0f, lo, top, 0.0f, 0.0f},
+		{ 1.0f,  1.0f, 0.0f, 1.0f, hi, top, 0.0f, 0.0f},
+	};
+	memcpy(g_quad + 4, quad, sizeof(quad));
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, g_quad + 4, sizeof(quad));
+	g_pad_quad_h = h;
 }
 
 // Compiled the first time the shader is used (CafeGLSL, or the SD cache on
@@ -171,7 +218,7 @@ bool build_program(int shader, int prog)
 	if (linked != GL_TRUE) {
 		char log[1024];
 		glGetProgramInfoLog(program, sizeof(log), nullptr, log);
-		report_line("TV SHADER: %s did not compile, the TV shows the plain picture: %s", tv_name(shader), log);
+		report_line("TV SHADER: %s%s did not compile, the plain picture is shown: %s", prog >= PROG_PAD_CURVED_INNER ? "GamePad " : "", tv_name(shader), log);
 		glDeleteProgram(program);
 		return false;
 	}
@@ -181,10 +228,9 @@ bool build_program(int shader, int prog)
 	return true;
 }
 
-bool build(int shader)
+bool build(int shader, int target)
 {
-	const int first = shader == SHADER_SCANLINES ? PROG_SCANLINES : shader == SHADER_CRT ? PROG_CRT : PROG_CURVED_INNER;
-	const int last = shader == SHADER_CURVED ? PROG_CURVED_EDGE : first;
+	const int first = first_program(shader, target), last = last_program(shader, target);
 	if (g_programs[last].tried)
 		return g_programs[first].ok && g_programs[last].ok;
 	const OSTime start = OSGetSystemTime();
@@ -193,40 +239,39 @@ bool build(int shader)
 		ok = build_program(shader, prog);
 	g_programs[last].tried = true; // tried once, even if the first failed
 	if (ok)
-		report_line("TV SHADER: %s ready in %u ms", tv_name(shader),
+		report_line("TV SHADER: %s%s ready in %u ms", first >= PROG_PAD_CURVED_INNER ? "GamePad " : "", tv_name(shader),
 		            unsigned(OSTicksToMilliseconds(OSGetSystemTime() - start)));
 	return ok;
 }
 
 // CRT Curved's grid for a w x h picture: built when the picture's size
 // changes (its shape, or the TV's size), after the GPU is done with the last
-// one (a moment's wait, then).
-bool build_mesh(uint32_t w, uint32_t h)
+// one (a moment's wait, then). overscan_v: tv_mesh_build's.
+bool build_mesh(Mesh & m, uint32_t w, uint32_t h, double overscan_v)
 {
-	if (g_mesh == nullptr) {
-		g_mesh = static_cast<TvMeshVertex *>(MEMAllocFromDefaultHeapEx(kTvMeshMaxVertices * sizeof(TvMeshVertex), GX2_VERTEX_BUFFER_ALIGNMENT));
-		g_mesh_index = static_cast<uint16_t *>(MEMAllocFromDefaultHeapEx(kTvMeshMaxIndices * sizeof(uint16_t), GX2_INDEX_BUFFER_ALIGNMENT));
-		if (g_mesh == nullptr || g_mesh_index == nullptr) {
+	if (m.v == nullptr) {
+		m.v = static_cast<TvMeshVertex *>(MEMAllocFromDefaultHeapEx(kTvMeshMaxVertices * sizeof(TvMeshVertex), GX2_VERTEX_BUFFER_ALIGNMENT));
+		m.index = static_cast<uint16_t *>(MEMAllocFromDefaultHeapEx(kTvMeshMaxIndices * sizeof(uint16_t), GX2_INDEX_BUFFER_ALIGNMENT));
+		if (m.v == nullptr || m.index == nullptr) {
 			report_line("TV SHADER: no memory for CRT Curved's grid");
-			if (g_mesh != nullptr)
-				MEMFreeToDefaultHeap(g_mesh);
-			if (g_mesh_index != nullptr)
-				MEMFreeToDefaultHeap(g_mesh_index);
-			g_mesh = nullptr;
-			g_mesh_index = nullptr;
+			if (m.v != nullptr)
+				MEMFreeToDefaultHeap(m.v);
+			if (m.index != nullptr)
+				MEMFreeToDefaultHeap(m.index);
+			m.v = nullptr;
+			m.index = nullptr;
 			return false;
 		}
 	}
-	if (w == g_mesh_w && h == g_mesh_h)
+	if (w == m.w && h == m.h)
 		return true;
-	if (g_mesh_drawn)
+	if (m.drawn)
 		GX2DrawDone();
-	g_mesh_info = tv_mesh_build(g_mesh, g_mesh_index, w, h, kTvMeshBend);
-	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, g_mesh, g_mesh_info.vertices * sizeof(TvMeshVertex));
-	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, g_mesh_index,
-	              (g_mesh_info.inner + g_mesh_info.edge) * sizeof(uint16_t));
-	g_mesh_w = w;
-	g_mesh_h = h;
+	m.info = tv_mesh_build(m.v, m.index, w, h, kTvMeshBend, overscan_v);
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, m.v, m.info.vertices * sizeof(TvMeshVertex));
+	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, m.index, (m.info.inner + m.info.edge) * sizeof(uint16_t));
+	m.w = w;
+	m.h = h;
 	return true;
 }
 
@@ -270,19 +315,19 @@ void measure_rate()
 }
 
 // The last samples, if the GPU has written them; then the log line every 10 s.
-void collect_time(int shader, const GX2ColorBuffer * out)
+void collect_time(Timing & g, int target, int shader, const GX2ColorBuffer * out)
 {
-	if (shader != g_timed_shader) {
-		g_timed_shader = shader;
-		g_time_logs = 0;
-		g_gpu_sum = 0;
-		g_gpu_n = 0;
-		g_log_at = 0;
+	if (shader != g.shader) {
+		g.shader = shader;
+		g.logs = 0;
+		g.gpu_sum = 0;
+		g.gpu_n = 0;
+		g.log_at = 0;
 	}
 	const OSTime now = OSGetSystemTime();
-	if (g_armed) {
-		DCInvalidateRange(g_stamps, 64);
-		uint64_t a = g_stamps[0], b = g_stamps[1];
+	if (g.armed) {
+		DCInvalidateRange(g.stamps, 64);
+		uint64_t a = g.stamps[0], b = g.stamps[1];
 		if (written(a) && written(b)) {
 			// Written big-endian, so as read; should it come byte-swapped,
 			// that counts up by far less: decided on the first pair, kept.
@@ -295,28 +340,29 @@ void collect_time(int shader, const GX2ColorBuffer * out)
 				b = __builtin_bswap64(b);
 			}
 			if (b > a && b - a < 1000000000ull) {
-				g_gpu_sum += b - a;
-				g_gpu_n++;
+				g.gpu_sum += b - a;
+				g.gpu_n++;
 				measure_rate();
 			}
-			g_armed = false;
-		} else if (++g_armed_frames > 120) {
-			g_armed = false; // never written (Cemu does not): try again
+			g.armed = false;
+		} else if (++g.armed_frames > 120) {
+			g.armed = false; // never written (Cemu does not): try again
 		}
 	}
-	if (g_log_at == 0)
-		g_log_at = now;
-	if (now - g_log_at < OSSecondsToTicks(10))
+	if (g.log_at == 0)
+		g.log_at = now;
+	if (now - g.log_at < OSSecondsToTicks(10))
 		return;
-	g_log_at = now;
-	if (g_gpu_n == 0 || g_time_logs >= kTimeLogs)
+	g.log_at = now;
+	if (g.gpu_n == 0 || g.logs >= kTimeLogs)
 		return;
-	g_time_logs++;
-	const double counts = double(g_gpu_sum) / g_gpu_n;
-	report_line("TV SHADER: %s at %ux%u, %.3f ms GPU a frame (%u frames timed, %.0f counts at %.0f Hz)", tv_name(shader),
-	            unsigned(out->surface.width), unsigned(out->surface.height), counts * 1000.0 / g_rate, g_gpu_n, counts, g_rate);
-	g_gpu_sum = 0;
-	g_gpu_n = 0;
+	g.logs++;
+	const double counts = double(g.gpu_sum) / g.gpu_n;
+	report_line("TV SHADER: %s%s at %ux%u, %.3f ms GPU a frame (%u frames timed, %.0f counts at %.0f Hz)",
+	            target == PAD ? "GamePad " : "", tv_name(shader), unsigned(out->surface.width),
+	            unsigned(out->surface.height), counts * 1000.0 / g_rate, g.gpu_n, counts, g_rate);
+	g.gpu_sum = 0;
+	g.gpu_n = 0;
 }
 
 } // namespace
@@ -327,11 +373,13 @@ unsigned tv_pass_held_bytes()
 	if (g_ctx != nullptr)
 		n += sizeof(GX2ContextState);
 	if (g_quad != nullptr)
-		n += 4 * sizeof(gx2::RectVertex);
-	if (g_stamps != nullptr)
-		n += 64;
-	if (g_mesh != nullptr)
-		n += kTvMeshMaxVertices * sizeof(TvMeshVertex) + kTvMeshMaxIndices * sizeof(uint16_t);
+		n += 8 * sizeof(gx2::RectVertex);
+	for (const Timing & t : g_timing)
+		if (t.stamps != nullptr)
+			n += 64;
+	for (const Mesh & m : g_meshes)
+		if (m.v != nullptr)
+			n += kTvMeshMaxVertices * sizeof(TvMeshVertex) + kTvMeshMaxIndices * sizeof(uint16_t);
 	// a compiled pair as the GL layer keeps it: the shaders' headers and
 	// code, the fetch shader and the uniform register images
 	for (const TvProgram & t : g_programs)
@@ -347,12 +395,14 @@ unsigned tv_pass_held_bytes()
 
 void tv_pass_game_stopped()
 {
-	g_timed_shader = -1; // the next game logs its first windows again
+	for (Timing & t : g_timing)
+		t.shader = -1; // the next game logs its first windows again
 }
 
-bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool picture_43, bool clear)
+bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool picture_43, bool clear, bool gamepad)
 {
-	if (!tv_only(shader) || !setup() || !build(shader))
+	const int target = gamepad ? PAD : TV;
+	if (!tv_only(shader) || !setup() || !build(shader, target))
 		return false;
 	const uint32_t W = out->surface.width, H = out->surface.height;
 	uint32_t w = picture_43 ? (H * 4 / 3 + 1) & ~1u : W;
@@ -360,11 +410,14 @@ bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool
 		w = W;
 	const uint32_t x = (W - w) / 2;
 	const bool curved = shader == SHADER_CURVED;
-	if (curved && !build_mesh(w, H))
+	Mesh & mesh = g_meshes[target];
+	Timing & timing = g_timing[target];
+	if (curved && !build_mesh(mesh, w, H, gamepad ? tv_rows_overscan(H) : double(kTvOverscan)))
 		return false;
-	collect_time(shader, out);
-	const int first = shader == SHADER_SCANLINES ? PROG_SCANLINES : shader == SHADER_CRT ? PROG_CRT : PROG_CURVED_INNER;
-	const int last = curved ? PROG_CURVED_EDGE : first;
+	if (gamepad)
+		pad_quad(H);
+	collect_time(timing, target, shader, out);
+	const int first = first_program(shader, target), last = last_program(shader, target);
 
 	// The game's lines: a TV field's, 288 on PAL, 240 on NTSC (GLideN64 puts
 	// a field's lines on the frame's rows, 2 rows a line, whatever the VI's
@@ -373,7 +426,11 @@ bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool
 	// the others) has twice that: each of its rows is a line, which the
 	// shaders draw without gaps.
 	const float field = VI.PAL ? 288.0f : 240.0f;
-	const float lines = VI.real_height * 2 > unsigned(field * 3) ? field * 2 : field;
+	// On the GamePad the lines are its own row pairs, not the game's
+	// (tv_mesh.h's tv_rows_lines); an interlaced game's are each of its rows,
+	// which draws no gaps there either.
+	const bool interlaced = VI.real_height * 2 > unsigned(field * 3);
+	const float lines = (gamepad ? float(tv_rows_lines(H)) : field) * (interlaced ? 2.0f : 1.0f);
 	const GLfloat size[4] = {float(w), float(H), lines, 0.0f};
 	// The uniform goes in through the GL layer, which keeps it in the
 	// program's register image; GLideN64's own program is current again after.
@@ -413,12 +470,12 @@ bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool
 	GX2Invalidate((GX2InvalidateMode)(GX2_INVALIDATE_MODE_COLOR_BUFFER | GX2_INVALIDATE_MODE_TEXTURE),
 	              frame->surface.image, frame->surface.imageSize);
 
-	const bool timed = !g_armed && g_time_logs < kTimeLogs;
+	const bool timed = !timing.armed && timing.logs < kTimeLogs;
 	if (timed) {
-		memset(g_stamps, 0, 64);
-		DCFlushRange(g_stamps, 64);
-		GX2SampleBottomGPUCycle(&g_stamps[0]);
-		DCFlushRange(g_stamps, 64); // what GX2 put there for "no value" is in memory before the GPU writes
+		memset(timing.stamps, 0, 64);
+		DCFlushRange(timing.stamps, 64);
+		GX2SampleBottomGPUCycle(&timing.stamps[0]);
+		DCFlushRange(timing.stamps, 64); // what GX2 put there for "no value" is in memory before the GPU writes
 	}
 	GX2SetContextState(g_ctx);
 	if (clear) { // black around the picture: drawn once, the pass writes only the picture's rect
@@ -440,24 +497,24 @@ bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool
 	                         (GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0, (GX2ChannelMask)0);
 	bind(g_programs[first].gx2, &tex);
 	if (curved) {
-		GX2SetAttribBuffer(0, g_mesh_info.vertices * sizeof(TvMeshVertex), sizeof(TvMeshVertex), g_mesh);
-		if (g_mesh_info.inner != 0)
-			GX2DrawIndexedEx(GX2_PRIMITIVE_MODE_TRIANGLES, g_mesh_info.inner, GX2_INDEX_TYPE_U16, g_mesh_index, 0, 1);
+		GX2SetAttribBuffer(0, mesh.info.vertices * sizeof(TvMeshVertex), sizeof(TvMeshVertex), mesh.v);
+		if (mesh.info.inner != 0)
+			GX2DrawIndexedEx(GX2_PRIMITIVE_MODE_TRIANGLES, mesh.info.inner, GX2_INDEX_TYPE_U16, mesh.index, 0, 1);
 		bind(g_programs[last].gx2, &tex);
-		GX2DrawIndexedEx(GX2_PRIMITIVE_MODE_TRIANGLES, g_mesh_info.edge, GX2_INDEX_TYPE_U16,
-		                 g_mesh_index + g_mesh_info.inner, 0, 1); // never empty: the outer cells reach the edge
-		g_mesh_drawn = true;
+		GX2DrawIndexedEx(GX2_PRIMITIVE_MODE_TRIANGLES, mesh.info.edge, GX2_INDEX_TYPE_U16,
+		                 mesh.index + mesh.info.inner, 0, 1); // never empty: the outer cells reach the edge
+		mesh.drawn = true;
 	} else {
-		GX2SetAttribBuffer(0, 4 * sizeof(gx2::RectVertex), sizeof(gx2::RectVertex), g_quad);
+		GX2SetAttribBuffer(0, 4 * sizeof(gx2::RectVertex), sizeof(gx2::RectVertex), g_quad + (gamepad ? 4 : 0));
 		GX2DrawEx(GX2_PRIMITIVE_MODE_TRIANGLE_STRIP, 4, 0, 1);
 	}
 	// Out of the color buffer cache before the copy to the TV's scan buffer reads it.
 	GX2Invalidate(GX2_INVALIDATE_MODE_COLOR_BUFFER, out->surface.image, out->surface.imageSize);
 	if (timed) {
-		GX2SampleBottomGPUCycle(&g_stamps[1]);
-		DCFlushRange(g_stamps, 64); // never written back over the GPU's samples later
-		g_armed = true;
-		g_armed_frames = 0;
+		GX2SampleBottomGPUCycle(&timing.stamps[1]);
+		DCFlushRange(timing.stamps, 64); // never written back over the GPU's samples later
+		timing.armed = true;
+		timing.armed_frames = 0;
 	}
 	glUseProgram(was != nullptr ? was->name : 0);
 	return true;
