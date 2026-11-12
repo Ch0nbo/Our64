@@ -433,6 +433,65 @@ void ui_name_from_edit(char *out, unsigned size, const char *typed)
 	snprintf(out, size, "%s", t);
 }
 
+/* A trailing (...) or [...] group is dropped from a title only when it is a
+ * ROM set's tag: a region, languages, a revision, GoodN64's codes. Anything
+ * else is the game's own name: a hack named "Mario Kart 64 (Amped Up).z64"
+ * was listed as Mario Kart 64 (#30). */
+static int tag_word(const char *w, unsigned n)
+{
+	static const char *const words[] = {
+		"USA", "Europe", "Japan", "World", "Australia", "Germany", "France", "Spain", "Italy", "Brazil", "Korea",
+		"China", "Asia", "Netherlands", "Sweden", "Canada", "UK", "Scandinavia", "Taiwan", "Hong Kong", "Russia",
+		"En", "Fr", "De", "Es", "It", "Ja", "Nl", "Sv", "Pt", "Zh", "Ko", "No", "Da", "Fi", "Ru", "Pl",
+		"Unl", "PD", "Pirate", "Aftermarket", "Homebrew", "Alt", "Kiosk", "Sample", "Promo", "Debug", "Prototype",
+		"Virtual Console", "Wii", "Wii U", "Wii Virtual Console", "Wii U Virtual Console", "Switch Online",
+		"LodgeNet", "GameCube", "GameCube Edition", "iQue", "NTSC", "PAL", "Collector's Edition", "Not for Resale",
+	};
+	static const char *const starts[] = { "Rev ", "Rev", "Beta", "Proto", "Demo", "Alt ", "Disc ", "Disk " };
+	for (unsigned i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+		if (strlen(words[i]) == n && !strncasecmp(w, words[i], n))
+			return 1;
+	for (unsigned i = 0; i < sizeof(starts) / sizeof(starts[0]); i++) {
+		const unsigned k = (unsigned)strlen(starts[i]);
+		if (n >= k && !strncasecmp(w, starts[i], k) && (n == k || w[k] == ' ' || isdigit((unsigned char)w[k]) || (k && starts[i][k - 1] == ' ')))
+			return 1;
+	}
+	if ((w[0] == 'V' || w[0] == 'v') && n >= 2 && isdigit((unsigned char)w[1])) /* V1.1 */
+		return 1;
+	if (w[0] == 'M' && n == 2 && isdigit((unsigned char)w[1])) /* GoodN64: M3, three languages */
+		return 1;
+	unsigned digits = 0, upper = 0;
+	for (unsigned i = 0; i < n; i++) {
+		digits += isdigit((unsigned char)w[i]) || w[i] == '-' || w[i] == '.';
+		upper += w[i] != 0 && strchr("JUEGFSIAWBKCN", w[i]) != NULL;
+	}
+	if (digits == n && n >= 4) /* a date: 2000-03-21 */
+		return 1;
+	return upper == n && n <= 3; /* GoodN64's regions: U, E, JU, JUE */
+}
+
+static int dump_tag(const char *in, unsigned n, int square)
+{
+	if (n == 0)
+		return 1;
+	if (square) /* GoodN64: [!], [b1], [h1C], [f1], [o1], [t1], [a1], [p1], [T+Spa] */
+		return in[0] == '!' || (strchr("abfhoptT", in[0]) && (n == 1 || isdigit((unsigned char)in[1]) || in[1] == '+' || in[1] == '-'));
+	for (unsigned at = 0; at < n;) { /* every part between commas */
+		while (at < n && in[at] == ' ')
+			at++;
+		unsigned end = at;
+		while (end < n && in[end] != ',')
+			end++;
+		unsigned stop = end;
+		while (stop > at && in[stop - 1] == ' ')
+			stop--;
+		if (stop == at || !tag_word(in + at, stop - at))
+			return 0;
+		at = end + 1;
+	}
+	return 1;
+}
+
 void ui_game_title(char *out, unsigned size, const char *file)
 {
 	const char *slash = strrchr(file, '/');
@@ -442,8 +501,11 @@ void ui_game_title(char *out, unsigned size, const char *file)
 	char *dot = strrchr(s, '.');
 	if (dot && dot != s)
 		*dot = 0;
-	/* trailing (...) and [...] groups */
-	char *end = s + strlen(s);
+	/* Trailing (...) and [...] groups go from the first that is a ROM set's
+	 * tag: what follows a region is the set's too ("(Rev 3) (Limited Run
+	 * Games)"). Groups before it, and groups with no tag among them, are the
+	 * game's own name (#30). */
+	char *end = s + strlen(s), *cut = NULL;
 	for (;;) {
 		while (end > s && end[-1] == ' ')
 			end--;
@@ -455,10 +517,14 @@ void ui_game_title(char *out, unsigned size, const char *file)
 			o--;
 		if (*o != open || o == s)
 			break;
+		if (dump_tag(o + 1, (unsigned)(end - 1 - (o + 1)), open == '['))
+			cut = o;
 		end = o;
 	}
-	if (end > s)
-		*end = 0;
+	if (cut)
+		*cut = 0;
+	for (unsigned k = (unsigned)strlen(s); k > 0 && s[k - 1] == ' '; k--)
+		s[k - 1] = 0;
 	/* No-Intro's file names: "Legend of Zelda, The - Majora's Mask" reads
 	 * "The Legend of Zelda: Majora's Mask". Each part between " - " gets its
 	 * trailing ", The", ", A" or ", An" back in front; " - " becomes ": ". */

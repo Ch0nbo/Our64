@@ -294,6 +294,23 @@ static void test_title(void)
 	CHECK_STR(s, "The Legend of Zelda: Ocarina of Time: Master Quest");
 	ui_game_title(s, sizeof(s), "Hey You, Pikachu! (USA).z64"); /* a comma that is not an article */
 	CHECK_STR(s, "Hey You, Pikachu!");
+	/* a hack's own words in brackets are its name (#30); a ROM set's tags after them still go */
+	ui_game_title(s, sizeof(s), "Mario Kart 64 (Amped Up v2.95).z64");
+	CHECK_STR(s, "Mario Kart 64 (Amped Up v2.95)");
+	ui_game_title(s, sizeof(s), "Super Mario 64 (Star Road) (USA) [!].z64");
+	CHECK_STR(s, "Super Mario 64 (Star Road)");
+	ui_game_title(s, sizeof(s), "Super Mario 64 [Star Road].z64");
+	CHECK_STR(s, "Super Mario 64 [Star Road]");
+	ui_game_title(s, sizeof(s), "Super Mario Star Road.z64");
+	CHECK_STR(s, "Super Mario Star Road");
+	ui_game_title(s, sizeof(s), "Mario Kart 64 (E) (V1.1) [!].n64");
+	CHECK_STR(s, "Mario Kart 64");
+	ui_game_title(s, sizeof(s), "Star Wars - Rogue Squadron (USA) (En,Fr,De) (Rev 1).z64");
+	CHECK_STR(s, "Star Wars: Rogue Squadron");
+	ui_game_title(s, sizeof(s), "GoldenEye 007 (JU) [h1C].z64");
+	CHECK_STR(s, "GoldenEye 007");
+	ui_game_title(s, sizeof(s), "Perfect Dark (USA) (Rev 1) (Beta 2) (2000-03-21).z64");
+	CHECK_STR(s, "Perfect Dark");
 	ui_game_title(s, sizeof(s), "Spider-Man (USA).z64");
 	CHECK_STR(s, "Spider-Man");
 	CHECK_STR(ui_sort_title("The Legend of Zelda"), "Legend of Zelda");
