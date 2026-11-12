@@ -62,9 +62,11 @@
 // this negates it first, so y = 1 is the top of the TV and the frame's first
 // row (v = 0) goes there. Scanlines and CRT share kTvVertexShader, CRT
 // Curved has its own (its grid's vertices carry more).
-// TV_SOFT: half the distance between CRT's two reads across a line, in u:
-// 0.4 of a game pixel when the game is 320 pixels wide (most are; a 640-wide
-// one gets the same softness on the glass, 0.8 of its pixels).
+// TV_SOFT: half the distance between CRT's two reads across a line, in u
+// (0.0007 since 2026-11-12: at 0.00125 an edge was 5.2 TV pixels wide at 1080p,
+// softer than RetroArch's crt-lottes 3.9 and crt-geom 3.2; now 3.6):
+// 0.22 of a game pixel when the game is 320 pixels wide (most are; a 640-wide
+// one gets the same softness on the glass, 0.45 of its pixels).
 #define TV_VERTEX_COMMON \
 	"#version 330\n" \
 	"uniform vec4 uSize;\n" \
@@ -77,7 +79,7 @@
 	"  float hi = step(360.0, uSize.z);\n" \
 	"  vBeam = vec4(mix(1.0 / 0.6, 1.0, hi), mix(1.0 / 0.85 - 1.0 / 0.6, 0.0, hi), 0.05, (15.0 / 16.0) / 1.1);\n" \
 	"}\n"
-#define TV_SOFT "0.00125"
+#define TV_SOFT "0.0007"
 
 static const char kTvVertexShader[] =
 	TV_VERTEX_COMMON

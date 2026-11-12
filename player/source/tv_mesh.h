@@ -49,7 +49,7 @@ constexpr float kTvMeshBend = 0.04f; // the curvature
 // each side, stretched over the same place on the TV, so the black margins
 // most N64 games leave (8 of 640 pixels left and right, 6 of 480 below) are
 // off the screen. tv_overscan: a frame coordinate 0..1 to the part shown.
-constexpr float kTvOverscan = 0.02f;
+constexpr float kTvOverscan = 0.03f; // 2% left part of the bars games draw themselves (Super Mario 64: 14 rows above)
 inline float tv_overscan(double s) { return float(kTvOverscan + s * (1.0 - 2.0 * kTvOverscan)); }
 constexpr unsigned kTvMeshRows = 16;
 constexpr unsigned kTvMeshMaxCols = 32; // 2 * round(8 * as) up to as = 2
