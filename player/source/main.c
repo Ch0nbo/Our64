@@ -771,10 +771,12 @@ double player_idle_left_us(void)
  * own 59.94 or 50 a second) times the share of the last two seconds' game
  * frames that stayed on the TV as long as the game meant. Speed alone read
  * 98-101% in GoldenEye at 720p while a third of its frames were held wrong
- * (Zach, 2026-11-11). A gap of over two seconds (the pause menu) starts over. */
+ * (Zach, 2026-11-11). A gap of over two seconds (the pause menu) starts over.
+ * The number shown falls at once and climbs back 4 points a second. */
 static int g_speed_on;
 static double g_speed_t0;
 static unsigned g_speed_vi0, g_speed_frames0, g_speed_wrong0, g_speed_frames_prev, g_speed_wrong_prev;
+static double g_speed_shown = -1; /* the number on screen; below 0: none yet */
 static int is_pal(void);
 
 const char *player_rom_file(void)
@@ -800,6 +802,7 @@ static void speed_tick(void)
 	if (g_speed_t0 == 0 || now - g_speed_t0 > 2e6) {
 		video_hold_counts(&g_speed_frames0, &g_speed_wrong0);
 		g_speed_frames_prev = g_speed_wrong_prev = 0;
+		g_speed_shown = -1;
 		g_speed_t0 = now;
 		g_speed_vi0 = g_bench.vis;
 	} else if (now - g_speed_t0 >= 1e6) {
@@ -810,7 +813,14 @@ static void speed_tick(void)
 		const unsigned f2 = f + g_speed_frames_prev, w2 = w + g_speed_wrong_prev; /* this second and the one before */
 		if (f2 > 0 && w2 <= f2)
 			percent *= 1.0 - (double)w2 / (double)f2;
-		ui_speed((int)(percent + 0.5));
+		/* A drop shows at once and wears off slowly, 4 points a second: a bad
+		 * half second is felt for longer than it lasts, and a number back at
+		 * 100% a second later hid it (Zach, 2026-11-11). */
+		if (g_speed_shown < 0 || percent < g_speed_shown)
+			g_speed_shown = percent;
+		else
+			g_speed_shown = percent < g_speed_shown + 4 ? percent : g_speed_shown + 4;
+		ui_speed((int)(g_speed_shown + 0.5));
 		g_speed_frames_prev = f;
 		g_speed_wrong_prev = w;
 		g_speed_frames0 = frames;
