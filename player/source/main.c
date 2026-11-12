@@ -761,12 +761,15 @@ double player_idle_left_us(void)
 	return due > now ? (double)OSTicksToMicroseconds(due - now) : 0;
 }
 
-/* The speed display (Settings > Picture): once a second, the VIs emulated in
- * that second against the game's own rate (59.94 or 50 a second). A gap of
- * over two seconds (the pause menu) starts the count again. */
+/* The speed display (Settings > Picture): once a second, one percentage for
+ * how the game is running. It is the speed (VIs emulated against the game's
+ * own 59.94 or 50 a second) times the share of the last two seconds' game
+ * frames that stayed on the TV as long as the game meant. Speed alone read
+ * 98-101% in GoldenEye at 720p while a third of its frames were held wrong
+ * (Zach, 2026-11-11). A gap of over two seconds (the pause menu) starts over. */
 static int g_speed_on;
 static double g_speed_t0;
-static unsigned g_speed_vi0;
+static unsigned g_speed_vi0, g_speed_frames0, g_speed_wrong0, g_speed_frames_prev, g_speed_wrong_prev;
 static int is_pal(void);
 
 void player_speed_display(int on)
@@ -782,12 +785,25 @@ static void speed_tick(void)
 	if (!g_speed_on)
 		return;
 	const double now = report_now_us();
+	unsigned frames, wrong;
 	if (g_speed_t0 == 0 || now - g_speed_t0 > 2e6) {
+		video_hold_counts(&g_speed_frames0, &g_speed_wrong0);
+		g_speed_frames_prev = g_speed_wrong_prev = 0;
 		g_speed_t0 = now;
 		g_speed_vi0 = g_bench.vis;
 	} else if (now - g_speed_t0 >= 1e6) {
 		const double rate = (g_bench.vis - g_speed_vi0) * 1e6 / (now - g_speed_t0);
-		ui_speed((int)(rate * 100.0 / (is_pal() ? 50.0 : 59.94) + 0.5));
+		double percent = rate * 100.0 / (is_pal() ? 50.0 : 59.94);
+		video_hold_counts(&frames, &wrong);
+		const unsigned f = frames - g_speed_frames0, w = wrong - g_speed_wrong0;
+		const unsigned f2 = f + g_speed_frames_prev, w2 = w + g_speed_wrong_prev; /* this second and the one before */
+		if (f2 > 0 && w2 <= f2)
+			percent *= 1.0 - (double)w2 / (double)f2;
+		ui_speed((int)(percent + 0.5));
+		g_speed_frames_prev = f;
+		g_speed_wrong_prev = w;
+		g_speed_frames0 = frames;
+		g_speed_wrong0 = wrong;
 		g_speed_t0 = now;
 		g_speed_vi0 = g_bench.vis;
 	}

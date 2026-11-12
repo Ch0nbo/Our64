@@ -563,6 +563,21 @@ public:
 			m_screenDepth = g_kept.screenDepth;
 			m_dummy = g_kept.dummy;
 			m_present = g_kept.present;
+			// Our64: the kept screen is the size of the game that made it. A game
+			// drawn at another size (720p is per game: Our ROMs > Options) got the
+			// old one: its picture a corner of the TV, or cut off (2026-11-11).
+			const u32 w = dwnd().getScreenWidth(), h = dwnd().getScreenHeight();
+			if (m_screen.tex.surface.width != w || m_screen.tex.surface.height != h) {
+				GX2DrawDone(); // nothing still reads the old buffers
+				if (m_screen.tex.surface.image != nullptr) MEMFreeToDefaultHeap(m_screen.tex.surface.image);
+				if (m_screenDepth.surface.image != nullptr) MEMFreeToDefaultHeap(m_screenDepth.surface.image);
+				if (m_present.allocated && m_present.tex.surface.image != nullptr) MEMFreeToDefaultHeap(m_present.tex.surface.image);
+				m_present = Texture(); // made again by createPresentProgram, at the new size
+				createScreen(w, h);
+				g_kept.screen = m_screen;
+				g_kept.screenDepth = m_screenDepth;
+				g_kept.present = m_present;
+			}
 		}
 		if (m_ctx == nullptr) {
 			m_ctx = static_cast<GX2ContextState*>(MEMAllocFromDefaultHeapEx(sizeof(GX2ContextState), GX2_CONTEXT_STATE_ALIGNMENT));

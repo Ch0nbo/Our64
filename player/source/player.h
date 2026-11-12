@@ -42,6 +42,7 @@ void cpuprof_restart(void);       /* a reset: the samples so far are dropped */
 int  video_wait_task(unsigned task, double timeout_us); /* < 0: no timeout; 1 when decoded */
 void video_sync(void);            /* waits until the graphics core is idle */
 void player_speed_display(int on); /* main.c: Settings > Picture's speed display, on or off, at once */
+void video_hold_counts(unsigned *frames, unsigned *wrong); /* game frames on the TV, and those held a wrong number of vsyncs */
 void video_set_lines(int lines);   /* the next game draws at 480 or 720 lines (Our ROMs > Options) */
 int  video_res_height(void);      /* lines GLideN64 draws at: 480, or 720 with the dev test switch res-720 */
 int  video_frame_dump_on(void);   /* sd:/wiiu/our64/frame-dump: GamePad minus saves screens */

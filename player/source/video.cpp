@@ -863,6 +863,14 @@ static uint8_t * screen_rgb(int w, int h)
 static int g_res_h = 480;
 static int g_res_wanted = 480; // the game's own (Our ROMs > Options), set before it starts
 
+// For the speed display (main.c): game frames that reached the TV, and those of
+// them held the wrong number of vsyncs, since the app started. No side effects.
+extern "C" void video_hold_counts(unsigned * frames, unsigned * wrong)
+{
+	*frames = g_fc_frames;
+	*wrong = g_fc_short + g_fc_long;
+}
+
 extern "C" void video_set_lines(int lines) { g_res_wanted = lines == 720 ? 720 : 480; }
 
 static int res_height_from_card()

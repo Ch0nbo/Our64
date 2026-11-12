@@ -245,7 +245,7 @@ const char *picture_row_about(const picture_ui *p)
 		/* the same whatever is picked (Zach, 2026-10-23) */
 		return "Which screens show the game. The prompt at each start begins on it.";
 	case PIC_SPEED:
-		return "Shows the game's speed while you play. 100% is a real Nintendo 64's.";
+		return "Shows how well the game runs while you play. 100% is a real Nintendo 64.";
 	default:
 		/* the same whatever is picked (Zach, 2026-10-23): it says what each shape is */
 		return "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.";
