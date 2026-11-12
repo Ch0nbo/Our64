@@ -151,7 +151,7 @@ int picture_cycler(int row) { return row == PIC_SHADER; }
 
 int picture_in_use(const picture_ui *p, int row)
 {
-	return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : row == PIC_SHADER ? p->shader : -1;
+	return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : row == PIC_SHADER ? p->shader : row == PIC_SPEED ? p->speed : -1;
 }
 
 int picture_off(const picture_ui *p, int row, int i)
