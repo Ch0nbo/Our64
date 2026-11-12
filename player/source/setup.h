@@ -41,7 +41,7 @@ int  settings_legend(const settings_ui *s, int type, pause_key *keys, int max);
  * shows one value between arrows: five do not fit as boxes. ---- */
 
 enum { PIC_SCREEN, PIC_SHAPE, PIC_SPEED, PIC_SHADER, PIC_ROWS }; /* Speed display (2026-11-11): Off or On; Filter: the TV shaders */
-#define GAMEPIC_ROWS 3 /* a game's own Picture page: the first three, for now */
+#define GAMEPIC_ROWS PIC_ROWS /* a game's own Picture page: the same rows */
 enum { PIC_ARROW_LEFT = 6, PIC_ARROW_RIGHT = 7 }; /* touch targets: row * 8 + these */
 typedef struct {
 	int row;
@@ -163,7 +163,7 @@ typedef struct {
 	int touched;
 } gamepic_ui;
 enum { GPACT_NONE, GPACT_BACK, GPACT_HOME, GPACT_SET };
-void gamepic_open(gamepic_ui *g, int mode, int shape, int speed, int gamepad); /* each -1 for Default */
+void gamepic_open(gamepic_ui *g, int mode, int shape, int speed, int filter, int gamepad); /* each -1 for Default */
 int  gamepic_event(gamepic_ui *g, int event, int target);
 void gamepic_applied(gamepic_ui *g);
 int  gamepic_columns(int row);                       /* Default and the row's values */

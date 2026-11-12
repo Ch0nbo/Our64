@@ -648,12 +648,13 @@ const char *gamepic_column_name(int row, int i) { return i == 0 ? "Default" : pi
 
 int gamepic_off(const gamepic_ui *g, int row, int i) { return i > 0 && row == PIC_SCREEN && !g->gamepad && mode_uses_gamepad(i - 1); }
 
-void gamepic_open(gamepic_ui *g, int mode, int shape, int speed, int gamepad)
+void gamepic_open(gamepic_ui *g, int mode, int shape, int speed, int filter, int gamepad)
 {
 	memset(g, 0, sizeof(*g));
 	g->set[PIC_SCREEN] = mode;
 	g->set[PIC_SHAPE] = shape;
 	g->set[PIC_SPEED] = speed;
+	g->set[PIC_SHADER] = filter;
 	for (int row = 0; row < GAMEPIC_ROWS; row++) {
 		if (g->set[row] < 0 || g->set[row] >= picture_values(row))
 			g->set[row] = -1;
@@ -676,9 +677,12 @@ static void gamepic_select(gamepic_ui *g, int row)
 int gamepic_event(gamepic_ui *g, int event, int target)
 {
 	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
-		const int row = target >= 0 ? target / 8 : -1, value = target >= 0 ? target % 8 - 1 : -1;
+		const int row = target >= 0 ? target / 8 : -1, slot = target >= 0 ? target % 8 : -1;
+		/* Filter's arrows step at once, as on Settings > Picture */
+		const int arrow = row >= 0 && picture_cycler(row) && (slot == PIC_ARROW_LEFT || slot == PIC_ARROW_RIGHT);
+		const int value = !arrow && slot > 0 ? slot - 1 : -1;
 		const int now = row == g->row && (value < 0 || g->pick[row] == value);
-		int e = tap(&g->touched, event, target, now);
+		int e = tap(&g->touched, event, target, arrow || now);
 		if (e == -2) {
 			gamepic_select(g, row);
 			if (value >= 0 && value < gamepic_columns(row) && !gamepic_off(g, row, value))
@@ -687,6 +691,10 @@ int gamepic_event(gamepic_ui *g, int event, int target)
 		}
 		if (e < 0)
 			return GPACT_NONE;
+		if (arrow) {
+			gamepic_select(g, row);
+			e = slot == PIC_ARROW_LEFT ? PEV_LEFT : PEV_RIGHT;
+		}
 		event = e;
 	}
 	switch (event) {
@@ -729,7 +737,12 @@ int gamepic_hit(int x, int y)
 {
 	int r[4];
 	for (int row = 0; row < GAMEPIC_ROWS; row++) {
-		for (int i = 0; i < gamepic_columns(row); i++) {
+		for (int right = 0; right < 2 && picture_cycler(row); right++) {
+			picture_arrow_rect(row, right, r);
+			if (inside(x, y, r))
+				return row * 8 + (right ? PIC_ARROW_RIGHT : PIC_ARROW_LEFT);
+		}
+		for (int i = 0; i < gamepic_columns(row) && !picture_cycler(row); i++) {
 			gamepic_value_rect(row, i, r);
 			if (inside(x, y, r))
 				return row * 8 + i + 1;

@@ -7,8 +7,8 @@
 #define GAMEOPT_MAX 512
 static struct { char file[128]; int lines; int pic[GAMEOPT_PICTURE_KEYS]; } g_opt[GAMEOPT_MAX];
 static int g_n;
-static const char *const g_key[GAMEOPT_PICTURE_KEYS] = { "mode=", "shape=", "speed=" };
-static const int g_key_max[GAMEOPT_PICTURE_KEYS] = { 2, 1, 1 };
+static const char *const g_key[GAMEOPT_PICTURE_KEYS] = { "mode=", "shape=", "speed=", "filter=" };
+static const int g_key_max[GAMEOPT_PICTURE_KEYS] = { 2, 1, 1, 3 };
 
 static int find(const char *file)
 {

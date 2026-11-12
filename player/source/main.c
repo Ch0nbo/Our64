@@ -2010,9 +2010,9 @@ static int play_game(int index)
 	{ /* the game's own picture settings (Game options > Picture) win over Settings > Picture; -1: none set */
 		const char *file = player_rom_file();
 		const int mode = gameopt_picture(file, GAMEOPT_MODE), shape = gameopt_picture(file, GAMEOPT_SHAPE),
-		          speed = gameopt_picture(file, GAMEOPT_SPEED);
+		          speed = gameopt_picture(file, GAMEOPT_SPEED), filter = gameopt_picture(file, GAMEOPT_FILTER);
 		video_set_picture((shape >= 0 ? shape : s.picture) == PICTURE_WIDE);
-		video_set_shader(s.shader);
+		video_set_shader(filter >= 0 ? filter : s.shader);
 		ui_speed(-1);
 		player_speed_display(speed >= 0 ? speed : s.speed);
 		g_mode_before_game = ui_mode();

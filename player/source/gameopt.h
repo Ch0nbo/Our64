@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-enum { GAMEOPT_MODE, GAMEOPT_SHAPE, GAMEOPT_SPEED, GAMEOPT_PICTURE_KEYS };
+enum { GAMEOPT_MODE, GAMEOPT_SHAPE, GAMEOPT_SPEED, GAMEOPT_FILTER, GAMEOPT_PICTURE_KEYS };
 
 void gameopt_parse(const char *text);                 /* replaces what is held */
 int  gameopt_read(const char *path);                  /* games with options, 0 without a file */

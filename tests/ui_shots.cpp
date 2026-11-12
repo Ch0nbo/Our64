@@ -722,7 +722,7 @@ void shots_setup()
 		options_open(&sv.options, 720, 0, COVER_NONE, 0, 0, 1);
 		shot("options-paused", v);
 		sv.screen = SETUP_GAMEPIC; // Game options > Picture: Default first in each row
-		gamepic_open(&sv.gamepic, -1, PICTURE_WIDE, -1, 1);
+		gamepic_open(&sv.gamepic, -1, PICTURE_WIDE, -1, SHADER_CRT, 1);
 		shot("options-picture", v);
 		sv.gamepic.row = PIC_SCREEN;
 		sv.gamepic.pick[PIC_SCREEN] = 2;

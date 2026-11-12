@@ -994,19 +994,19 @@ static int gamepic_hit_now(int x, int y) { return gamepic_hit(x, y); }
 static int picture_set_any(const char *file)
 {
 	return gameopt_picture(file, GAMEOPT_MODE) >= 0 || gameopt_picture(file, GAMEOPT_SHAPE) >= 0 ||
-	       gameopt_picture(file, GAMEOPT_SPEED) >= 0;
+	       gameopt_picture(file, GAMEOPT_SPEED) >= 0 || gameopt_picture(file, GAMEOPT_FILTER) >= 0;
 }
 
 static int run_gamepic(const char *file, int paused)
 {
-	static const int key_of[PIC_ROWS] = { GAMEOPT_MODE, GAMEOPT_SHAPE, GAMEOPT_SPEED };
-	static const char *const row_words[PIC_ROWS] = { "Screen mode", "Shape", "Speed display" };
+	static const int key_of[PIC_ROWS] = { GAMEOPT_MODE, GAMEOPT_SHAPE, GAMEOPT_SPEED, GAMEOPT_FILTER };
+	static const char *const row_words[PIC_ROWS] = { "Screen mode", "Shape", "Speed display", "Filter" };
 	gamepic_ui *g = &g_view.gamepic;
 	frame_input f;
 	memset(&f, 0, sizeof(f));
 	input_menu_state(&f.m);
 	gamepic_open(g, gameopt_picture(file, GAMEOPT_MODE), gameopt_picture(file, GAMEOPT_SHAPE),
-	             gameopt_picture(file, GAMEOPT_SPEED), f.m.type[0] >= 0);
+	             gameopt_picture(file, GAMEOPT_SPEED), gameopt_picture(file, GAMEOPT_FILTER), f.m.type[0] >= 0);
 	const int shape_at_open = g->set[PIC_SHAPE];
 	g_view.screen = SETUP_GAMEPIC;
 	g_view.line[0] = 0;
@@ -1035,7 +1035,9 @@ static int run_gamepic(const char *file, int paused)
 				gamepic_applied(g);
 				report_line("OPTIONS: %s: %s %s", file, row_words[row], gamepic_column_name(row, value + 1));
 				snprintf(g_view.line, sizeof(g_view.line), "%s: %s%s", row_words[row], gamepic_column_name(row, value + 1),
-				         paused && row == PIC_SHAPE ? ", on Resume" : "");
+				         paused && (row == PIC_SHAPE || row == PIC_SHADER) ? ", on Resume" : "");
+				if (paused && row == PIC_SHADER)
+					video_set_shader(value >= 0 ? value : g_settings.shader);
 				if (paused && row == PIC_SCREEN)
 					apply_mode(value >= 0 ? value : g_settings.mode >= 0 ? g_settings.mode : ui_mode());
 				if (paused && row == PIC_SPEED)
@@ -1407,8 +1409,8 @@ void settings_run(int from_pause)
 done:
 	if (g_settings.picture != picture_at_open && !(from_pause && gameopt_picture(player_rom_file(), GAMEOPT_SHAPE) >= 0))
 		video_set_picture(g_settings.picture == PICTURE_WIDE); /* not over a game's own Shape (Game options > Picture) */
-	if (g_settings.shader != shader_at_open)
-		video_set_shader(g_settings.shader);
+	if (g_settings.shader != shader_at_open && !(from_pause && gameopt_picture(player_rom_file(), GAMEOPT_FILTER) >= 0))
+		video_set_shader(g_settings.shader); /* nor over its own Filter */
 	input_withhold();
 	if (home) /* HOME means Wii U Menu: the caller asks first (a paused game) or leaves */
 		g_home_asked = 1;

@@ -2141,7 +2141,7 @@ void draw_gamepic(const setup_view & sv)
 	for (int row = 0; row < GAMEPIC_ROWS; row++)
 		in_use[row] = g.set[row] + 1;
 	g_rows_gamepic = &g;
-	value_rows(GAMEPIC_ROWS, g.row, picture_row_name, gamepic_columns, gamepic_column_name, g.pick, in_use, page, gamepic_greyed, nullptr,
+	value_rows(GAMEPIC_ROWS, g.row, picture_row_name, gamepic_columns, gamepic_column_name, g.pick, in_use, page, gamepic_greyed, picture_cycler,
 	           gamepic_value_rect);
 	row_about(GAMEPIC_ROWS, "Default uses Settings > Picture");
 	pause_key keys[6];
