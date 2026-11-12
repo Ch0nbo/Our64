@@ -777,9 +777,11 @@ static int run_start(games_ui *g)
 	}
 }
 
-/* ---- Our ROMs > Options (X on a game): this game's own settings ---- */
+/* ---- Game options (X on a game in Our ROMs, Game options in the pause
+ * menu): this game's own settings ---- */
 
 static int options_hit_now(int x, int y) { return options_hit(&g_view.options, x, y); }
+static int choice_hit_now(int x, int y) { return choice_hit(&g_view.choice, x, y); }
 
 static int gameopt_save(void)
 {
@@ -798,6 +800,8 @@ static int gameopt_save(void)
 static void options_set_lines(options_ui *o, const char *file, int lines)
 {
 	const int keep = o->lines;
+	if (lines == keep)
+		return;
 	if (gameopt_set_lines(file, lines) || gameopt_save()) {
 		gameopt_set_lines(file, keep);
 		write_failed();
@@ -805,19 +809,210 @@ static void options_set_lines(options_ui *o, const char *file, int lines)
 	}
 	o->lines = lines;
 	report_line("OPTIONS: %s draws at %dp", file, lines);
-	snprintf(g_view.line, sizeof(g_view.line), "Resolution: %dp", lines);
+	snprintf(g_view.line, sizeof(g_view.line), "Resolution: %dp%s", lines, o->paused ? ", when the game next starts" : "");
 }
 
-/* 0: back to Our ROMs; 1: HOME, confirmed; 2: Delete was chosen (the dev build). */
-int game_options_run(const char *file, const char *title, int glyphs, int can_delete)
+/* A page of choices over Game options: the row picked, -1 for B, -2 for HOME (confirmed, or the pause menu's). */
+static int run_choice(const char *title, const char *about, const char *const *names, int count, int in_use)
 {
+	choice_ui *c = &g_view.choice;
+	choice_open(c, title, about, names, count, in_use);
+	g_view.screen = SETUP_CHOICE;
+	g_view.line[0] = 0;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1, result = -3;
+	while (result == -3) {
+		show();
+		read_frame(&f, choice_hit_now, &touching, &target);
+		if (player_closing())
+			result = -2;
+		for (int i = 0; i < f.n && result == -3; i++) {
+			switch (choice_event(c, f.events[i], f.targets[i])) {
+			case CHACT_BACK: result = -1; break;
+			case CHACT_HOME:
+				if (home_ok())
+					result = -2;
+				break;
+			case CHACT_PICK: result = c->row; break;
+			}
+		}
+	}
+	g_view.screen = SETUP_OPTIONS;
+	return result;
+}
+
+/* The folder b->path for the cover picker: its folders A to Z, then its PNG
+ * files A to Z (covers are read as PNG: library_wiiu.c decode_art). */
+static int is_png_name(const char *name)
+{
+	const size_t n = strlen(name);
+	return n > 4 && !strcasecmp(name + n - 4, ".png") && name[0] != '.';
+}
+
+static void list_images(browse_ui *b)
+{
+	static char names[BROWSE_MAX][256], files[BROWSE_MAX][256];
+	char dir[300], full[600];
+	int n = 0, nf = 0;
+	DIR *d = open_path(b->path, dir, sizeof(dir)) ? opendir(dir) : NULL;
+	if (!d) {
+		report_line("COVER: can't read %s", b->path);
+		line("Couldn't open this folder.");
+	} else {
+		struct dirent *e;
+		while ((e = readdir(d))) {
+			if (strlen(b->path) + strlen(e->d_name) + 2 > sizeof(b->path))
+				continue;
+			if (library_is_folder(dir, e)) {
+				if (e->d_name[0] != '.' && n < BROWSE_MAX)
+					snprintf(names[n++], sizeof(names[0]), "%s", e->d_name);
+			} else if (is_png_name(e->d_name) && nf < BROWSE_MAX) {
+				snprintf(files[nf++], sizeof(files[0]), "%s", e->d_name);
+			}
+		}
+		closedir(d);
+	}
+	qsort(names, (size_t)n, sizeof(names[0]), by_name);
+	qsort(files, (size_t)nf, sizeof(files[0]), by_name);
+	browse_entered(b, 0);
+	const size_t len = strlen(b->path);
+	const char *sep = len && b->path[len - 1] == '/' ? "" : "/";
+	for (int i = 0; i < n; i++) {
+		snprintf(full, sizeof(full), "%s%s%.*s", b->path, sep, 255, names[i]);
+		browse_add(b, names[i], full, 0);
+	}
+	for (int i = 0; i < nf; i++) {
+		snprintf(full, sizeof(full), "%s%s%.*s", b->path, sep, 255, files[i]);
+		browse_add_file(b, files[i], full);
+	}
+	if (d && n + nf == 0)
+		line("No folders or PNG images here.");
+}
+
+/* The folder finder, picking a PNG: 1 with its path (as the finder names it) in out; 0 for B; -2 for HOME. */
+static int run_pick_image(char *out, unsigned size)
+{
+	browse_ui *b = &g_view.browse;
+	browse_open(b);
+	b->files = 1;
+	library_usb_rescan();
+	list_drives(b);
+	g_view.screen = SETUP_BROWSE;
+	g_view.line[0] = 0;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1, result = -3;
+	while (result == -3) {
+		show();
+		read_frame(&f, NULL, &touching, &target);
+		if (player_closing())
+			result = -2;
+		for (int i = 0; i < f.n && result == -3; i++) {
+			if (f.events[i] == PEV_TOUCH_DOWN || f.events[i] == PEV_TOUCH_UP)
+				f.targets[i] = target = browse_hit(b, f.m.touch_x, f.m.touch_y);
+			switch (browse_event(b, f.events[i], f.targets[i])) {
+			case BACT_BACK: result = 0; break;
+			case BACT_HOME:
+				if (home_ok())
+					result = -2;
+				break;
+			case BACT_OPEN:
+			case BACT_UP:
+				g_view.line[0] = 0;
+				if (b->depth == 0)
+					list_drives(b);
+				else
+					list_images(b);
+				i = f.n;
+				break;
+			case BACT_PICK:
+				snprintf(out, size, "%s", browse_picked(b));
+				result = 1;
+				break;
+			}
+		}
+	}
+	b->files = 0;
+	g_view.line[0] = 0;
+	g_view.screen = SETUP_OPTIONS;
+	return result;
+}
+
+/* The picked image becomes the game's own cover: a copy at
+ * art/custom/<ROM name>.png (library_custom_cover_path), so it stays when
+ * its drive is unplugged. Only a PNG of at most 8 MB. */
+static void cover_use(options_ui *o, const char *file, const char *picked)
+{
+	char from[600], to[600], dir[400];
+	static unsigned char png[8] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
+	if (!open_path(picked, from, sizeof(from))) {
+		line("Couldn't open that image.");
+		return;
+	}
+	FILE *f = fopen(from, "rb");
+	long n = -1;
+	unsigned char *data = NULL;
+	if (f && !fseek(f, 0, SEEK_END) && (n = ftell(f)) > 8 && n <= 8 * 1024 * 1024 && !fseek(f, 0, SEEK_SET) &&
+	    (data = malloc((size_t)n)) && fread(data, 1, (size_t)n, f) != (size_t)n) {
+		free(data);
+		data = NULL;
+	}
+	if (f)
+		fclose(f);
+	if (!data || memcmp(data, png, 8)) {
+		report_line("COVER: %s not used (%ld bytes%s)", picked, n, data ? ", not a PNG" : "");
+		line(n > 8 * 1024 * 1024 ? "That image is over 8 MB: use a smaller one." : "Couldn't read that image as a PNG.");
+		free(data);
+		return;
+	}
+	snprintf(dir, sizeof(dir), "%s/art", report_sd_root());
+	mkdir(dir, 0777);
+	snprintf(dir, sizeof(dir), "%s/art/custom", report_sd_root());
+	mkdir(dir, 0777);
+	library_custom_cover_path(file, to, sizeof(to));
+	const int r = savefile_write(to, data, (unsigned)n);
+	free(data);
+	if (r) {
+		write_failed();
+		return;
+	}
+	library_cover_changed(file);
+	o->cover = COVER_CUSTOM;
+	report_line("COVER: %s is %s's cover", picked, file);
+	line("Cover: Custom");
+}
+
+/* Back to the fetched cover (or none): the game's own is removed. */
+static void cover_fetched(options_ui *o, const char *file)
+{
+	char path[600];
+	if (o->cover != COVER_CUSTOM)
+		return;
+	library_custom_cover_path(file, path, sizeof(path));
+	if (remove(path)) {
+		write_failed();
+		return;
+	}
+	library_cover_changed(file);
+	const int now = library_cover_state(file);
+	o->cover = now < 0 ? COVER_NONE : now;
+	report_line("COVER: %s has no cover of its own any more", file);
+	line(o->cover == COVER_FETCHED ? "Cover: Fetched" : "Cover: None");
+}
+
+int game_options_run(const char *file, const char *title, int glyphs, int paused, int usb)
+{
+	static const char *const res_names[2] = { "480p", "720p" };
+	static const char *const cover_names[2] = { "Fetched cover", "Choose an image" };
 	options_ui *o = &g_view.options;
-	g_from_pause = 0;
+	g_from_pause = paused;
 	snprintf(g_view.game, sizeof(g_view.game), "%s", title);
 	g_view.glyphs = glyphs;
 	g_view.line[0] = 0;
 	g_view.screen = SETUP_OPTIONS;
-	options_open(o, gameopt_lines(file), can_delete);
+	const int cover = library_cover_state(file);
+	options_open(o, gameopt_lines(file), cover < 0 ? COVER_NONE : cover, !paused, usb, paused);
 	input_take_home();
 	frame_input f;
 	memset(&f, 0, sizeof(f));
@@ -836,17 +1031,44 @@ int game_options_run(const char *file, const char *title, int glyphs, int can_de
 				if (home_ok())
 					result = 1;
 				break;
-			case OACT_720_ASK:
+			case OACT_RES: {
+				const int pick = run_choice("RESOLUTION", "720p is sharper on a TV. Many games slow down with it",
+				                            res_names, 2, o->lines == 720);
+				if (pick == -2)
+					result = 1;
 				/* never on by itself: the player reads this first (Zach, 2026-11-11) */
-				if (player_ask("Use 720p for this game?", "Many games slow down or stutter with it.", "Use 720p"))
-					options_set_lines(o, file, 720);
+				else if (pick == 1 && o->lines != 720 &&
+				         !player_ask("Use 720p for this game?", "Many games slow down or stutter with it.", "Use 720p"))
+					;
+				else if (pick >= 0)
+					options_set_lines(o, file, pick ? 720 : 480);
+				i = f.n;
 				break;
-			case OACT_480: options_set_lines(o, file, 480); break;
+			}
+			case OACT_COVER: {
+				const int pick = run_choice("COVER", "A PNG image from the SD card or a USB drive", cover_names, 2,
+				                            o->cover == COVER_CUSTOM);
+				if (pick == -2) {
+					result = 1;
+				} else if (pick == 0) {
+					cover_fetched(o, file);
+				} else if (pick == 1) {
+					char picked[256];
+					const int r = run_pick_image(picked, sizeof(picked));
+					if (r == -2)
+						result = 1;
+					else if (r == 1)
+						cover_use(o, file, picked);
+				}
+				i = f.n;
+				break;
+			}
 			case OACT_DELETE: result = 2; break;
 			}
 		}
 	}
 	g_view.game[0] = 0;
+	g_from_pause = 0;
 	input_withhold();
 	return result;
 }

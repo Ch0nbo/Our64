@@ -5,7 +5,7 @@
  * (the Favorites star, Recent, All, #, A to Z); up and down move through its
  * games, stacked like a drawer. Y (minus on a Wii Remote) stars a game for
  * the Favorites tab, kept in config/favorites.txt; X (GamePad, Pro and
- * Classic only) opens the game's Options (its resolution; in the dev build, Delete: to trash/N64). A game's header, autosave, save states and cover are read only
+ * Classic only) opens Game options (its resolution, its cover, and Delete: to trash/N64). A game's header, autosave, save states and cover are read only
  * when it comes into view, so a card with hundreds of ROMs opens at once.
  * Covers are sd:/wiiu/our64/art/<game id>.png (Settings > Games > Fetch
  * covers, covers_wiiu.c; or tools/fetch-art.sh from a computer).
@@ -58,6 +58,45 @@ static uint8_t g_art_rgba[ROMS_ART][ART_W * ART_H * 4] __attribute__((aligned(64
 static unsigned g_art_gen;
 static int g_art_use[ROMS_ART]; /* when each slot was last wanted, for replacing the oldest */
 static int g_tick;
+
+/* A game's own cover (#29): sd:/wiiu/our64/art/custom/<ROM file name without
+ * its extension>.png. Picked in Game options (a copy is put there), or put
+ * there by hand with the ROM's name. It follows the file name, so a ROM hack
+ * the cover database does not know can have one. */
+void library_custom_cover_path(const char *file, char *out, unsigned size)
+{
+	const char *dot = strrchr(file, '.');
+	const int n = dot && dot != file ? (int)(dot - file) : (int)strlen(file);
+	snprintf(out, size, "%s/art/custom/%.*s.png", g_root, n, file);
+}
+
+/* COVER_ (setup.h) for the game with this ROM file; -1 when it is not listed. */
+int library_cover_state(const char *file)
+{
+	for (int i = 0; i < g_count; i++)
+		if (!strcmp(g_games[i].file, file))
+			return g_games[i].art_custom ? COVER_CUSTOM : g_games[i].art_fetched ? COVER_FETCHED : COVER_NONE;
+	return -1;
+}
+
+/* After Game options put a cover of the game's own in place or took it away:
+ * the flags again, and its picture read again when next in view. */
+void library_cover_changed(const char *file)
+{
+	char path[600];
+	struct stat st;
+	for (int i = 0; i < g_count; i++) {
+		library_game *g = &g_games[i];
+		if (strcmp(g->file, file))
+			continue;
+		library_custom_cover_path(file, path, sizeof(path));
+		g->art_custom = !stat(path, &st);
+		g->art = g->art_custom || g->art_fetched;
+		for (int s = 0; s < ROMS_ART; s++)
+			if (g_view.art[s].game == i)
+				g_view.art[s].game = -1;
+	}
+}
 
 int library_is_folder(const char *dir, const struct dirent *e)
 {
@@ -196,16 +235,22 @@ static void read_info_of(library_game *g)
 			g->states++;
 	}
 	snprintf(path, sizeof(path), "%s/art/%s.png", g_root, g->rom.id);
-	g->art = !stat(path, &st);
+	g->art_fetched = !stat(path, &st);
+	library_custom_cover_path(g->file, path, sizeof(path));
+	g->art_custom = !stat(path, &st);
+	g->art = g->art_fetched || g->art_custom;
 }
 
 /* A cover into out (ART_W x ART_H at most), scaled down by an area average
  * (library_fit_rgba): libretro's 512 x 374 covers draw at 493 x 360, not
  * halved to whole pixels. */
-static int decode_art(const char *id, uint8_t *out, int *pw, int *ph)
+static int decode_art(const library_game *g, uint8_t *out, int *pw, int *ph)
 {
-	char path[400];
-	snprintf(path, sizeof(path), "%s/art/%s.png", g_root, id);
+	char path[600];
+	if (g->art_custom) /* the player's own wins (#29) */
+		library_custom_cover_path(g->file, path, sizeof(path));
+	else
+		snprintf(path, sizeof(path), "%s/art/%s.png", g_root, g->rom.id);
 	png_image im;
 	memset(&im, 0, sizeof(im));
 	im.version = PNG_IMAGE_VERSION;
@@ -254,7 +299,7 @@ static int loader(int argc, const char **argv)
 		if (job == JOB_INFO)
 			read_info_of(&g);
 		else
-			ok = !decode_art(g.rom.id, g_stage, &w, &h); /* the menu reads g_stage only after g_done */
+			ok = !decode_art(&g, g_stage, &w, &h); /* the menu reads g_stage only after g_done */
 		OSLockMutex(&g_load_lock);
 		g_done = job;
 		g_done_game = game;
@@ -450,6 +495,8 @@ static void take_result(int sel)
 		g->autosave_ok = g_done_info.autosave_ok;
 		g->states = g_done_info.states;
 		g->art = g_done_info.art;
+		g->art_custom = g_done_info.art_custom;
+		g->art_fetched = g_done_info.art_fetched;
 		g_info[game] = 1;
 	} else if (!g_done_ok) {
 		g_games[game].art = 0; /* not a PNG it can read: the poster card instead */
@@ -862,23 +909,16 @@ int library_run(int *game, const char *notice)
 			v->pos = (float)v->sel;
 		if (star && v->count > 0)
 			toggle_favorite();
-		/* X: the game's own options (2026-11-11). Delete, the developer's own,
-		 * is a row there: the public build has none. */
+		/* X: Game options (2026-11-11): the game's resolution and cover, and Delete. */
 		if (del && v->count > 0) {
 			const library_game *lg = &g_games[g_shown[v->sel]];
-#ifndef OUR64_RELEASE
-			const int can_delete = 1;
-#else
-			const int can_delete = 0;
-#endif
-			const int r = game_options_run(lg->file, lg->title, v->glyphs, can_delete);
+			need_info(g_shown[v->sel]); /* its cover flags, if the loader has not come by yet */
+			const int r = game_options_run(lg->file, lg->title, v->glyphs, 0, v->usb);
 			input_take_home();
 			if (r == 1 && !player_closing())
 				result = LIB_WIIU;
-#ifndef OUR64_RELEASE
 			if (r == 2)
 				delete_game();
-#endif
 			continue;
 		}
 		if (plus) {

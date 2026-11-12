@@ -232,6 +232,14 @@ static int act(int what)
 		if (settings_take_home()) /* HOME there: asks here before the Wii U Menu */
 			pause_event(&g_view.ui, PEV_HOME, -1);
 		break;
+	case PACT_OPTIONS: {
+		const int home = game_options_run(player_rom_file(), g_view.title, g_view.glyphs, 1, 0) == 1;
+		input_take_home();
+		g_view.ui.screen = PAUSE_MENU; /* back here, Game options still selected */
+		if (home) /* HOME there: asks here before the Wii U Menu */
+			pause_event(&g_view.ui, PEV_HOME, -1);
+		break;
+	}
 	case PACT_SAVE: save_slot(p->card, 0); break;
 	case PACT_OVERWRITE: save_slot(p->ask_card, 1); break;
 	case PACT_DELETE: delete_slot(p->ask_card); break;

@@ -40,15 +40,16 @@ int pause_item_shown(const pause_ui *p, int item)
  * column's fourth, or, while what failed takes the fourth row's room, the
  * third column's first. */
 #define COLUMNS 3
-static const int g_columns[COLUMNS][4] = { { ITEM_RESUME, ITEM_SETTINGS, ITEM_EXIT, -1 },
+static const int g_columns[COLUMNS][4] = { { ITEM_RESUME, ITEM_SETTINGS, ITEM_OPTIONS, ITEM_EXIT },
                                            { ITEM_SAVE, ITEM_LOAD, ITEM_RESET, ITEM_DISC },
                                            { -1, -1, -1, -1 } };
+/* Game options is a fourth row too: with the panel up it heads the third column, Change disc under it. */
 static const int g_columns_failed[COLUMNS][4] = { { ITEM_RESUME, ITEM_SETTINGS, ITEM_EXIT, -1 },
                                                   { ITEM_SAVE, ITEM_LOAD, ITEM_RESET, -1 },
-                                                  { ITEM_DISC, -1, -1, -1 } };
+                                                  { ITEM_OPTIONS, ITEM_DISC, -1, -1 } };
 static const int (*columns(const pause_ui *p))[4]
 {
-	return p->failure_shown && pause_item_shown(p, ITEM_DISC) ? g_columns_failed : g_columns;
+	return p->failure_shown ? g_columns_failed : g_columns;
 }
 static int column_count(const pause_ui *p) { return columns(p) == g_columns_failed ? 3 : 2; }
 
@@ -298,6 +299,7 @@ static int menu_event(pause_ui *p, int event)
 		case ITEM_RESUME: return PACT_RESUME;
 		case ITEM_EXIT: return PACT_EXIT_ROMS;
 		case ITEM_SETTINGS: return PACT_SETTINGS;
+		case ITEM_OPTIONS: return PACT_OPTIONS;
 		case ITEM_SAVE: open_slots(p, SLOTS_SAVE); break;
 		case ITEM_LOAD: open_slots(p, SLOTS_LOAD); break;
 		case ITEM_RESET: ask(p, ASK_RESET, -1); break;
@@ -445,7 +447,7 @@ int pause_events(int type, uint32_t pressed, int *out, int max)
 /* ---- words ---- */
 
 static const char *const g_item[ITEMS] = { "Resume", "Settings", "Exit to Our ROMs", "Save state", "Load state",
-                                           "Reset game", "Change disc" };
+                                           "Reset game", "Change disc", "Game options" };
 
 const char *pause_item_name(const pause_ui *p, int item)
 {

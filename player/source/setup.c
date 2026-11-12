@@ -473,27 +473,32 @@ int start_legend(const start_ui *s, int type, pause_key *keys, int max)
 	return n;
 }
 
-/* ---- Our ROMs > Options ---- */
+/* ---- Game options ---- */
 
-static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Delete" };
+static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Cover", "Delete" };
 
 const char *options_row_name(int row) { return row >= 0 && row < OPT_ROWS ? g_opt_row[row] : ""; }
 
-void options_open(options_ui *o, int lines, int can_delete)
+void options_open(options_ui *o, int lines, int cover, int can_delete, int delete_off, int paused)
 {
 	memset(o, 0, sizeof(*o));
 	o->lines = lines == 720 ? 720 : 480;
+	o->cover = cover;
 	o->can_delete = can_delete;
+	o->delete_off = delete_off;
+	o->paused = paused;
 	o->touched = -1;
 }
 
 int options_rows(const options_ui *o) { return o->can_delete ? OPT_ROWS : OPT_ROWS - 1; }
 
+int options_row_off(const options_ui *o, int row) { return row == OPT_DELETE && o->delete_off; }
+
 static int options_act(const options_ui *o)
 {
-	if (o->row == OPT_DELETE)
-		return OACT_DELETE;
-	return o->lines == 720 ? OACT_480 : OACT_720_ASK;
+	if (options_row_off(o, o->row))
+		return OACT_NONE;
+	return o->row == OPT_RES ? OACT_RES : o->row == OPT_COVER ? OACT_COVER : OACT_DELETE;
 }
 
 int options_event(options_ui *o, int event, int target)
@@ -525,14 +530,19 @@ int options_event(options_ui *o, int event, int target)
 
 void options_value(const options_ui *o, int row, char *out, unsigned size)
 {
-	snprintf(out, size, "%s", row == OPT_RES ? (o->lines == 720 ? "720p" : "480p") : "");
+	snprintf(out, size, "%s", row == OPT_RES ? (o->lines == 720 ? "720p" : "480p")
+	                          : row == OPT_COVER ? (o->cover == COVER_CUSTOM ? "Custom" : o->cover == COVER_FETCHED ? "Fetched" : "None")
+	                          : "");
 }
 
 const char *options_row_about(const options_ui *o)
 {
-	if (o->row == OPT_DELETE)
-		return "Moves the ROM to the trash folder. Its saves stay";
-	return "720p is sharper on a TV. Many games slow down with it";
+	switch (o->row) {
+	case OPT_DELETE:
+		return o->delete_off ? "On a USB drive: delete it on a computer" : "Moves the ROM to the trash folder. Its saves stay";
+	case OPT_COVER: return "The picture shown for this game in Our ROMs";
+	default: return o->paused ? "Changes when the game next starts" : "How sharp this game is drawn on a TV";
+	}
 }
 
 int options_hit(const options_ui *o, int x, int y)
@@ -548,12 +558,75 @@ int options_hit(const options_ui *o, int x, int y)
 
 int options_legend(const options_ui *o, int type, pause_key *keys, int max)
 {
-	(void)o;
 	int n = 0;
 	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
 	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
 	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
-	keys_add(keys, &n, max, ok_glyph(type), "Change", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", options_act(o) == OACT_NONE);
+	return n;
+}
+
+/* ---- a page of choices ---- */
+
+void choice_open(choice_ui *c, const char *title, const char *about, const char *const *names, int count, int in_use)
+{
+	memset(c, 0, sizeof(*c));
+	c->title = title;
+	c->about = about;
+	c->count = count > CHOICES_MAX ? CHOICES_MAX : count;
+	for (int i = 0; i < c->count; i++)
+		c->names[i] = names[i];
+	c->in_use = in_use;
+	c->row = in_use >= 0 && in_use < c->count ? in_use : 0;
+	c->touched = -1;
+}
+
+int choice_event(choice_ui *c, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		int e = tap(&c->touched, event, target, target == c->row);
+		if (e == -2) {
+			c->row = target;
+			return CHACT_NONE;
+		}
+		if (e < 0)
+			return CHACT_NONE;
+		event = e;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = c->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < c->count)
+			c->row = row;
+		break;
+	}
+	case PEV_OK: return CHACT_PICK;
+	case PEV_BACK: return CHACT_BACK;
+	case PEV_HOME: return CHACT_HOME;
+	}
+	return CHACT_NONE;
+}
+
+int choice_hit(const choice_ui *c, int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < c->count; row++) {
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row;
+	}
+	return -1;
+}
+
+int choice_legend(const choice_ui *c, int type, pause_key *keys, int max)
+{
+	(void)c;
+	int n = 0;
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", 0);
 	return n;
 }
 
@@ -571,7 +644,7 @@ void browse_entered(browse_ui *b, int games)
 	b->count = b->row = b->top = 0;
 }
 
-static int browse_use_row(const browse_ui *b) { return b->depth > 0; } /* Use this folder, row 0 inside a drive */
+static int browse_use_row(const browse_ui *b) { return b->depth > 0 && !b->files; } /* Use this folder, row 0 inside a drive */
 
 int browse_rows(const browse_ui *b) { return b->count + browse_use_row(b); }
 
@@ -597,11 +670,29 @@ void browse_add(browse_ui *b, const char *name, const char *path, int off)
 	snprintf(e->name, sizeof(e->name), "%s", name);
 	snprintf(e->path, sizeof(e->path), "%s", path);
 	e->off = off;
+	e->file = 0;
 	if (b->came_from[0] && !strcmp(path, b->came_from)) { /* back on the folder it came out of */
 		b->row = b->count - 1 + browse_use_row(b);
 		b->came_from[0] = 0;
 		browse_scroll(b);
 	}
+}
+
+void browse_add_file(browse_ui *b, const char *name, const char *path)
+{
+	if (b->count >= BROWSE_MAX)
+		return;
+	browse_entry *e = &b->entries[b->count++];
+	snprintf(e->name, sizeof(e->name), "%s", name);
+	snprintf(e->path, sizeof(e->path), "%s", path);
+	e->off = 0;
+	e->file = 1;
+}
+
+const char *browse_picked(const browse_ui *b)
+{
+	const browse_entry *e = browse_entry_of(b, b->row);
+	return e && e->file ? e->path : "";
 }
 
 const char *browse_row_name(const browse_ui *b, int row)
@@ -622,7 +713,10 @@ int browse_row_off(const browse_ui *b, int row)
 
 void browse_row_value(const browse_ui *b, int row, char *out, unsigned size)
 {
-	if (!browse_use_row(b) || row != 0 || b->games < 0)
+	const browse_entry *fe = browse_entry_of(b, row);
+	if (b->files)
+		snprintf(out, size, "%s", fe && fe->file ? "Image" : "");
+	else if (!browse_use_row(b) || row != 0 || b->games < 0)
 		snprintf(out, size, "%s", "");
 	else if (b->games == 0)
 		snprintf(out, size, "No games");
@@ -636,7 +730,7 @@ static int browse_act(const browse_ui *b)
 	if (browse_use_row(b) && b->row == 0)
 		return b->games < 0 ? BACT_NONE : BACT_USE;
 	const browse_entry *e = browse_entry_of(b, b->row);
-	return e && !e->off && e->path[0] ? BACT_OPEN : BACT_NONE;
+	return e && !e->off && e->path[0] ? (e->file ? BACT_PICK : BACT_OPEN) : BACT_NONE;
 }
 
 /* "usb1p1:/Games/N64" -> "usb1p1:/Games" -> "usb1p1:/" -> "" (the drive list). */

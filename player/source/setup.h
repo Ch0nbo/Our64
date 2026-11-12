@@ -109,27 +109,51 @@ int  start_event(start_ui *s, int event, int target);
 int  start_hit(int x, int y);                   /* row, or -1 */
 int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
 
-/* ---- Our ROMs > Options (X on a game, 2026-11-11): what is set for that
- * game alone. Resolution: A switches between 480p and 720p; turning 720p on
- * asks first (OACT_720_ASK: the caller shows the performance warning), and it
- * is never on unless the player chose it. The dev build has Delete below it
- * (the old X). ---- */
-enum { OPT_RES, OPT_DELETE, OPT_ROWS };
+/* ---- Game options (2026-11-11): what is set for one game alone. Opened
+ * with X on a game in Our ROMs, and with Game options in the pause menu
+ * (Zach: reachable while the game is loaded, and found by reading, not
+ * remembered). Each row opens a page of choices with the one in use marked,
+ * as Start-up ROM Category does (Zach: what people are used to), or asks.
+ * Resolution: 480p or 720p; 720p asks first with the warning and is never on
+ * unless the player chose it. Cover: the fetched one, or an image picked
+ * with the folder finder. Delete: from Our ROMs only (not while the game
+ * runs); greyed on a USB drive, which Our64 never writes to. ---- */
+enum { OPT_RES, OPT_COVER, OPT_DELETE, OPT_ROWS };
+enum { COVER_NONE, COVER_FETCHED, COVER_CUSTOM };
 typedef struct {
 	int row;
 	int lines;        /* 480 or 720 */
-	int can_delete;   /* the dev build: the Delete row is there */
+	int cover;        /* COVER_ */
+	int can_delete;   /* from Our ROMs: the Delete row is there */
+	int delete_off;   /* on a USB drive: Delete is greyed */
+	int paused;       /* opened from the pause menu: the game is running */
 	int touched;
 } options_ui;
-enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_720_ASK, OACT_480, OACT_DELETE };
-void options_open(options_ui *o, int lines, int can_delete);
+enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_COVER, OACT_DELETE };
+void options_open(options_ui *o, int lines, int cover, int can_delete, int delete_off, int paused);
 int  options_rows(const options_ui *o);
 int  options_event(options_ui *o, int event, int target);
 const char *options_row_name(int row);
+int  options_row_off(const options_ui *o, int row);   /* greyed: shown, A does nothing */
 void options_value(const options_ui *o, int row, char *out, unsigned size);
 const char *options_row_about(const options_ui *o);
 int  options_hit(const options_ui *o, int x, int y);   /* row, or -1 */
 int  options_legend(const options_ui *o, int type, pause_key *keys, int max);
+
+/* A page of up to four choices, the one in use marked (Resolution, Cover):
+ * A picks the selected one, B goes back unchanged. */
+#define CHOICES_MAX 4
+typedef struct {
+	const char *title;              /* the header: "RESOLUTION" */
+	const char *about;              /* the line under the rows, or NULL */
+	const char *names[CHOICES_MAX];
+	int count, row, in_use, touched;
+} choice_ui;
+enum { CHACT_NONE, CHACT_BACK, CHACT_HOME, CHACT_PICK }; /* CHACT_PICK: row is the choice */
+void choice_open(choice_ui *c, const char *title, const char *about, const char *const *names, int count, int in_use);
+int  choice_event(choice_ui *c, int event, int target);
+int  choice_hit(const choice_ui *c, int x, int y);     /* row, or -1 */
+int  choice_legend(const choice_ui *c, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games > ROM folder (2026-11-04): drives, then folders.
  * A opens a folder; "Use this folder", the first row inside a drive, picks
@@ -137,7 +161,7 @@ int  options_legend(const options_ui *o, int type, pause_key *keys, int max);
  * folder (paths "sd:/...", "usb1p1:/..."): this never touches files. ---- */
 #define BROWSE_MAX 256
 #define BROWSE_SHOWN 6
-typedef struct { char name[64]; char path[256]; int off; } browse_entry;
+typedef struct { char name[64]; char path[256]; int off; int file; } browse_entry;
 typedef struct {
 	int depth;              /* 0: the drives */
 	char path[256];         /* the folder shown ("" on the drive list) */
@@ -146,11 +170,15 @@ typedef struct {
 	int games;              /* ROM files right in path; -1: it couldn't be opened, Use this folder is greyed */
 	browse_entry entries[BROWSE_MAX];
 	int count, row, top, touched;
+	int files;              /* picking a file (a cover image, 2026-11-11): files are listed after the
+	                         * folders, there is no Use this folder, and A on a file is BACT_PICK */
 } browse_ui;
-enum { BACT_NONE, BACT_BACK, BACT_HOME, BACT_OPEN, BACT_UP, BACT_USE };
+enum { BACT_NONE, BACT_BACK, BACT_HOME, BACT_OPEN, BACT_UP, BACT_USE, BACT_PICK /* the selected entry's path */ };
 void browse_open(browse_ui *b);                       /* the drive list, empty */
 void browse_entered(browse_ui *b, int games);         /* after OPEN/UP: clears entries; caller adds; games -1: unreadable */
 void browse_add(browse_ui *b, const char *name, const char *path, int off);
+void browse_add_file(browse_ui *b, const char *name, const char *path); /* files mode: after the folders */
+const char *browse_picked(const browse_ui *b);        /* after BACT_PICK: the file's path */
 int  browse_rows(const browse_ui *b);                 /* entries, plus Use this folder inside a drive */
 int  browse_event(browse_ui *b, int event, int target);
 const char *browse_row_name(const browse_ui *b, int row);

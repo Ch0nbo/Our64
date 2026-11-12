@@ -30,7 +30,9 @@ typedef struct {
 	time_t autosave;  /* when its newest autosave was written (last played), 0 none */
 	int autosave_ok;  /* that autosave can be used */
 	int states;       /* save states in its four slots */
-	int art;          /* sd:/wiiu/our64/art/<id>.png exists */
+	int art;          /* it has a cover: its own (art/custom/<ROM name>.png) or sd:/wiiu/our64/art/<id>.png */
+	int art_custom;   /* its own: picked in Game options, or a PNG named like the ROM put there (#29) */
+	int art_fetched;  /* art/<id>.png exists */
 	int recent;       /* among the games played last (the Recent tab) */
 	int favorite;     /* the player starred it (the Favorites tab) */
 	int deleted;      /* moved to the trash: listed nowhere until the next scan drops it */

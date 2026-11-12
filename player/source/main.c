@@ -143,6 +143,7 @@ static volatile int g_quit;   /* leaving the game: QUIT_HOME (Wii U Menu), QUIT_
 static volatile int g_closing; /* the system asked us to save and close (power button) */
 static uint32_t g_quit_vi;    /* when */
 enum { QUIT_HOME = 1, QUIT_SYSTEM, QUIT_ROMS };
+const char *player_rom_file(void);
 static char g_rom[512]; /* the ROM folder (up to 300) + '/' + a file name (up to 127): fileBrowser_file.name holds it */
 static int g_capture_left;  /* graphics tasks still to save (GamePad minus starts 120) */
 
@@ -771,6 +772,12 @@ static int g_speed_on;
 static double g_speed_t0;
 static unsigned g_speed_vi0, g_speed_frames0, g_speed_wrong0, g_speed_frames_prev, g_speed_wrong_prev;
 static int is_pal(void);
+
+const char *player_rom_file(void)
+{
+	const char *slash = strrchr(g_rom, '/');
+	return slash ? slash + 1 : g_rom;
+}
 
 void player_speed_display(int on)
 {

@@ -1956,7 +1956,7 @@ void draw_deleting(const setup_view & sv)
 void draw_browse(const setup_view & sv)
 {
 	const browse_ui & b = sv.browse;
-	setup_header("ROM FOLDER", sv.line[0] ? sv.line : browse_title(&b));
+	setup_header(b.files ? "COVER IMAGE" : "ROM FOLDER", sv.line[0] ? sv.line : browse_title(&b));
 	const int rows = browse_rows(&b);
 	for (int i = 0; i < BROWSE_SHOWN && b.top + i < rows; i++) {
 		const int row = b.top + i;
@@ -1990,18 +1990,20 @@ void draw_browse(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
-// Our ROMs > Options: the game's name as the header's line, then its rows
-// with each value at the right, as Settings > Games.
+// Game options: the game's name as the header's line, then its rows with
+// each value at the right, as Settings > Games. A row that does nothing now
+// (Delete on a USB drive) is greyed.
 void draw_options(const setup_view & sv)
 {
 	const options_ui & o = sv.options;
-	setup_header("OPTIONS", sv.line[0] ? sv.line : sv.game);
+	setup_header("GAME OPTIONS", sv.line[0] ? sv.line : sv.game);
 	for (int row = 0; row < options_rows(&o); row++) {
 		int r[4];
 		settings_row_rect(row, r);
 		const bool sel = o.row == row;
 		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
-		text(r[0] + 20, r[1] + 12, options_row_name(row), 26, card_ink(sel, false));
+		const PixelColor ink = options_row_off(&o, row) ? rgb(theme_off(&surface_of(sel, false))) : card_ink(sel, false);
+		text(r[0] + 20, r[1] + 12, options_row_name(row), 26, ink);
 		char value[32];
 		options_value(&o, row, value, sizeof(value));
 		if (value[0])
@@ -2010,6 +2012,31 @@ void draw_options(const setup_view & sv)
 	row_about(options_rows(&o), options_row_about(&o));
 	pause_key keys[6];
 	int n = options_legend(&o, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
+// A page of choices (Resolution, Cover): rows with a ring at the right, the
+// one in use filled, as Start-up ROM Category.
+void draw_choice(const setup_view & sv)
+{
+	const choice_ui & c = sv.choice;
+	setup_header(c.title ? c.title : "", sv.line[0] ? sv.line : sv.game);
+	for (int row = 0; row < c.count; row++) {
+		int r[4];
+		settings_row_rect(row, r);
+		const bool sel = c.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+		text(r[0] + 20, r[1] + 12, c.names[row], 26, card_ink(sel, false));
+		const PixelColor ink = card_ink(sel, false);
+		const float cx = r[0] + r[2] - 44, cy = r[1] + r[3] / 2.0f;
+		box(cx - 14, cy - 14, 28, 28, PixelColor{ 0, 0, 0, 0 }, 14, 3, ink);
+		if (row == c.in_use)
+			box(cx - 8, cy - 8, 16, 16, ink, 8);
+	}
+	if (c.about)
+		row_about(c.count, c.about);
+	pause_key keys[6];
+	int n = choice_legend(&c, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
 }
 
@@ -2023,6 +2050,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_FETCH: draw_fetch(sv); break;
 	case SETUP_START: draw_start(sv); break;
 	case SETUP_OPTIONS: draw_options(sv); break;
+	case SETUP_CHOICE: draw_choice(sv); break;
 	case SETUP_DELETING: draw_deleting(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;

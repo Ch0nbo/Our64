@@ -58,8 +58,14 @@ int  settings_take_home(void);
 /* Our ROMs' A on a ROM folder not found: Settings > Games' ROM folder picker on
  * its own. glyphs: the controller's (INPUT_). 1: HOME, and leaving was confirmed. */
 int  settings_pick_rom_folder(int glyphs);
-/* Our ROMs > Options (X on a game): 0 back, 1 HOME confirmed, 2 Delete chosen (dev build). */
-int  game_options_run(const char *file, const char *title, int glyphs, int can_delete);
+/* Game options, for the game with this ROM file: from Our ROMs (X) or the
+ * pause menu (paused: no Delete, HOME is the pause menu's to ask). 0 back,
+ * 1 HOME (confirmed, or for the pause menu to ask), 2 Delete was chosen. */
+int  game_options_run(const char *file, const char *title, int glyphs, int paused, int usb);
+void library_custom_cover_path(const char *file, char *out, unsigned size);
+int  library_cover_state(const char *file);   /* COVER_ (setup.h), -1 not listed */
+void library_cover_changed(const char *file);
+const char *player_rom_file(void);            /* main.c: the running game's ROM file name */
 
 /* ---- library_wiiu.c: Our ROMs ---- */
 enum { LIB_PLAY, LIB_WIIU, LIB_SYSTEM };

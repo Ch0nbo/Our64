@@ -682,6 +682,26 @@ void shots_setup()
 	sv.screen = SETUP_PICTURE; // Settings > Picture
 	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, 0, 1);
 	shot("picture", v);
+	{ // Game options (X on a game, or the pause menu) and its pages of choices
+		static const char * const res[2] = { "480p", "720p" };
+		static const char * const cover[2] = { "Fetched cover", "Choose an image" };
+		snprintf(sv.game, sizeof(sv.game), "Super Mario 64");
+		sv.screen = SETUP_OPTIONS;
+		options_open(&sv.options, 480, COVER_FETCHED, 1, 0, 0);
+		shot("options", v);
+		options_open(&sv.options, 720, COVER_CUSTOM, 1, 1, 0);
+		sv.options.row = OPT_DELETE;
+		shot("options-usb-delete", v);
+		options_open(&sv.options, 720, COVER_NONE, 0, 0, 1);
+		shot("options-paused", v);
+		sv.screen = SETUP_CHOICE;
+		choice_open(&sv.choice, "RESOLUTION", "720p is sharper on a TV. Many games slow down with it", res, 2, 0);
+		sv.choice.row = 1;
+		shot("options-resolution", v);
+		choice_open(&sv.choice, "COVER", "A PNG image from the SD card or a USB drive", cover, 2, 0);
+		shot("options-cover", v);
+		sv.game[0] = 0;
+	}
 	sv.screen = SETUP_THEME; // Settings > Theme
 	look_open(&sv.look, theme_comrade() ? THEME_COMRADE : THEME_STANDARD, LAYOUT_COVERS);
 	shot("theme", v);

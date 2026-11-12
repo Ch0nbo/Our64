@@ -28,7 +28,9 @@ enum { PAUSE_MENU, PAUSE_SLOTS, PAUSE_ASK };
 /* Two columns of three (Zach, 2026-10-17), the first column first: Resume,
  * Settings, Exit to Our ROMs; then Save state, Load state, Reset game.
  * Change disc only for a game on several discs (pause_ui.discs). */
-enum { ITEM_RESUME, ITEM_SETTINGS, ITEM_EXIT, ITEM_SAVE, ITEM_LOAD, ITEM_RESET, ITEM_DISC, ITEMS };
+/* Game options (2026-11-11): the running game's own settings, the first
+ * column's third, above Exit. */
+enum { ITEM_RESUME, ITEM_SETTINGS, ITEM_EXIT, ITEM_SAVE, ITEM_LOAD, ITEM_RESET, ITEM_DISC, ITEM_OPTIONS, ITEMS };
 #define ITEM_ROWS 3 /* items in a column, without Change disc */
 enum { SLOTS_SAVE, SLOTS_LOAD };
 enum { CARD_EMPTY, CARD_FILLED, CARD_DAMAGED, CARD_OTHER_VERSION, CARD_OTHER_GAME };
@@ -67,7 +69,7 @@ void pause_open(pause_ui *p, int states_on);
 enum { PEV_UP, PEV_DOWN, PEV_LEFT, PEV_RIGHT, PEV_OK, PEV_BACK, PEV_DELETE, PEV_HOME, PEV_TOUCH_DOWN, PEV_TOUCH_UP };
 /* What the caller must do; the card is p->card (PACT_SAVE) or p->ask_card. */
 enum { PACT_NONE, PACT_RESUME, PACT_SAVE, PACT_OVERWRITE, PACT_LOAD, PACT_DELETE, PACT_RESET,
-       PACT_EXIT_ROMS, PACT_EXIT_WIIU, PACT_SETTINGS,
+       PACT_EXIT_ROMS, PACT_EXIT_WIIU, PACT_SETTINGS, PACT_OPTIONS,
        PACT_DISC /* put in p->disc_wanted; the caller sets p->disc once the engine took it */ };
 /* target: for touches, pause_hit at the touch, -1 for none. A tap selects;
  * a tap on the selected thing acts as A. A touch counts only when it goes
