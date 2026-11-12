@@ -149,7 +149,7 @@ int meshCheck(unsigned w, unsigned h)
 				double gx, gy;
 				tv_mesh_bend(px / w * 2 - 1, py / h * 2 - 1, as, k, gx, gy);
 				const double s = l0 * a.s0 + l1 * b.s0 + l2 * c.s0, tt = l0 * a.t0 + l1 * b.t0 + l2 * c.t0;
-				const double dx = (s - (gx * 0.5 + 0.5)) * w, dy = (tt - (gy * 0.5 + 0.5)) * h;
+				const double dx = (s - tv_overscan(gx * 0.5 + 0.5)) * w, dy = (tt - tv_overscan(gy * 0.5 + 0.5)) * h;
 				worst = std::max(worst, std::sqrt(dx * dx + dy * dy));
 			}
 	}
@@ -233,11 +233,13 @@ int main(int argc, char ** argv)
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rb);
 
 	// tv_pass.cpp's quad (RectVertex: x y z w, s t, unused).
-	static const float quad[4][8] = {
-		{-1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f},
-		{ 1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f},
-		{-1.0f,  1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-		{ 1.0f,  1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f},
+	// Off shows the whole frame; the filters the frame less its overscan (tv_mesh.h).
+	const float lo = shader == 0 ? 0.0f : tv_overscan(0.0), hi = shader == 0 ? 1.0f : tv_overscan(1.0);
+	const float quad[4][8] = {
+		{-1.0f, -1.0f, 0.0f, 1.0f, lo, hi, 0.0f, 0.0f},
+		{ 1.0f, -1.0f, 0.0f, 1.0f, hi, hi, 0.0f, 0.0f},
+		{-1.0f,  1.0f, 0.0f, 1.0f, lo, lo, 0.0f, 0.0f},
+		{ 1.0f,  1.0f, 0.0f, 1.0f, hi, lo, 0.0f, 0.0f},
 	};
 	// tv_pass_draw's picture rect and uniform.
 	int w = picture_43 ? ((H * 4 / 3 + 1) & ~1) : W;

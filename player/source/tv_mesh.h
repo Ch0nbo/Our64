@@ -44,6 +44,13 @@
 #include <cstdint>
 
 constexpr float kTvMeshBend = 0.04f; // the curvature
+// Overscan (Zach, 2026-11-12, issue #36): as a tube hides the picture's
+// edges behind its bezel, every TV filter shows the frame less this share at
+// each side, stretched over the same place on the TV, so the black margins
+// most N64 games leave (8 of 640 pixels left and right, 6 of 480 below) are
+// off the screen. tv_overscan: a frame coordinate 0..1 to the part shown.
+constexpr float kTvOverscan = 0.02f;
+inline float tv_overscan(double s) { return float(kTvOverscan + s * (1.0 - 2.0 * kTvOverscan)); }
 constexpr unsigned kTvMeshRows = 16;
 constexpr unsigned kTvMeshMaxCols = 32; // 2 * round(8 * as) up to as = 2
 constexpr unsigned kTvMeshMaxVertices = (kTvMeshMaxCols + 1) * (kTvMeshRows + 1);
@@ -112,8 +119,8 @@ inline TvMesh tv_mesh_build(TvMeshVertex * v, uint16_t * index, unsigned w, unsi
 			o.y = float(-qy);
 			o.z = float(1.0 - 0.06 * r2);
 			o.w = float(0.0064 * px + 0.5);
-			o.s0 = float(gx * 0.5 + 0.5);
-			o.t0 = float(gy * 0.5 + 0.5);
+			o.s0 = tv_overscan(gx * 0.5 + 0.5);
+			o.t0 = tv_overscan(gy * 0.5 + 0.5);
 			o.s1 = float((std::fabs(gx * as) - (as - 0.08)) * root);
 			o.t1 = float((std::fabs(gy) - 0.92) * root);
 		}

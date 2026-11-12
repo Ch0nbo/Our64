@@ -130,11 +130,13 @@ bool setup()
 	GX2SetupContextStateEx(g_ctx, TRUE);
 	// The whole quad; the viewport places it. The frame's rows are top
 	// first, so its first row (t = 0) goes to the top (y = 1).
-	static const gx2::RectVertex quad[4] = {
-		{-1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f},
-		{ 1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f},
-		{-1.0f,  1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-		{ 1.0f,  1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f},
+	// The frame less its overscan (tv_mesh.h).
+	const float lo = tv_overscan(0.0), hi = tv_overscan(1.0);
+	const gx2::RectVertex quad[4] = {
+		{-1.0f, -1.0f, 0.0f, 1.0f, lo, hi, 0.0f, 0.0f},
+		{ 1.0f, -1.0f, 0.0f, 1.0f, hi, hi, 0.0f, 0.0f},
+		{-1.0f,  1.0f, 0.0f, 1.0f, lo, lo, 0.0f, 0.0f},
+		{ 1.0f,  1.0f, 0.0f, 1.0f, hi, lo, 0.0f, 0.0f},
 	};
 	memcpy(g_quad, quad, sizeof(quad));
 	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_ATTRIBUTE_BUFFER, g_quad, sizeof(quad));
