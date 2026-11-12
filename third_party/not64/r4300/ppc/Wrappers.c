@@ -141,6 +141,13 @@ void our64_dynarec_unlink(void)
 }
 #endif
 
+/* Out of line: see where dynarec calls it. */
+static void __attribute__((noinline)) our64_pad_returned(void){
+	extern PowerPC_instr our64_pad_mark;
+	if(link_branch && our64_pad_mark && link_branch[-1] == our64_pad_mark)
+		noCheckInterrupt = 1;
+}
+
 void dynarec(unsigned int address){
 #ifdef __WIIU__
 	jr_cache_empty();
@@ -291,6 +298,11 @@ void dynarec(unsigned int address){
 #endif
 		interp_addr = address = dyna_run(func, code);
 #ifdef __WIIU__
+		/* Our64: a function that ran off its page left through a linkable pad
+		 * (our64_gen_linked_pad, MIPS-to-PPC.c). As with the plain pad, Count
+		 * and last_addr are not brought up to date there and no interrupt is
+		 * due: no check this time. */
+		our64_pad_returned();
 		/* Our64: a VI or another event ends every run within a VI period, so
 		 * Count can't move 16M counts (21 VIs) in one; when it does, a count
 		 * update measured from a stale last_addr. Suspected in Conker's and

@@ -92,6 +92,15 @@ static inline short extractLower16(void* address){
 
 static int FP_need_check;
 
+#ifdef __WIIU__
+static int genEdgeGuard(MIPS_instr mips);
+/* A branch that CANT_COMPILE_DELAY sends to the interpreter is compiled after
+ * all when genEdgeGuard could guard its delay slot. */
+#define EDGE_INTERPRETED(mips) (CANT_COMPILE_DELAY() && !genEdgeGuard(mips))
+#else
+#define EDGE_INTERPRETED(mips) CANT_COMPILE_DELAY()
+#endif
+
 // Variable to indicate whether the next recompiled instruction
 //   is a delay slot (which needs to have its registers flushed)
 //   and the current instruction
@@ -510,7 +519,7 @@ static int BEQ(MIPS_instr mips){
 
 	if((MIPS_GET_SIMMED(mips) == -1 &&
 	    MIPS_GET_RA(mips) == MIPS_GET_RB(mips)) ||
-	   CANT_COMPILE_DELAY()){
+	   EDGE_INTERPRETED(mips)){
 		// BEQ_IDLE || virtual delay
 		genCallInterp(mips);
 		return INTERPRETED;
@@ -524,7 +533,7 @@ static int BEQ(MIPS_instr mips){
 static int BNE(MIPS_instr mips){
 	PowerPC_instr  ppc;
 
-	if(CANT_COMPILE_DELAY()){
+	if(EDGE_INTERPRETED(mips)){
 		genCallInterp(mips);
 		return INTERPRETED;
 	}
@@ -537,7 +546,7 @@ static int BNE(MIPS_instr mips){
 static int BLEZ(MIPS_instr mips){
 	PowerPC_instr  ppc;
 
-	if(CANT_COMPILE_DELAY()){
+	if(EDGE_INTERPRETED(mips)){
 		genCallInterp(mips);
 		return INTERPRETED;
 	}
@@ -550,7 +559,7 @@ static int BLEZ(MIPS_instr mips){
 static int BGTZ(MIPS_instr mips){
 	PowerPC_instr  ppc;
 
-	if(CANT_COMPILE_DELAY()){
+	if(EDGE_INTERPRETED(mips)){
 		genCallInterp(mips);
 		return INTERPRETED;
 	}
@@ -5436,6 +5445,123 @@ static void genCallInterp(MIPS_instr mips){
 
 	if(mips_is_jump(mips)) delaySlotNext = 2;
 }
+
+#ifdef __WIIU__
+/* Our64, for a conditional branch on the last word of a page at a TLB address
+ * (CANT_COMPILE_DELAY: its delay slot is in the next virtual page). Not64 runs
+ * such a branch in the interpreter and returns to the dispatcher on every
+ * pass; Battle for Naboo's busiest loop has one at 0x41009FFC and spent about a
+ * fifth of the CPU core there (profile of 2026-11-06, found 2026-11-11).
+ *
+ * With tlb-links, and the next page mapped to RDRAM now, this emits a guard and
+ * the interpreter call, and returns 1: the caller then compiles the branch
+ * after them, its delay slot being the word the next page holds now. The guard
+ * runs on every pass: the next page's entry in Not64's TLB table and the word
+ * itself must both be what they were at compile time, or the interpreter runs
+ * the branch as before (and takes any TLB exception). Nothing else watches
+ * that word for this function: its page is another block's. Returns 0, with
+ * nothing emitted, when the branch must stay interpreted. Uses R4, R5, CR0. */
+int our64_edge_off; /* 1: such branches stay interpreted and pages end in the plain pad (the A/B test switch) */
+unsigned int our64_edge_branches, our64_edge_pads; /* compiled so far */
+static int genEdgeGuard(MIPS_instr mips){
+	extern int our64_tlb_links;
+	extern int our64_code_room(void);
+	extern void our64_edge_set(MIPS_instr word);
+	extern void our64_set_code_addr(PowerPC_instr* at);
+	PowerPC_instr ppc = NEW_PPC_INSTR();
+	const unsigned int next = get_src_pc() + 4;
+	if(!our64_tlb_links || our64_edge_off || isDelaySlot || our64_code_room() <= 4096) return 0;
+	unsigned long* slot = &tlb_LUT_r[next >> 12];
+	const unsigned long entry = *slot;
+#ifdef USE_EXPANSION
+	if((entry >> 23) != 0x100) return 0; // unmapped, or not in RDRAM
+#else
+	if((entry >> 22) != 0x200) return 0;
+#endif
+	MIPS_instr* at = (MIPS_instr*)fast_mem_access(entry & ~0xFFFul);
+	if(!at) return 0;
+	const MIPS_instr word = *at;
+
+	flushRegisters();
+	invalidateConstants();
+	PowerPC_instr* guard = get_curr_dst();
+	// the next page's TLB table entry is the one compiled against
+	GEN_LIS(ppc, R4, extractUpper16(slot));
+	set_next_dst(ppc);
+	GEN_LWZ(ppc, R4, extractLower16(slot), R4);
+	set_next_dst(ppc);
+	GEN_LIS(ppc, R5, entry >> 16);
+	set_next_dst(ppc);
+	GEN_ORI(ppc, R5, R5, entry);
+	set_next_dst(ppc);
+	GEN_CMPL(ppc, CR0, R4, R5);
+	set_next_dst(ppc);
+	PowerPC_instr* to_slow = get_curr_dst();
+	GEN_BNE(ppc, CR0, 0, 0, 0);
+	set_next_dst(ppc);
+	// and the delay slot's word too
+	GEN_LIS(ppc, R4, extractUpper16(at));
+	set_next_dst(ppc);
+	GEN_LWZ(ppc, R4, extractLower16(at), R4);
+	set_next_dst(ppc);
+	GEN_LIS(ppc, R5, word >> 16);
+	set_next_dst(ppc);
+	GEN_ORI(ppc, R5, R5, word);
+	set_next_dst(ppc);
+	GEN_CMPL(ppc, CR0, R4, R5);
+	set_next_dst(ppc);
+	PowerPC_instr* to_fast = get_curr_dst();
+	GEN_BEQ(ppc, CR0, 0, 0, 0);
+	set_next_dst(ppc);
+	// Not so: the interpreter runs the branch, and always leaves for the dispatcher
+	PPC_SET_BD(*to_slow, get_curr_dst() - to_slow);
+	genCallInterp(mips);
+	delaySlotNext = 0; // the compiled branch below takes its delay slot itself
+	PPC_SET_BD(*to_fast, get_curr_dst() - to_fast);
+	our64_set_code_addr(guard); // a jump to the branch enters at the guard
+	our64_edge_branches++;
+	our64_edge_set(word);
+	return 1;
+}
+
+/* The end of a function that runs off its page (Recompile.c, with tlb-links):
+ * what genJumpPad does, but through a return the dispatcher links to the next
+ * address's code, as genJumpTo's is. Count and last_addr stay as they are and
+ * no interrupt is taken here, so the game runs exactly as with the plain pad:
+ * the dispatcher knows this return by the mark before it (our64_pad_mark,
+ * Wrappers.c) and skips its own check, as noCheckInterrupt made it do. Laid
+ * out as RecompCache_Link expects: the func load 10 and 9 words before. */
+PowerPC_instr our64_pad_mark;
+void our64_gen_linked_pad(void){
+	PowerPC_instr ppc = NEW_PPC_INSTR();
+	const unsigned int next = get_src_pc() + 4;
+	our64_edge_pads++;
+	// Space to load the destination func*
+	set_next_dst(PPC_NOP);
+	set_next_dst(PPC_NOP);
+	// Make this function the LRU
+	GEN_LWZ(ppc, R2, SDAREL(nextLRU), R13);
+	set_next_dst(ppc);
+	GEN_STW(ppc, R2, offsetof(PowerPC_func, lru), DYNAREG_FUNC);
+	set_next_dst(ppc);
+	GEN_ADDI(ppc, R0, R2, 1);
+	set_next_dst(ppc);
+	GEN_STW(ppc, R0, SDAREL(nextLRU), R13);
+	set_next_dst(ppc);
+	// The next address as the return value
+	GEN_LIS(ppc, R3, next >> 16);
+	set_next_dst(ppc);
+	GEN_ORI(ppc, R3, R3, next);
+	set_next_dst(ppc);
+	set_next_dst(PPC_NOP);
+	// The mark: does nothing
+	GEN_ORI(ppc, R2, R2, 0);
+	our64_pad_mark = ppc;
+	set_next_dst(ppc);
+	GEN_BLR(ppc, 1);
+	set_next_dst(ppc);
+}
+#endif
 
 static void genJumpTo(unsigned int loc, unsigned int type){
 	PowerPC_instr ppc = NEW_PPC_INSTR();

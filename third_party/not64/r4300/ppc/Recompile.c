@@ -73,8 +73,22 @@ static void pass2(PowerPC_block* ppc_block);
 static void genJumpPad(void);
 void invalidate_block(PowerPC_block* ppc_block);
 
+#ifdef __WIIU__
+/* Our64: a branch on the last word of a page at a TLB address has its delay
+ * slot in the next virtual page, which need not follow in physical memory
+ * (mips_code is the physical page). While such a branch is compiled (see
+ * genEdgeGuard, MIPS-to-PPC.c) the word one past the page is this one. */
+static MIPS_instr* our64_edge_src;
+static MIPS_instr  our64_edge_word;
+void our64_edge_set(MIPS_instr word){ our64_edge_src = src; our64_edge_word = word; }
+MIPS_instr get_next_src(void) { if(src == our64_edge_src){ src++; return our64_edge_word; } return *(src++); }
+MIPS_instr peek_next_src(void){ return src == our64_edge_src ? our64_edge_word : *src; }
+/* The code a jump to the instruction being compiled enters at. */
+void our64_set_code_addr(PowerPC_instr* at){ if(src<=src_last) code_addr[src-1-src_first] = at; }
+#else
 MIPS_instr get_next_src(void) { return *(src++); }
 MIPS_instr peek_next_src(void){ return *src;     }
+#endif
 int has_next_src(void){ return (src_last-src) > 0; }
 // Hacks for delay slots
  // Undoes a get_next_src
@@ -129,6 +143,9 @@ PowerPC_func* recompile_block(PowerPC_block* ppc_block, unsigned int addr){
 	src_first = ppc_block->mips_code + ((addr&0xfff)>>2);
 	addr_first = ppc_block->start_address + (addr&0xfff);
 	code_addr = NULL; // Just to make sure this isn't used here
+#ifdef __WIIU__
+	our64_edge_src = NULL;
+#endif
 
 	int need_pad = pass0(ppc_block); // Sets src_last, addr_last
 
@@ -239,8 +256,21 @@ PowerPC_func* recompile_block(PowerPC_block* ppc_block, unsigned int addr){
 	// Flush any remaining mapped registers
 	flushRegisters(); //start_new_mapping();
 	// In case we couldn't compile the whole function, use a pad
-	if(need_pad)
+	if(need_pad){
+#ifdef __WIIU__
+		/* Our64: with tlb-links, code at a TLB address that runs off its page
+		 * leaves through a return the dispatcher can link to the next page's
+		 * code. The plain pad returns to the dispatcher every time:
+		 * Battle for Naboo's busiest loop crosses a page (2026-11-11). */
+		extern int our64_tlb_links;
+		extern int our64_edge_off;
+		extern void our64_gen_linked_pad(void);
+		if(our64_tlb_links && !our64_edge_off && (addr_first < 0x80000000 || addr_first >= 0xC0000000))
+			our64_gen_linked_pad();
+		else
+#endif
 		genJumpPad();
+	}
 
 #ifdef __WIIU__
 	// Our64: the code cache is the Wii U JIT area, which runs only while it is
@@ -266,7 +296,9 @@ PowerPC_func* recompile_block(PowerPC_block* ppc_block, unsigned int addr){
 	code_addr = func->code_addr;
 	dst = func->code + (dst - code_buffer);
 	int i;
-	for(i=0; i<src-src_first; ++i)
+	/* Our64: src is one past the function when its last branch's delay slot
+	 * lies in the next page; code_addr has no entry for that word. */
+	for(i=0; i<src-src_first && i<(int)((addr_last-addr_first)>>2); ++i)
 		if(code_addr[i])
 			code_addr[i] = func->code + (code_addr[i] - code_buffer);
 	for(i=0; i<current_jump; ++i)

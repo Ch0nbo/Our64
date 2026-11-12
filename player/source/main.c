@@ -1865,6 +1865,24 @@ static int play_game(int index)
 		                  !strncasecmp((const char *)ROM_HEADER.Name, "Perfect Dark", 12);
 		if (our64_tlb_links)
 			report_line("CPU: code at TLB addresses is linked; a TLB write cuts the links into its pages (tlb-links)");
+		{ /* Page-edge code (Not64's genEdgeGuard and linked pad, 2026-11-11): on with
+		   * tlb-links; the dev build's test switch edge-off turns it off for an A/B run. */
+			extern int our64_edge_off;
+			extern unsigned int our64_edge_branches, our64_edge_pads;
+			our64_edge_off = 0;
+			our64_edge_branches = our64_edge_pads = 0;
+#ifndef OUR64_RELEASE
+			char path[256];
+			struct stat st;
+			const char *root = report_sd_root();
+			if (root) {
+				snprintf(path, sizeof(path), "%s/edge-off", root);
+				our64_edge_off = !stat(path, &st);
+			}
+			if (our64_edge_off)
+				report_line("TEST: branches on a page's last word stay interpreted, pages end unlinked (edge-off)");
+#endif
+		}
 	}
 	int paks[4];
 	g_game_paks = gamedb_paks(ROM_HEADER.CRC1, ROM_HEADER.CRC2);
@@ -2043,6 +2061,12 @@ static int play_game(int index)
 		saves_game_id(id, sizeof(id), ROM_HEADER.Name, ROM_HEADER.CRC1);
 		report_line("GAME: %s (%s): %.0f min%s, %u audio underruns", played, id,
 		            (report_now_us() - g_sweep_t0_us) / 60e6, low, audio_underruns() - g_sweep_under0);
+		{
+			extern unsigned int our64_edge_branches, our64_edge_pads;
+			if (our64_edge_branches || our64_edge_pads)
+				report_line("CPU: %u branches on a page's last word compiled, %u linked page ends", our64_edge_branches,
+				            our64_edge_pads);
+		}
 	}
 	{
 		video_stats_t v;

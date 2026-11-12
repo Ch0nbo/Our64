@@ -745,6 +745,56 @@ static int list_roms(const char *dir, rom_entry *out, int max)
 	return n;
 }
 
+/* sd:/wiiu/our64/edge-test.txt ("<rom file> [VIs]"): the recompiler with
+ * tlb-links on, twice over the same VIs: first with the page-edge code off
+ * (our64_edge_off: a branch on a page's last word interpreted, the plain pad
+ * at a page's end), then on. RDRAM hashes every 60 VIs must match: the edge
+ * code changes no interrupt timing (2026-11-11, Battle for Naboo). */
+static char g_edge_rom[128];
+static unsigned g_edge_vis = 1800, g_edge_links = 1;
+
+static void edge_test_rom(const char *path, unsigned size)
+{
+	extern int our64_tlb_links, our64_edge_off;
+	extern unsigned int our64_edge_branches, our64_edge_pads;
+	const int every = 60;
+	report_line(" ");
+	report_line("== %s: page-edge code off against on, tlb-links on, %u VIs", strrchr(path, '/') + 1, g_edge_vis);
+	our64_tlb_links = g_edge_links;
+	input_load(report_sd_root(), path, CAPTURE_AT_VI);
+	static bench_counters r[2];
+	unsigned branches[2], pads[2];
+	for (int on = 0; on < 2; on++) {
+		if (load_rom(path, size)) {
+			report_line("   could not load");
+			return;
+		}
+		our64_edge_off = !on;
+		our64_edge_branches = our64_edge_pads = 0;
+		run(1, 900, g_edge_vis, every);
+		r[on] = g_bench;
+		branches[on] = our64_edge_branches;
+		pads[on] = our64_edge_pads;
+		report_line("   edge code %s: %u VIs in %.1f s; %u edge branches and %u linked pads compiled; dispatch %.1f%%, interpreter %.1f%%",
+		            on ? "on" : "off", r[on].vis, r[on].section_us[0] / 1e6, branches[on], pads[on],
+		            100 * (r[on].section_us[TRAMP_SECTION] - r[on].section_us[COMPILER_SECTION]) / r[on].section_us[0],
+		            100 * r[on].section_us[INTERP_SECTION] / r[on].section_us[0]);
+		report_save();
+	}
+	our64_edge_off = 0;
+	const int n = r[0].nhashes < r[1].nhashes ? r[0].nhashes : r[1].nhashes;
+	int first = -1;
+	for (int k = 0; k < n; k++)
+		if (r[0].hashes[k] != r[1].hashes[k]) { first = k; break; }
+	if (n == 0)
+		report_line("   compare: no checkpoints reached");
+	else if (first < 0)
+		report_line("   compare: RDRAM identical at all %d checkpoints (every %d VIs)", n, every);
+	else
+		report_line("   compare: RDRAM first differs at VI %d (%d of %d checkpoints matched)", (first + 1) * every, first, n);
+	report_save();
+}
+
 /* ---- emulation thread on the codegen core ---- */
 
 static rom_entry g_roms[256];
@@ -771,7 +821,10 @@ static int emu_thread(int argc, const char **argv)
 		}
 		if (g_jr_ab && !capture_wanted(strrchr(g_roms[k].path, '/') + 1))
 			continue;
-		if (g_tlb_count) {
+		if (g_edge_rom[0]) {
+			if (!strcasecmp(strrchr(g_roms[k].path, '/') + 1, g_edge_rom))
+				edge_test_rom(g_roms[k].path, g_roms[k].size);
+		} else if (g_tlb_count) {
 			if (!g_capture_roms[0] || !capture_wanted(strrchr(g_roms[k].path, '/') + 1))
 				tlb_count_rom(g_roms[k].path, g_roms[k].size);
 		} else if (g_diverge[0]) {
@@ -873,6 +926,14 @@ int main(int argc, char **argv)
 		}
 		if (g_tlb_count)
 			report_line(TLB_SWITCH ": every ROM %d s, counting loads and stores at TLB addresses", TLB_COUNT_S);
+		snprintf(dir, sizeof(dir), "%s/edge-test.txt", root);
+		FILE *ef = fopen(dir, "r");
+		if (ef) {
+			if (fscanf(ef, "%127s %u %u", g_edge_rom, &g_edge_vis, &g_edge_links) < 1) g_edge_rom[0] = 0;
+			fclose(ef);
+			if (g_edge_vis > 3600) g_edge_vis = 3600; /* 64 hashes kept */
+			if (g_edge_rom[0]) report_line("edge-test.txt: only %s, page-edge code off against on", g_edge_rom);
+		}
 		snprintf(dir, sizeof(dir), "%s/diverge.txt", root);
 		FILE *df = fopen(dir, "r");
 		if (df) {
