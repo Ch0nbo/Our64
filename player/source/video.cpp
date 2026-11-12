@@ -1351,11 +1351,29 @@ void start_on_graphics_core(void * result)
 		}
 	}
 	g_res_h = res_height_from_card();
-	static char settings[224];
-	snprintf(settings, sizeof(settings),
+	static char settings[512];
+	int used = snprintf(settings, sizeof(settings),
 	         "EnableCopyColorToRDRAM=%d,AsyncShaderCompilation=%d,EnableInaccurateTextureCoordinates=%d,AspectRatio=%d,"
 	         "ScreenWidth=%d,ScreenHeight=%d",
 	         copy, async, inexact, g_aspect, g_res_h * 4 / 3, g_res_h);
+#ifndef OUR64_RELEASE
+	// Dev test switch sd:/wiiu/our64/gfx-override: its first line, "Name=value,Name=value",
+	// is added to GLideN64's settings (2026-11-11: what the GPU's per-pixel cost is made of).
+	if (const char * root = report_sd_root()) {
+		char path[256], line[200] = "";
+		snprintf(path, sizeof(path), "%s/gfx-override", root);
+		if (FILE * f = fopen(path, "r")) {
+			if (fgets(line, sizeof(line), f) != nullptr) {
+				line[strcspn(line, "\r\n")] = 0;
+				if (line[0] != 0 && used > 0 && size_t(used) + strlen(line) + 2 < sizeof(settings)) {
+					snprintf(settings + used, sizeof(settings) - used, ",%s", line);
+					report_line("TEST: GLideN64 settings added from gfx-override: %s", line);
+				}
+			}
+			fclose(f);
+		}
+	}
+#endif
 	our64_config_override(settings);
 	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s. Drawn at %dx%d%s.", copy,
 	            async ? "in the background" : "before drawing", g_res_h * 4 / 3, g_res_h,
