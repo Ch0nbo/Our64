@@ -187,9 +187,10 @@ int main(int argc, char ** argv)
 	float lines = argc > 7 ? float(atof(argv[7])) : 240.0f;
 	// "rows": as tv_pass.cpp draws the GamePad's picture, the lines locked to the screen's rows (tv_mesh.h)
 	const bool rows = argc > 8 && strcmp(argv[8], "rows") == 0;
+	const bool interlaced = lines >= 360.0f;
 	const double over_v = rows ? tv_rows_overscan(unsigned(H)) : double(kTvOverscan);
 	if (rows)
-		lines = float(tv_rows_lines(unsigned(H)) * (lines >= 360.0f ? 2.0 : 1.0));
+		lines = float(tv_rows_lines(unsigned(H)) * (interlaced ? double(kTvPadRows) : 1.0));
 	int fw, fh;
 	std::vector<unsigned char> frame;
 	if (!readPpm(argv[2], fw, fh, frame)) {
@@ -291,7 +292,7 @@ int main(int argc, char ** argv)
 		glUniform1i(glGetUniformLocation(p, "uTex0"), 0);
 		const GLint loc = glGetUniformLocation(p, "uSize");
 		if (loc >= 0)
-			glUniform4f(loc, float(w), float(H), lines, 0.0f); // as tv_pass_draw sends it
+			glUniform4f(loc, float(w), float(H), lines, rows ? (interlaced ? 1.0f : 1.0f / kTvPadRows) : 0.0f); // as tv_pass_draw sends it
 	}
 	if (shader == 3) {
 		glUseProgram(prog);

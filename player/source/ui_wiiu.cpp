@@ -552,8 +552,8 @@ void ui_gfx_game_stopped()
 
 #ifndef OUR64_RELEASE
 // Dev build: what the GamePad's filter drew, read back once for each filter
-// chosen, two seconds in: the light of its even rows against its odd rows
-// over the picture's middle. Zach, 2026-11-12: "scanlines on all filters on
+// chosen, two seconds in: its rows' values by their place in a line (3 rows a
+// line), over the picture's middle. Zach, 2026-11-12: "scanlines on all filters on
 // gamepad arent very noticable": drawn faint (the rows not on the lines'
 // middles), or drawn as on the PC (odd rows at about half) and lost on the
 // way to the GamePad's screen?
@@ -587,7 +587,7 @@ static void pad_rows_check(GX2ColorBuffer & cb)
 	DCInvalidateRange(lin.image, lin.imageSize);
 	const uint8_t * px = static_cast<const uint8_t *>(lin.image);
 	const uint32_t W = lin.width, H = lin.height;
-	uint64_t sum[2] = {0, 0};
+	uint64_t sum[3] = {0, 0, 0};
 	unsigned row16[16];
 	for (uint32_t y = H / 4; y < H * 3 / 4; y++) {
 		unsigned row = 0;
@@ -595,13 +595,13 @@ static void pad_rows_check(GX2ColorBuffer & cb)
 			const uint8_t * q = px + (size_t(y) * lin.pitch + x) * 4;
 			row += q[0] + q[1] + q[2];
 		}
-		sum[y & 1] += row;
+		sum[y % 3] += row;
 		if (y - H / 4 < 16)
 			row16[y - H / 4] = row / (3 * (W * 2 / 3 - W / 3));
 	}
-	const double n = double(H / 4) * 3.0 * (W * 2 / 3 - W / 3);
-	report_line("TV SHADER: GamePad %s as drawn: even rows %.1f, odd rows %.1f of 255 (middle of the picture); 16 rows from %u: "
-	            "%u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u", shader_name(g_shader), sum[0] / n, sum[1] / n, unsigned(H / 4),
+	const double n = double(H / 6) * 3.0 * (W * 2 / 3 - W / 3);
+	report_line("TV SHADER: GamePad %s as drawn: rows by their place in a line %.1f, %.1f, %.1f of 255 (middle of the picture); 16 rows from %u: "
+	            "%u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u", shader_name(g_shader), sum[0] / n, sum[1] / n, sum[2] / n, unsigned(H / 4),
 	            row16[0], row16[1], row16[2], row16[3], row16[4], row16[5], row16[6], row16[7], row16[8], row16[9],
 	            row16[10], row16[11], row16[12], row16[13], row16[14], row16[15]);
 	MEMFreeToDefaultHeap(lin.image);

@@ -44,7 +44,7 @@ const char *layout_name(int layout); /* "Covers": the row of covers; "List": the
 /* "Shader = CRT": Settings > Picture's Filter. Off is the plain picture; the
  * rest are drawn for each screen at its own size: the TV's, and since
  * 2026-11-12 the GamePad's, which has 2 rows per N64 line, so its lines are
- * locked to its rows (tv_mesh.h). "Smooth" (GLideN64's FXAA, dropped
+ * locked to its rows, 3 rows a line (tv_mesh.h). "Smooth" (GLideN64's FXAA, dropped
  * 2026-11-04) reads as Off. */
 enum { SHADER_OFF, SHADER_SCANLINES, SHADER_CRT, SHADER_CURVED, SHADERS };
 const char *shader_name(int shader); /* "Off", "Scanlines", "CRT", "CRT Curved" */

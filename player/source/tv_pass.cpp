@@ -426,12 +426,13 @@ bool tv_pass_draw(GX2ColorBuffer * frame, GX2ColorBuffer * out, int shader, bool
 	// the others) has twice that: each of its rows is a line, which the
 	// shaders draw without gaps.
 	const float field = VI.PAL ? 288.0f : 240.0f;
-	// On the GamePad the lines are its own row pairs, not the game's
-	// (tv_mesh.h's tv_rows_lines); an interlaced game's are each of its rows,
-	// which draws no gaps there either.
+	// On the GamePad the lines are groups of its own rows, not the game's
+	// (tv_mesh.h's tv_rows_lines and kTvPadRows); for an interlaced game
+	// every row is a line, which draws no gaps there either.
 	const bool interlaced = VI.real_height * 2 > unsigned(field * 3);
-	const float lines = (gamepad ? float(tv_rows_lines(H)) : field) * (interlaced ? 2.0f : 1.0f);
-	const GLfloat size[4] = {float(w), float(H), lines, 0.0f};
+	const float pad_rows = interlaced ? 1.0f : float(kTvPadRows);
+	const float lines = gamepad ? float(tv_rows_lines(H)) * (kTvPadRows / pad_rows) : field * (interlaced ? 2.0f : 1.0f);
+	const GLfloat size[4] = {float(w), float(H), lines, gamepad ? 1.0f / pad_rows : 0.0f};
 	// The uniform goes in through the GL layer, which keeps it in the
 	// program's register image; GLideN64's own program is current again after.
 	gx2::Program * was = gx2::currentProgram();

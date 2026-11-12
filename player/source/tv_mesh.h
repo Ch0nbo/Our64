@@ -56,19 +56,26 @@ inline float tv_overscan(double s, double o = kTvOverscan) { return float(o + s 
 // rows at a phase that drifts down the screen: bands, or with no overscan no
 // lines at all (both rows of a line the same quarter line from its middle).
 // There the shaders are told the frame has as many lines as the screen has
-// row pairs, the first of each pair on a line's middle (f = 0) and the second
-// between two lines (f = 0.5): the same beams, locked to the screen's rows
-// instead of the game's lines. The lines' count is the uniform's (the frame's
-// whole height in lines); the phase is in the overscan up and down, the
-// nearest to kTvOverscan that puts the first row n whole lines in:
-// o * lines - 0.25 = n with lines = (h / 2) / (1 - 2 o). 2.85% at 480 rows.
+// groups of kTvPadRows rows, the first row of each group on a line's middle
+// (f = 0) and the others evenly on to the next: the same beams, locked to
+// the screen's rows instead of the game's lines. The lines' count is the
+// uniform's (the frame's whole height in lines); the phase is in the
+// overscan up and down, the nearest to kTvOverscan that puts the first row
+// n whole lines in: o * lines - 0.5 + 0.5 / rows = n with
+// lines = (h / rows) / (1 - 2 o).
+// 3 rows a line (160 lines, one bright row and two dim, 3.1% overscan): at
+// 2 rows a line the console drew every other row at about two thirds of its
+// neighbour's value (read back: 157 against 102 of 255), as the PC does, and
+// on the GamePad's screen the lines were "not very noticeable" (Zach): a
+// dark line one row high does not survive its small, compressed picture.
+constexpr unsigned kTvPadRows = 3;
 inline double tv_rows_overscan(unsigned h)
 {
-	const double half = h / 2.0;
-	const double n = std::floor(kTvOverscan * half / (1.0 - 2.0 * kTvOverscan) - 0.25 + 0.5);
-	return (n + 0.25) / (half + 2.0 * n + 0.5);
+	const double lines = double(h) / kTvPadRows, shift = 0.5 - 0.5 / kTvPadRows;
+	const double n = std::floor(kTvOverscan * lines / (1.0 - 2.0 * kTvOverscan) - shift + 0.5);
+	return (n + shift) / (lines + 2.0 * (n + shift));
 }
-inline double tv_rows_lines(unsigned h) { return h / 2.0 / (1.0 - 2.0 * tv_rows_overscan(h)); }
+inline double tv_rows_lines(unsigned h) { return double(h) / kTvPadRows / (1.0 - 2.0 * tv_rows_overscan(h)); }
 constexpr unsigned kTvMeshRows = 16;
 constexpr unsigned kTvMeshMaxCols = 32; // 2 * round(8 * as) up to as = 2
 constexpr unsigned kTvMeshMaxVertices = (kTvMeshMaxCols + 1) * (kTvMeshRows + 1);

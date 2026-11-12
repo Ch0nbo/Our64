@@ -5,8 +5,9 @@
 // and no branches around texture reads (inside Cemu, CafeGLSL hangs on a
 // texelFetch inside an if). The one uniform is uSize: the picture's size on
 // the TV (its 4:3 or 16:9 rect), the game's lines (240 NTSC, 288 PAL, twice
-// that in an interlaced 480-line mode); its w is unused (CRT Curved's
-// curvature is in its grid, tv_mesh.h).
+// that in an interlaced 480-line mode); its w is used by the GamePad's CRT
+// Curved alone (kTvCurvedRowsVertexShader; CRT Curved's curvature is in its
+// grid, tv_mesh.h).
 //
 // They work in linear light without spending an instruction on it:
 // tv_pass.cpp reads the frame through an sRGB view (the texture unit turns
@@ -62,6 +63,13 @@
 // this negates it first, so y = 1 is the top of the TV and the frame's first
 // row (v = 0) goes there. Scanlines and CRT share kTvVertexShader, CRT
 // Curved has its own (its grid's vertices carry more).
+// On the GamePad (uSize.w not 0: 1 over its rows a line, tv_mesh.h) a dark
+// line's beam is narrower, half-width 0.5 of a line against the TV's 0.6:
+// with 3 rows a line that leaves the two rows between lines at about a third
+// of the middle row's light in dark colors (0.6 left them at a half, faint
+// on its small screen). A bright line's stays 0.85: at 0.7 the middle row's
+// brightest channel went past white and bright colors changed hue
+// (230,200,90 by 6%, PC preview).
 // TV_SOFT: half the distance between CRT's two reads across a line, in u
 // (0.0007 since 2026-11-12: at 0.00125 an edge was 5.2 TV pixels wide at 1080p,
 // softer than RetroArch's crt-lottes 3.9 and crt-geom 3.2; now 3.6):
@@ -77,7 +85,9 @@
 	"{\n" \
 	"  gl_Position = vec4(aRectPosition.x, -aRectPosition.y, 0.0, 1.0);\n" \
 	"  float hi = step(360.0, uSize.z);\n" \
-	"  vBeam = vec4(mix(1.0 / 0.6, 1.0, hi), mix(1.0 / 0.85 - 1.0 / 0.6, 0.0, hi), 0.05, (15.0 / 16.0) / 1.1);\n" \
+	"  float pad = step(0.001, uSize.w);\n" \
+	"  float thin = 1.0 / mix(0.6, 0.5, pad);\n" \
+	"  vBeam = vec4(mix(thin, 1.0, hi), mix(1.0 / 0.85 - thin, 0.0, hi), 0.05, (15.0 / 16.0) / 1.1);\n" \
 	"}\n"
 #define TV_SOFT "0.0007"
 
@@ -115,10 +125,11 @@ static const char kTvCurvedVertexShader[] =
 
 // CRT Curved on the GamePad (tv_mesh.h's row-locked lines, 2026-11-12): the
 // same, but the lines follow the screen's rows, not the bent frame's (bent
-// lines against 2 rows a line drew ripples): vLine.x is the row over 2 from
-// the vertex's own place on the screen (aRectPosition.y, 1 at the top;
-// uSize.y the screen's rows), so the first row of each pair is a line's
-// middle and the second lies between two lines. The pixel shaders are CRT's
+// lines against 2 rows a line drew ripples): vLine.x is the row over the
+// rows a line (uSize.w is 1 over them, tv_mesh.h's kTvPadRows) from the
+// vertex's own place on the screen (aRectPosition.y, 1 at the top; uSize.y
+// the screen's rows), so the first row of each group is a line's middle and
+// the others lie evenly on to the next. The pixel shaders are CRT's
 // and CRT Curved's own, reading the bent frame around each pixel's own point.
 static const char kTvCurvedRowsVertexShader[] =
 	TV_VERTEX_COMMON
@@ -132,7 +143,7 @@ static const char kTvCurvedRowsVertexShader[] =
 	"  vBeam.w *= aRectPosition.z;\n"
 	"  vU = aTexCoord0.x + vec3(0.0, -" TV_SOFT ", " TV_SOFT ");\n"
 	"  float line = 1.0 / uSize.z;\n"
-	"  vLine = vec4((1.0 - aRectPosition.y) * uSize.y * 0.25 - 0.25, aTexCoord0.y, aTexCoord0.y + line, line);\n"
+	"  vLine = vec4(((1.0 - aRectPosition.y) * uSize.y * 0.5 - 0.5) * uSize.w, aTexCoord0.y, aTexCoord0.y + line, line);\n"
 	"  vZEdge = vec4(aTexCoord1, aRectPosition.w, 0.0);\n"
 	"}\n";
 
