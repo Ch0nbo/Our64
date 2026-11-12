@@ -41,6 +41,12 @@ enum { THEME_STANDARD, THEME_COMRADE, THEMES };
 const char *theme_name(int theme); /* "Standard", "Comrade" */
 enum { LAYOUT_COVERS, LAYOUT_LIST, LAYOUTS };
 const char *layout_name(int layout); /* "Covers": the row of covers; "List": the drawer and names */
+/* "Shader = CRT": Settings > Picture. Off shows on both screens; the rest are
+ * drawn at the TV's own size, TV only (2026-11-04: the GamePad has 2 pixels
+ * per N64 line). "Smooth" (GLideN64's FXAA, dropped 2026-11-04) reads as Off. */
+enum { SHADER_OFF, SHADER_SCANLINES, SHADER_CRT, SHADER_CURVED, SHADERS };
+const char *shader_name(int shader); /* "Off", "Scanlines", "CRT", "CRT Curved" */
+int shader_tv_only(int shader);
 /* "Start on = recent": Settings > Games, the tab Our ROMs opens on (library_start_category). */
 enum { START_ALL, START_RECENT, START_FAVORITES, STARTS };
 const char *start_name(int start); /* "All", "Recent", "Favorites" */
@@ -52,6 +58,7 @@ typedef struct {
 	char last_game[128]; /* the ROM file played last, "" none */
 	int rumble[4];       /* players 1-4: rumble on (the default) or off */
 	char recent[RECENT_GAMES][128]; /* the ROM files played last, newest first, "" ends */
+	int shader;          /* SHADER_ */
 	char rom_folder[256]; /* "ROM folder = ...": "" is sd:/wiiu/our64/roms; "sd:/path" or "usb:<serial>/path" (usbfs.h) */
 	char rom_drive[34];   /* "ROM drive = ...": the USB partition's label when its folder was picked, shown while
 	                       * it is unplugged; "" none (an SD folder, no label, or a settings.cfg from before) */

@@ -2012,6 +2012,7 @@ static int play_game(int index)
 		const int mode = gameopt_picture(file, GAMEOPT_MODE), shape = gameopt_picture(file, GAMEOPT_SHAPE),
 		          speed = gameopt_picture(file, GAMEOPT_SPEED);
 		video_set_picture((shape >= 0 ? shape : s.picture) == PICTURE_WIDE);
+		video_set_shader(s.shader);
 		ui_speed(-1);
 		player_speed_display(speed >= 0 ? speed : s.speed);
 		g_mode_before_game = ui_mode();

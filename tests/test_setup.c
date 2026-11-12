@@ -107,7 +107,7 @@ static void settings_taps(void)
 static void picture_applies_what_left_right_picked(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
 	CHECK(p.row == PIC_SCREEN && picture_event(&p, PEV_OK, -1) == PICT_NONE);
 	picture_event(&p, PEV_RIGHT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_GAMEPAD && p.mode == MODE_BOTH);
@@ -121,28 +121,67 @@ static void picture_applies_what_left_right_picked(void)
 	CHECK(picture_event(&p, PEV_OK, -1) == PICT_SHAPE);
 	picture_applied(&p);
 	CHECK(p.shape == PICTURE_WIDE);
-	CHECK(!strcmp(picture_row_name(PIC_SCREEN), "Screen mode") && !strcmp(picture_row_name(PIC_SHAPE), "Shape"));
-	CHECK(!strcmp(picture_value_name(PIC_SHAPE, PICTURE_WIDE), "16:9 stretched"));
+	CHECK(!strcmp(picture_row_name(PIC_SCREEN), "Screen mode") && !strcmp(picture_row_name(PIC_SHAPE), "Shape") &&
+	      !strcmp(picture_row_name(PIC_SHADER), "Filter"));
+	CHECK(!strcmp(picture_value_name(PIC_SHAPE, PICTURE_WIDE), "16:9 stretched") && !strcmp(picture_value_name(PIC_SHADER, SHADER_CRT), "CRT"));
 	CHECK(picture_event(&p, PEV_BACK, -1) == PICT_BACK && picture_event(&p, PEV_HOME, -1) == PICT_HOME);
 }
 
-static void picture_lines_are_the_same_whatever_is_picked(void)
+static void shader_steps_one_value_at_a_time_and_stops_at_the_ends(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
+	picture_event(&p, PEV_DOWN, -1);
+	picture_event(&p, PEV_DOWN, -1);
+	picture_event(&p, PEV_DOWN, -1);
+	CHECK(p.row == PIC_SHADER && picture_values(PIC_SHADER) == SHADERS && picture_cycler(PIC_SHADER));
+	picture_event(&p, PEV_LEFT, -1);
+	CHECK(p.pick[PIC_SHADER] == SHADER_OFF);
+	for (int i = 0; i < 10; i++)
+		picture_event(&p, PEV_RIGHT, -1);
+	CHECK(p.pick[PIC_SHADER] == SHADER_CURVED);
+	CHECK(picture_event(&p, PEV_OK, -1) == PICT_SHADER);
+	picture_applied(&p);
+	CHECK(p.shader == SHADER_CURVED);
+}
+
+static void shader_line_names_what_the_gamepad_does_not_show(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
+	p.row = PIC_SHADER;
+	CHECK(!strcmp(picture_row_about(&p), "No filter: the picture as the game draws it"));
+	for (int i = SHADER_SCANLINES; i < SHADERS; i++) {
+		p.pick[PIC_SHADER] = i;
+		CHECK(!strcmp(picture_row_about(&p), "TV only: Does not apply to GamePad"));
+	}
 	p.row = PIC_SCREEN; /* Screen mode and Shape: the same whatever is picked (Zach, 2026-10-23) */
 	CHECK(!strcmp(picture_row_about(&p), "Which screens show the game. The prompt at each start begins on it."));
 	p.row = PIC_SHAPE;
 	CHECK(!strcmp(picture_row_about(&p), "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV."));
 }
 
+static void tv_only_shaders_are_off_in_gamepad_only_mode(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_GAMEPAD, PICTURE_43, SHADER_OFF, 0, 1);
+	p.row = PIC_SHADER;
+	picture_event(&p, PEV_RIGHT, -1); /* Scanlines: shown, greyed, A does nothing */
+	CHECK(p.pick[PIC_SHADER] == SHADER_SCANLINES && picture_off(&p, PIC_SHADER, SHADER_SCANLINES));
+	CHECK(picture_event(&p, PEV_OK, -1) == PICT_NONE);
+	CHECK(!strcmp(picture_row_about(&p), "TV only: Does not apply to GamePad"));
+	pause_key keys[6];
+	int n = picture_legend(&p, INPUT_PRO, keys, 6);
+	CHECK(n == 4 && !strcmp(keys[3].label, "Apply") && keys[3].dim);
+}
+
 static void gamepad_only_is_skipped_without_a_gamepad_on_picture(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 0);
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 0);
 	picture_event(&p, PEV_RIGHT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_BOTH); /* GamePad only skipped: nothing to the right */
-	picture_open(&p, MODE_TV, PICTURE_43, 0, 0);
+	picture_open(&p, MODE_TV, PICTURE_43, SHADER_OFF, 0, 0);
 	picture_event(&p, PEV_RIGHT, -1);
 	picture_event(&p, PEV_RIGHT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_TV); /* both GamePad modes need the GamePad, as on the prompt */
@@ -151,7 +190,7 @@ static void gamepad_only_is_skipped_without_a_gamepad_on_picture(void)
 static void leaving_a_picture_row_drops_its_unapplied_pick(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
 	picture_event(&p, PEV_LEFT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_TV);
 	picture_event(&p, PEV_DOWN, -1);
@@ -164,24 +203,45 @@ static void leaving_a_picture_row_drops_its_unapplied_pick(void)
 	CHECK(!keys[3].dim);
 }
 
-static void picture_taps(void)
+static void picture_taps_and_the_cycler_arrows(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
 	int r[4];
-	settings_value_rect(PIC_SCREEN, MODE_TV, r);
+	picture_arrow_rect(PIC_SHADER, 1, r); /* the right arrow */
 	int t = picture_hit(r[0] + 2, r[1] + 2);
-	CHECK(t == PIC_SCREEN * 8 + MODE_TV + 1);
+	CHECK(t == PIC_SHADER * 8 + PIC_ARROW_RIGHT);
 	picture_event(&p, PEV_TOUCH_DOWN, t);
 	picture_event(&p, PEV_TOUCH_UP, t);
-	CHECK(p.row == PIC_SCREEN && p.pick[PIC_SCREEN] == MODE_TV);
+	CHECK(p.row == PIC_SHADER && p.pick[PIC_SHADER] == SHADER_SCANLINES); /* an arrow steps at once */
 	settings_value_rect(PIC_SHAPE, PICTURE_WIDE, r);
 	t = picture_hit(r[0] + 2, r[1] + 2);
 	picture_event(&p, PEV_TOUCH_DOWN, t);
 	picture_event(&p, PEV_TOUCH_UP, t);
-	CHECK(p.row == PIC_SHAPE && p.pick[PIC_SHAPE] == PICTURE_WIDE && p.pick[PIC_SCREEN] == MODE_BOTH); /* leaving drops the pick */
+	CHECK(p.row == PIC_SHAPE && p.pick[PIC_SHAPE] == PICTURE_WIDE && p.pick[PIC_SHADER] == SHADER_OFF); /* leaving drops the pick */
 	picture_event(&p, PEV_TOUCH_DOWN, t);
 	CHECK(picture_event(&p, PEV_TOUCH_UP, t) == PICT_SHAPE);
+}
+
+static void a_tap_on_the_shader_value_selects_then_applies(void)
+{
+	picture_ui p;
+	picture_open(&p, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
+	int r[4];
+	picture_arrow_rect(PIC_SHADER, 0, r);
+	CHECK(picture_hit(r[0] + 2, r[1] + 2) == PIC_SHADER * 8 + PIC_ARROW_LEFT);
+	picture_cycler_rect(PIC_SHADER, r);
+	int t = picture_hit(r[0] + r[2] / 2, r[1] + 2);
+	CHECK(t == PIC_SHADER * 8);
+	picture_event(&p, PEV_TOUCH_DOWN, t);
+	CHECK(picture_event(&p, PEV_TOUCH_UP, t) == PICT_NONE && p.row == PIC_SHADER);
+	picture_event(&p, PEV_RIGHT, -1);
+	picture_event(&p, PEV_TOUCH_DOWN, t);
+	CHECK(picture_event(&p, PEV_TOUCH_UP, t) == PICT_SHADER);
+	settings_row_rect(PIC_SHADER, r);
+	int a[4];
+	picture_arrow_rect(PIC_SHADER, 1, a);
+	CHECK(a[0] + a[2] <= r[0] + r[2] && a[1] >= r[1] && a[1] + a[3] <= r[1] + r[3]); /* the arrows inside the row */
 }
 
 /* ---- Our Controllers ---- */
@@ -849,10 +909,13 @@ int main(void)
 	RUN(settings_leads_to_controllers_and_back);
 	RUN(settings_taps);
 	RUN(picture_applies_what_left_right_picked);
-	RUN(picture_lines_are_the_same_whatever_is_picked);
+	RUN(shader_steps_one_value_at_a_time_and_stops_at_the_ends);
+	RUN(shader_line_names_what_the_gamepad_does_not_show);
+	RUN(tv_only_shaders_are_off_in_gamepad_only_mode);
 	RUN(gamepad_only_is_skipped_without_a_gamepad_on_picture);
 	RUN(leaving_a_picture_row_drops_its_unapplied_pick);
-	RUN(picture_taps);
+	RUN(picture_taps_and_the_cycler_arrows);
+	RUN(a_tap_on_the_shader_value_selects_then_applies);
 	RUN(controllers_cards_then_actions);
 	RUN(an_empty_port_has_no_buttons_to_edit);
 	RUN(a_on_a_card_goes_to_its_actions);

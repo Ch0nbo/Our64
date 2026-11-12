@@ -700,8 +700,15 @@ void shots_setup()
 	sv.settings.row = SET_GAMES;
 	shot("settings-games", v);
 	sv.screen = SETUP_PICTURE; // Settings > Picture
-	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, 0, 1);
+	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
 	shot("picture", v);
+	sv.picture.row = PIC_SHADER;
+	sv.picture.pick[PIC_SHADER] = SHADER_CRT;
+	shot("picture-shader-crt", v);
+	picture_open(&sv.picture, MODE_GAMEPAD, PICTURE_43, SHADER_OFF, 0, 1);
+	sv.picture.row = PIC_SHADER;
+	sv.picture.pick[PIC_SHADER] = SHADER_SCANLINES; // greyed: TV only
+	shot("picture-shader-gamepad-only", v);
 	{ // Game options (X on a game, or the pause menu) and its pages of choices
 		static const char * const res[2] = { "480p", "720p" };
 		static const char * const cover[2] = { "Fetched cover", "Choose an image" };

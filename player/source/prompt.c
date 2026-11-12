@@ -30,6 +30,9 @@ static const char *const g_theme_name[THEMES] = { "Standard", "Comrade" };
 const char *theme_name(int theme) { return theme >= 0 && theme < THEMES ? g_theme_name[theme] : "?"; }
 static const char *const g_layout_name[LAYOUTS] = { "Covers", "List" };
 const char *layout_name(int layout) { return layout >= 0 && layout < LAYOUTS ? g_layout_name[layout] : "?"; }
+static const char *const g_shader_name[SHADERS] = { "Off", "Scanlines", "CRT", "CRT Curved" };
+const char *shader_name(int shader) { return shader >= 0 && shader < SHADERS ? g_shader_name[shader] : "?"; }
+int shader_tv_only(int shader) { return shader >= SHADER_SCANLINES && shader < SHADERS; }
 static const char *const g_start_name[STARTS] = { "All", "Recent", "Favorites" };
 const char *start_name(int start) { return start >= 0 && start < STARTS ? g_start_name[start] : "?"; }
 static const char *const g_start_key[STARTS] = { "all", "recent", "favorites" }; /* as written to settings.cfg */
@@ -44,6 +47,7 @@ int settings_parse(const char *text, our_settings *s)
 	for (int i = 0; i < 4; i++)
 		s->rumble[i] = 1;
 	memset(s->recent, 0, sizeof(s->recent));
+	s->shader = SHADER_OFF;
 	s->rom_folder[0] = 0;
 	s->rom_drive[0] = 0;
 	s->auto_resume = 1;
@@ -106,6 +110,14 @@ int settings_parse(const char *text, our_settings *s)
 				memcpy(s->rumble, r, sizeof(r));
 			else
 				found = -1;
+		} else if (!strcasecmp(k, "Shader")) {
+			for (int i = 0; i < SHADERS; i++)
+				if (!strcasecmp(v, g_shader_name[i]))
+					found = s->shader = i;
+			if (!strcasecmp(v, "Smooth")) { /* an older build's FXAA, dropped: Off */
+				s->shader = SHADER_OFF;
+				found = 1;
+			}
 		} else if (!strcasecmp(k, "Auto-resume")) {
 			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
 				found = s->auto_resume = !strcasecmp(v, "on");
@@ -179,11 +191,11 @@ int settings_format_all(char *out, unsigned size, const our_settings *s)
 	}
 	return snprintf(out, size, "# Our64 settings. Screen mode: TV only, TV + GamePad or GamePad only. "
 	                           "Picture: 4:3 or 16:9 stretched. Theme: Standard or Comrade. Our ROMs: Covers or List. "
-	                           "Auto-resume: on or off. "
+	                           "Filter: Off, Scanlines, CRT or CRT Curved. Auto-resume: on or off. "
 	                           "Start on: all, recent or favorites. Speed display: on or off.\n"
-	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nROM folder = %s\nROM drive = %s\nLast game = %s\nRecent games = %s\n"
+	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nShader = %s\nROM folder = %s\nROM drive = %s\nLast game = %s\nRecent games = %s\n"
 	                           "Rumble = %s, %s, %s, %s\nAuto-resume = %s\nStart on = %s\nSpeed display = %s\n",
-	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), s->rom_folder, s->rom_drive, s->last_game,
+	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), shader_name(s->shader), s->rom_folder, s->rom_drive, s->last_game,
 	                recent, s->rumble[0] ? "on" : "off", s->rumble[1] ? "on" : "off", s->rumble[2] ? "on" : "off",
 	                s->rumble[3] ? "on" : "off", s->auto_resume ? "on" : "off",
 	                g_start_key[s->start_on >= 0 && s->start_on < STARTS ? s->start_on : START_RECENT],
