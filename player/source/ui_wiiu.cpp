@@ -460,13 +460,17 @@ void ui_gfx_loading_progress(unsigned done, unsigned total)
 	gx2::restoreState(); // GLideN64 is mid-RomOpen: its GPU state back before it draws on
 }
 
+static volatile int g_speed_percent = -1;
+extern "C" void ui_speed(int percent) { g_speed_percent = percent; }
+
 GX2ColorBuffer * ui_gfx_overlay(GX2ColorBuffer * frame)
 {
 	lock_notices();
 	const notice * shown[NOTICES_SHOWN];
 	int n = notices_visible(&g_notices, now_us(), shown);
 	unlock_notices();
-	if (n == 0 || !ready())
+	const int speed = g_speed_percent;
+	if ((n == 0 && speed < 0) || !ready())
 		return frame;
 	if (g_overlay.surface.image != nullptr &&
 	    (g_overlay.surface.width != frame->surface.width || g_overlay.surface.height != frame->surface.height)) {
@@ -477,6 +481,7 @@ GX2ColorBuffer * ui_gfx_overlay(GX2ColorBuffer * frame)
 		return frame;
 	copy_surface(&frame->surface, &g_overlay.surface);
 	draw_notices(false);
+	draw_speed(speed);
 	g_video->drawOverlay(&g_overlay);
 	return &g_overlay;
 }

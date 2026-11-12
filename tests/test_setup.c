@@ -107,7 +107,7 @@ static void settings_taps(void)
 static void picture_applies_what_left_right_picked(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
 	CHECK(p.row == PIC_SCREEN && picture_event(&p, PEV_OK, -1) == PICT_NONE);
 	picture_event(&p, PEV_RIGHT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_GAMEPAD && p.mode == MODE_BOTH);
@@ -129,7 +129,7 @@ static void picture_applies_what_left_right_picked(void)
 static void picture_lines_are_the_same_whatever_is_picked(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
 	p.row = PIC_SCREEN; /* Screen mode and Shape: the same whatever is picked (Zach, 2026-10-23) */
 	CHECK(!strcmp(picture_row_about(&p), "Which screens show the game. The prompt at each start begins on it."));
 	p.row = PIC_SHAPE;
@@ -139,10 +139,10 @@ static void picture_lines_are_the_same_whatever_is_picked(void)
 static void gamepad_only_is_skipped_without_a_gamepad_on_picture(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 0);
+	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 0);
 	picture_event(&p, PEV_RIGHT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_BOTH); /* GamePad only skipped: nothing to the right */
-	picture_open(&p, MODE_TV, PICTURE_43, 0);
+	picture_open(&p, MODE_TV, PICTURE_43, 0, 0);
 	picture_event(&p, PEV_RIGHT, -1);
 	picture_event(&p, PEV_RIGHT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_TV); /* both GamePad modes need the GamePad, as on the prompt */
@@ -151,7 +151,7 @@ static void gamepad_only_is_skipped_without_a_gamepad_on_picture(void)
 static void leaving_a_picture_row_drops_its_unapplied_pick(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
 	picture_event(&p, PEV_LEFT, -1);
 	CHECK(p.pick[PIC_SCREEN] == MODE_TV);
 	picture_event(&p, PEV_DOWN, -1);
@@ -167,7 +167,7 @@ static void leaving_a_picture_row_drops_its_unapplied_pick(void)
 static void picture_taps(void)
 {
 	picture_ui p;
-	picture_open(&p, MODE_BOTH, PICTURE_43, 1);
+	picture_open(&p, MODE_BOTH, PICTURE_43, 0, 1);
 	int r[4];
 	settings_value_rect(PIC_SCREEN, MODE_TV, r);
 	int t = picture_hit(r[0] + 2, r[1] + 2);

@@ -57,6 +57,7 @@ typedef struct {
 	                       * it is unplugged; "" none (an SD folder, no label, or a settings.cfg from before) */
 	int auto_resume;      /* "Auto-resume = on|off": resume points written and loaded (the default), or neither */
 	int start_on;         /* START_ */
+	int speed;            /* "Speed display = on|off": the game's speed as a percentage, over the game (off by default) */
 } our_settings;
 int settings_parse(const char *text, our_settings *s);
 /* A game started: it becomes the last game and the newest recent one. */

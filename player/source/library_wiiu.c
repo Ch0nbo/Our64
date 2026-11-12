@@ -5,7 +5,7 @@
  * (the Favorites star, Recent, All, #, A to Z); up and down move through its
  * games, stacked like a drawer. Y (minus on a Wii Remote) stars a game for
  * the Favorites tab, kept in config/favorites.txt; X (GamePad, Pro and
- * Classic only) moves it to trash/N64. A game's header, autosave, save states and cover are read only
+ * Classic only) opens the game's Options (its resolution; in the dev build, Delete: to trash/N64). A game's header, autosave, save states and cover are read only
  * when it comes into view, so a card with hundreds of ROMs opens at once.
  * Covers are sd:/wiiu/our64/art/<game id>.png (Settings > Games > Fetch
  * covers, covers_wiiu.c; or tools/fetch-art.sh from a computer).
@@ -862,10 +862,25 @@ int library_run(int *game, const char *notice)
 			v->pos = (float)v->sel;
 		if (star && v->count > 0)
 			toggle_favorite();
-#ifndef OUR64_RELEASE /* Delete is the developer's own: the public build has none */
-		if (del && v->count > 0)
-			delete_game();
+		/* X: the game's own options (2026-11-11). Delete, the developer's own,
+		 * is a row there: the public build has none. */
+		if (del && v->count > 0) {
+			const library_game *lg = &g_games[g_shown[v->sel]];
+#ifndef OUR64_RELEASE
+			const int can_delete = 1;
+#else
+			const int can_delete = 0;
 #endif
+			const int r = game_options_run(lg->file, lg->title, v->glyphs, can_delete);
+			input_take_home();
+			if (r == 1 && !player_closing())
+				result = LIB_WIIU;
+#ifndef OUR64_RELEASE
+			if (r == 2)
+				delete_game();
+#endif
+			continue;
+		}
 		if (plus) {
 			settings_run(0);
 			input_take_home();

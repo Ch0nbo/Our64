@@ -680,7 +680,7 @@ void shots_setup()
 	sv.settings.row = SET_GAMES;
 	shot("settings-games", v);
 	sv.screen = SETUP_PICTURE; // Settings > Picture
-	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, 1);
+	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, 0, 1);
 	shot("picture", v);
 	sv.screen = SETUP_THEME; // Settings > Theme
 	look_open(&sv.look, theme_comrade() ? THEME_COMRADE : THEME_STANDARD, LAYOUT_COVERS);

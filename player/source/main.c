@@ -31,6 +31,7 @@
 #include "report.h"
 #include "capture.h"
 #include "player.h"
+#include "gameopt.h"
 #include "writer.h"
 #include "states.h"
 #include "saves.h"
@@ -760,9 +761,42 @@ double player_idle_left_us(void)
 	return due > now ? (double)OSTicksToMicroseconds(due - now) : 0;
 }
 
+/* The speed display (Settings > Picture): once a second, the VIs emulated in
+ * that second against the game's own rate (59.94 or 50 a second). A gap of
+ * over two seconds (the pause menu) starts the count again. */
+static int g_speed_on;
+static double g_speed_t0;
+static unsigned g_speed_vi0;
+static int is_pal(void);
+
+void player_speed_display(int on)
+{
+	g_speed_on = on;
+	g_speed_t0 = 0;
+	if (!on)
+		ui_speed(-1);
+}
+
+static void speed_tick(void)
+{
+	if (!g_speed_on)
+		return;
+	const double now = report_now_us();
+	if (g_speed_t0 == 0 || now - g_speed_t0 > 2e6) {
+		g_speed_t0 = now;
+		g_speed_vi0 = g_bench.vis;
+	} else if (now - g_speed_t0 >= 1e6) {
+		const double rate = (g_bench.vis - g_speed_vi0) * 1e6 / (now - g_speed_t0);
+		ui_speed((int)(rate * 100.0 / (is_pal() ? 50.0 : 59.94) + 0.5));
+		g_speed_t0 = now;
+		g_speed_vi0 = g_bench.vis;
+	}
+}
+
 void new_vi(void)
 {
 	g_bench.vis++;
+	speed_tick();
 	timeline_note('V', vi_register.vi_origin, vi_register.vi_width, vi_register.vi_status, vi_register.vi_delay);
 	if (g_ai_stream)
 		ai_stream_tick();
@@ -1710,6 +1744,7 @@ static int play_game(int index)
 	g_pause_at_vi = 0;
 	loading("Reading the game", 0.02f);
 	report_line("Loading %s", lg->file);
+	video_set_lines(gameopt_lines(lg->file)); /* Our ROMs > Options: 720p only where the player chose it */
 	report_save();
 
 	/* Remembered as the last game and the newest recent one, and marked running until it ends. */
@@ -1936,6 +1971,8 @@ static int play_game(int index)
 		goto teardown;
 	loading("Preparing graphics", 0.7f);
 	video_set_picture(s.picture == PICTURE_WIDE);
+	ui_speed(-1);
+	player_speed_display(s.speed);
 	if (video_start()) {
 		report_line("Graphics did not start.");
 		goto teardown;

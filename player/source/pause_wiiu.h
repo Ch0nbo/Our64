@@ -58,6 +58,8 @@ int  settings_take_home(void);
 /* Our ROMs' A on a ROM folder not found: Settings > Games' ROM folder picker on
  * its own. glyphs: the controller's (INPUT_). 1: HOME, and leaving was confirmed. */
 int  settings_pick_rom_folder(int glyphs);
+/* Our ROMs > Options (X on a game): 0 back, 1 HOME confirmed, 2 Delete chosen (dev build). */
+int  game_options_run(const char *file, const char *title, int glyphs, int can_delete);
 
 /* ---- library_wiiu.c: Our ROMs ---- */
 enum { LIB_PLAY, LIB_WIIU, LIB_SYSTEM };

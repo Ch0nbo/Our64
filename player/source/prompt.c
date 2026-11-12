@@ -109,6 +109,9 @@ int settings_parse(const char *text, our_settings *s)
 		} else if (!strcasecmp(k, "Auto-resume")) {
 			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
 				found = s->auto_resume = !strcasecmp(v, "on");
+		} else if (!strcasecmp(k, "Speed display")) {
+			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
+				found = s->speed = !strcasecmp(v, "on");
 		} else if (!strcasecmp(k, "Start on")) {
 			for (int i = 0; i < STARTS; i++)
 				if (!strcasecmp(v, g_start_key[i]))
@@ -177,13 +180,14 @@ int settings_format_all(char *out, unsigned size, const our_settings *s)
 	return snprintf(out, size, "# Our64 settings. Screen mode: TV only, TV + GamePad or GamePad only. "
 	                           "Picture: 4:3 or 16:9 stretched. Theme: Standard or Comrade. Our ROMs: Covers or List. "
 	                           "Auto-resume: on or off. "
-	                           "Start on: all, recent or favorites.\n"
+	                           "Start on: all, recent or favorites. Speed display: on or off.\n"
 	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nROM folder = %s\nROM drive = %s\nLast game = %s\nRecent games = %s\n"
-	                           "Rumble = %s, %s, %s, %s\nAuto-resume = %s\nStart on = %s\n",
+	                           "Rumble = %s, %s, %s, %s\nAuto-resume = %s\nStart on = %s\nSpeed display = %s\n",
 	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), s->rom_folder, s->rom_drive, s->last_game,
 	                recent, s->rumble[0] ? "on" : "off", s->rumble[1] ? "on" : "off", s->rumble[2] ? "on" : "off",
 	                s->rumble[3] ? "on" : "off", s->auto_resume ? "on" : "off",
-	                g_start_key[s->start_on >= 0 && s->start_on < STARTS ? s->start_on : START_RECENT]);
+	                g_start_key[s->start_on >= 0 && s->start_on < STARTS ? s->start_on : START_RECENT],
+	                s->speed ? "on" : "off");
 }
 
 int settings_parse_mode(const char *text)

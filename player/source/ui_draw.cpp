@@ -384,6 +384,19 @@ void draw_notices(bool paused)
 	unlock_notices();
 }
 
+// The speed display (Settings > Picture): "100%" in the top right corner,
+// on the notices' grey. Red-free on purpose: a game below 100% is not an error.
+void draw_speed(int percent)
+{
+	if (percent < 0)
+		return;
+	char words[16];
+	snprintf(words, sizeof(words), "%d%%", percent > 999 ? 999 : percent);
+	const float w = 92, h = 40, x = UI_W - w - 20, y = 16;
+	box(x, y, w, h, rgb(T.bar.fill), 10, 0, rgb(over().accent), 10);
+	text(x + w / 2, y + 7, words, 24, rgb(T.bar.ink), GUI_TEXT_JUSTIFY_CENTER);
+}
+
 // ---- the pause screens (pause.h) ----
 
 // The pictures on the cards and in the dialogs, as textures; remade when one changes.
@@ -1037,12 +1050,13 @@ const float PILL_X = ROW_BOX_W + 12, PILL_W = UI_W - 2 * PILL_X, PILL_Y = 402, P
 void draw_side_keys(const pause_key * keys, int n, float room = ROW_BOX_W)
 {
 	box(0, ROW_TOP, UI_W, UI_H - ROW_TOP, rgb(T.bar.fill));
-	const int size = 18, step = 25;
+	// four keys (X Options, 2026-11-11) sit closer so they fit the bar
+	const int size = n > 3 ? 15 : 18, step = n > 3 ? 19 : 25, glyph = n > 3 ? 16 : 20;
 	const float top = ROW_TOP + (UI_H - ROW_TOP - n * step) / 2.0f;
 	for (int i = 0; i < n; i++) {
 		const PixelColor c = keys[i].dim ? off_ink() : rgb(T.bar.ink);
 		const float y = top + i * step;
-		const float g = key_glyph(16, y, keys[i].glyph, c, 20);
+		const float g = key_glyph(16, y, keys[i].glyph, c, glyph);
 		text(16 + g + 7, y + 1, keys[i].label, fit(keys[i].label, size, 15, int(room - 16 - g - 7 - 10)), c);
 	}
 }
@@ -1305,10 +1319,8 @@ void draw_roms_list(const ui_view & v)
 	                        g.autosave && g.autosave_ok ? "Resume" : "Start", g.known && !g.readable };
 	keys[n++] = pause_key{ rv.glyphs == INPUT_WIIMOTE || rv.glyphs == INPUT_NUNCHUK ? GLYPH_MINUS : GLYPH_Y,
 	                        g.favorite ? "Unfavorite" : "Favorite", 0 };
-#ifndef OUR64_RELEASE // Delete is the developer's own: the public build has none
 	if (rv.glyphs != INPUT_WIIMOTE && rv.glyphs != INPUT_NUNCHUK) // X: a Wii Remote has none to spare
-		keys[n++] = pause_key{ GLYPH_X, "Delete", rv.usb }; // greyed on a USB drive: X says why
-#endif
+		keys[n++] = pause_key{ GLYPH_X, "Options", 0 }; // the game's own (2026-11-11)
 	draw_keys(keys, n, nullptr);
 }
 
@@ -1358,7 +1370,9 @@ void draw_roms(const ui_view & v)
 	keys[n++] = pause_key{ rv.glyphs == INPUT_WIIMOTE || rv.glyphs == INPUT_NUNCHUK ? GLYPH_MINUS : GLYPH_Y,
 	                        g.favorite ? "Unfavorite" : "Favorite", 0 };
 	keys[n++] = pause_key{ GLYPH_PLUS, "Settings", 0 };
-	// three shown (Zach, 2026-10-30): X still deletes in the developer's own build, unlisted
+	// three were shown (Zach, 2026-10-30); X Options is the fourth (2026-11-11), not on a Wii Remote
+	if (!rv.bar_focus && rv.glyphs != INPUT_WIIMOTE && rv.glyphs != INPUT_NUNCHUK)
+		keys[n++] = pause_key{ GLYPH_X, "Options", 0 };
 	draw_side_keys(keys, n);
 	draw_title_pill(rv, &g);
 	draw_count_box(rv);
@@ -1976,6 +1990,29 @@ void draw_browse(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
+// Our ROMs > Options: the game's name as the header's line, then its rows
+// with each value at the right, as Settings > Games.
+void draw_options(const setup_view & sv)
+{
+	const options_ui & o = sv.options;
+	setup_header("OPTIONS", sv.line[0] ? sv.line : sv.game);
+	for (int row = 0; row < options_rows(&o); row++) {
+		int r[4];
+		settings_row_rect(row, r);
+		const bool sel = o.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+		text(r[0] + 20, r[1] + 12, options_row_name(row), 26, card_ink(sel, false));
+		char value[32];
+		options_value(&o, row, value, sizeof(value));
+		if (value[0])
+			text(r[0] + r[2] - 24, r[1] + 15, value, 22, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+	}
+	row_about(options_rows(&o), options_row_about(&o));
+	pause_key keys[6];
+	int n = options_legend(&o, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
 void draw_setup(const ui_view & v)
 {
 	const setup_view & sv = *v.setup;
@@ -1985,6 +2022,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_BROWSE: draw_browse(sv); break;
 	case SETUP_FETCH: draw_fetch(sv); break;
 	case SETUP_START: draw_start(sv); break;
+	case SETUP_OPTIONS: draw_options(sv); break;
 	case SETUP_DELETING: draw_deleting(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;

@@ -41,6 +41,7 @@ void * frozen_texture();                  // the paused game's last frame, nullp
 void draw_screen(const ui_view & v);      // one screen, whole
 void draw_tv_black();                     // GamePad only: the TV's black
 void draw_notices(bool paused);
+void draw_speed(int percent);             // the speed display, top right, over the game
 
 } // namespace our64ui
 #endif

@@ -140,26 +140,30 @@ int settings_legend(const settings_ui *s, int type, pause_key *keys, int max)
 
 /* ---- Settings > Picture ---- */
 
-static const char *const g_pic_row[PIC_ROWS] = { "Screen mode", "Shape" };
+static const char *const g_pic_row[PIC_ROWS] = { "Screen mode", "Shape", "Speed display" };
 
-int picture_values(int row) { return row == PIC_SCREEN ? MODES : row == PIC_SHAPE ? PICTURES : 0; }
+int picture_values(int row) { return row == PIC_SCREEN ? MODES : row == PIC_SHAPE ? PICTURES : row == PIC_SPEED ? 2 : 0; }
 
-int picture_in_use(const picture_ui *p, int row) { return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : -1; }
+int picture_in_use(const picture_ui *p, int row)
+{
+	return row == PIC_SCREEN ? p->mode : row == PIC_SHAPE ? p->shape : row == PIC_SPEED ? p->speed : -1;
+}
 
 int picture_off(const picture_ui *p, int row, int i) { return row == PIC_SCREEN && !p->gamepad && mode_uses_gamepad(i); }
 
 const char *picture_value_name(int row, int i)
 {
-	return row == PIC_SCREEN ? mode_name(i) : row == PIC_SHAPE ? picture_name(i) : "";
+	return row == PIC_SCREEN ? mode_name(i) : row == PIC_SHAPE ? picture_name(i) : row == PIC_SPEED ? (i ? "On" : "Off") : "";
 }
 
 const char *picture_row_name(int row) { return row >= 0 && row < PIC_ROWS ? g_pic_row[row] : ""; }
 
-void picture_open(picture_ui *p, int mode, int shape, int gamepad)
+void picture_open(picture_ui *p, int mode, int shape, int speed, int gamepad)
 {
 	memset(p, 0, sizeof(*p));
 	p->mode = p->pick[PIC_SCREEN] = mode;
 	p->shape = p->pick[PIC_SHAPE] = shape;
+	p->speed = p->pick[PIC_SPEED] = speed ? 1 : 0;
 	p->gamepad = gamepad;
 	p->touched = -1;
 }
@@ -168,12 +172,14 @@ void picture_applied(picture_ui *p)
 {
 	p->mode = p->pick[PIC_SCREEN];
 	p->shape = p->pick[PIC_SHAPE];
+	p->speed = p->pick[PIC_SPEED];
 }
 
 static void picture_drop_picks(picture_ui *p)
 {
 	p->pick[PIC_SCREEN] = p->mode;
 	p->pick[PIC_SHAPE] = p->shape;
+	p->pick[PIC_SPEED] = p->speed;
 }
 
 static int picture_apply(const picture_ui *p)
@@ -181,7 +187,7 @@ static int picture_apply(const picture_ui *p)
 	const int i = p->pick[p->row];
 	if (i == picture_in_use(p, p->row) || picture_off(p, p->row, i))
 		return PICT_NONE;
-	return p->row == PIC_SCREEN ? PICT_MODE : PICT_SHAPE;
+	return p->row == PIC_SCREEN ? PICT_MODE : p->row == PIC_SHAPE ? PICT_SHAPE : PICT_SPEED;
 }
 
 static void picture_select(picture_ui *p, int row)
@@ -238,6 +244,8 @@ const char *picture_row_about(const picture_ui *p)
 	case PIC_SCREEN:
 		/* the same whatever is picked (Zach, 2026-10-23) */
 		return "Which screens show the game. The prompt at each start begins on it.";
+	case PIC_SPEED:
+		return "Shows the game's speed while you play. 100% is a real Nintendo 64's.";
 	default:
 		/* the same whatever is picked (Zach, 2026-10-23): it says what each shape is */
 		return "4:3 is the games' own shape; 16:9 stretches it to fill a wide TV.";
@@ -462,6 +470,90 @@ int start_legend(const start_ui *s, int type, pause_key *keys, int max)
 	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
 	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
 	keys_add(keys, &n, max, ok_glyph(type), "OK", 0);
+	return n;
+}
+
+/* ---- Our ROMs > Options ---- */
+
+static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Delete" };
+
+const char *options_row_name(int row) { return row >= 0 && row < OPT_ROWS ? g_opt_row[row] : ""; }
+
+void options_open(options_ui *o, int lines, int can_delete)
+{
+	memset(o, 0, sizeof(*o));
+	o->lines = lines == 720 ? 720 : 480;
+	o->can_delete = can_delete;
+	o->touched = -1;
+}
+
+int options_rows(const options_ui *o) { return o->can_delete ? OPT_ROWS : OPT_ROWS - 1; }
+
+static int options_act(const options_ui *o)
+{
+	if (o->row == OPT_DELETE)
+		return OACT_DELETE;
+	return o->lines == 720 ? OACT_480 : OACT_720_ASK;
+}
+
+int options_event(options_ui *o, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		int e = tap(&o->touched, event, target, target == o->row);
+		if (e == -2) {
+			o->row = target;
+			return OACT_NONE;
+		}
+		if (e < 0)
+			return OACT_NONE;
+		event = e;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = o->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < options_rows(o))
+			o->row = row;
+		break;
+	}
+	case PEV_OK: return options_act(o);
+	case PEV_BACK: return OACT_BACK;
+	case PEV_HOME: return OACT_HOME;
+	}
+	return OACT_NONE;
+}
+
+void options_value(const options_ui *o, int row, char *out, unsigned size)
+{
+	snprintf(out, size, "%s", row == OPT_RES ? (o->lines == 720 ? "720p" : "480p") : "");
+}
+
+const char *options_row_about(const options_ui *o)
+{
+	if (o->row == OPT_DELETE)
+		return "Moves the ROM to the trash folder. Its saves stay";
+	return "720p is sharper on a TV. Many games slow down with it";
+}
+
+int options_hit(const options_ui *o, int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < options_rows(o); row++) {
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row;
+	}
+	return -1;
+}
+
+int options_legend(const options_ui *o, int type, pause_key *keys, int max)
+{
+	(void)o;
+	int n = 0;
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "Change", 0);
 	return n;
 }
 

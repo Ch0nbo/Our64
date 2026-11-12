@@ -8,6 +8,7 @@
 #include "theme.h"
 #include "setup.h"
 #include "player.h"
+#include "gameopt.h"
 #include "input.h"
 #include "ui.h"
 #include "report.h"
@@ -40,10 +41,14 @@ int settings_take_home(void)
 	return h;
 }
 
+static char g_gameopt_path[300]; /* config/game-options.txt (gameopt.h) */
+
 void setup_start(const char *root, const our_settings *s)
 {
 	g_settings = *s;
 	snprintf(g_settings_path, sizeof(g_settings_path), "%s/config/settings.cfg", root);
+	snprintf(g_gameopt_path, sizeof(g_gameopt_path), "%s/config/game-options.txt", root);
+	report_line("OPTIONS: %d games with their own", gameopt_read(g_gameopt_path));
 	for (int p = 0; p < INPUT_PORTS; p++)
 		input_rumble_allow(p, g_settings.rumble[p]);
 }
@@ -363,7 +368,7 @@ static int run_picture(void)
 	frame_input f;
 	memset(&f, 0, sizeof(f));
 	input_menu_state(&f.m);
-	picture_open(p, ui_mode(), g_settings.picture, f.m.type[0] >= 0);
+	picture_open(p, ui_mode(), g_settings.picture, g_settings.speed, f.m.type[0] >= 0);
 	g_view.screen = SETUP_PICTURE;
 	g_view.line[0] = 0;
 	int touching = 0, target = -1;
@@ -392,6 +397,20 @@ static int run_picture(void)
 					picture_applied(p);
 					apply_mode(p->mode);
 					snprintf(g_view.line, sizeof(g_view.line), "Screen mode: %s", mode_name(p->mode));
+				}
+				break;
+			}
+			case PICT_SPEED: {
+				int keep = g_settings.speed;
+				g_settings.speed = p->pick[PIC_SPEED];
+				if (setup_save_settings()) {
+					g_settings.speed = keep;
+					p->pick[PIC_SPEED] = p->speed;
+					write_failed();
+				} else {
+					picture_applied(p);
+					player_speed_display(p->speed);
+					snprintf(g_view.line, sizeof(g_view.line), "Speed display: %s", p->speed ? "On" : "Off");
 				}
 				break;
 			}
@@ -756,6 +775,80 @@ static int run_start(games_ui *g)
 			}
 		}
 	}
+}
+
+/* ---- Our ROMs > Options (X on a game): this game's own settings ---- */
+
+static int options_hit_now(int x, int y) { return options_hit(&g_view.options, x, y); }
+
+static int gameopt_save(void)
+{
+	const int n = gameopt_text(NULL, 0);
+	char *text = malloc((size_t)n + 1);
+	int r = -1;
+	if (text) {
+		gameopt_text(text, (unsigned)n + 1);
+		r = savefile_write(g_gameopt_path, text, (unsigned)n);
+	}
+	free(text);
+	return r;
+}
+
+/* Sets the game's lines and writes the file; on a failed write the old value stays. */
+static void options_set_lines(options_ui *o, const char *file, int lines)
+{
+	const int keep = o->lines;
+	if (gameopt_set_lines(file, lines) || gameopt_save()) {
+		gameopt_set_lines(file, keep);
+		write_failed();
+		return;
+	}
+	o->lines = lines;
+	report_line("OPTIONS: %s draws at %dp", file, lines);
+	snprintf(g_view.line, sizeof(g_view.line), "Resolution: %dp", lines);
+}
+
+/* 0: back to Our ROMs; 1: HOME, confirmed; 2: Delete was chosen (the dev build). */
+int game_options_run(const char *file, const char *title, int glyphs, int can_delete)
+{
+	options_ui *o = &g_view.options;
+	g_from_pause = 0;
+	snprintf(g_view.game, sizeof(g_view.game), "%s", title);
+	g_view.glyphs = glyphs;
+	g_view.line[0] = 0;
+	g_view.screen = SETUP_OPTIONS;
+	options_open(o, gameopt_lines(file), can_delete);
+	input_take_home();
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1, result = -1;
+	while (result < 0) {
+		show();
+		read_frame(&f, options_hit_now, &touching, &target);
+		if (player_closing()) {
+			result = 1;
+			break;
+		}
+		for (int i = 0; i < f.n && result < 0; i++) {
+			switch (options_event(o, f.events[i], f.targets[i])) {
+			case OACT_BACK: result = 0; break;
+			case OACT_HOME:
+				if (home_ok())
+					result = 1;
+				break;
+			case OACT_720_ASK:
+				/* never on by itself: the player reads this first (Zach, 2026-11-11) */
+				if (player_ask("Use 720p for this game?", "Many games slow down or stutter with it.", "Use 720p"))
+					options_set_lines(o, file, 720);
+				break;
+			case OACT_480: options_set_lines(o, file, 480); break;
+			case OACT_DELETE: result = 2; break;
+			}
+		}
+	}
+	g_view.game[0] = 0;
+	input_withhold();
+	return result;
 }
 
 /* Auto-Resume off: the Deleting Auto-Saves screen follows each game folder

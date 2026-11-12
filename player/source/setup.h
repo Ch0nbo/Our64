@@ -39,23 +39,23 @@ int  settings_legend(const settings_ui *s, int type, pause_key *keys, int max);
 /* ---- Settings > Picture (2026-11-04): Screen mode and Shape (the old
  * Picture row), each applied with A, on the Settings rows' layout. ---- */
 
-enum { PIC_SCREEN, PIC_SHAPE, PIC_ROWS };
+enum { PIC_SCREEN, PIC_SHAPE, PIC_SPEED, PIC_ROWS }; /* Speed display (2026-11-11): Off or On */
 typedef struct {
 	int row;
-	int mode, shape;          /* in use */
+	int mode, shape, speed;   /* in use */
 	int pick[PIC_ROWS];       /* the value left/right is on, per row; A applies it */
 	int gamepad;              /* a GamePad is connected: GamePad only can be picked */
 	int touched;
 } picture_ui;
-enum { PICT_NONE, PICT_BACK, PICT_HOME, PICT_MODE, PICT_SHAPE };
-void picture_open(picture_ui *p, int mode, int shape, int gamepad);
+enum { PICT_NONE, PICT_BACK, PICT_HOME, PICT_MODE, PICT_SHAPE, PICT_SPEED };
+void picture_open(picture_ui *p, int mode, int shape, int speed, int gamepad);
 int  picture_event(picture_ui *p, int event, int target); /* PICT_MODE/_SHAPE: apply pick[], then picture_applied */
 void picture_applied(picture_ui *p);
 int  picture_values(int row);
 int  picture_in_use(const picture_ui *p, int row);
 int  picture_off(const picture_ui *p, int row, int i); /* greyed: shown, A does nothing */
 const char *picture_value_name(int row, int i);
-const char *picture_row_name(int row);           /* "Screen mode", "Shape" */
+const char *picture_row_name(int row);           /* "Screen mode", "Shape", "Speed display" */
 const char *picture_row_about(const picture_ui *p);
 int  picture_hit(int x, int y);                  /* row * 8 + value + 1, or row * 8 for the row itself; -1 */
 int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
@@ -108,6 +108,28 @@ void start_open(start_ui *s, int in_use);
 int  start_event(start_ui *s, int event, int target);
 int  start_hit(int x, int y);                   /* row, or -1 */
 int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
+
+/* ---- Our ROMs > Options (X on a game, 2026-11-11): what is set for that
+ * game alone. Resolution: A switches between 480p and 720p; turning 720p on
+ * asks first (OACT_720_ASK: the caller shows the performance warning), and it
+ * is never on unless the player chose it. The dev build has Delete below it
+ * (the old X). ---- */
+enum { OPT_RES, OPT_DELETE, OPT_ROWS };
+typedef struct {
+	int row;
+	int lines;        /* 480 or 720 */
+	int can_delete;   /* the dev build: the Delete row is there */
+	int touched;
+} options_ui;
+enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_720_ASK, OACT_480, OACT_DELETE };
+void options_open(options_ui *o, int lines, int can_delete);
+int  options_rows(const options_ui *o);
+int  options_event(options_ui *o, int event, int target);
+const char *options_row_name(int row);
+void options_value(const options_ui *o, int row, char *out, unsigned size);
+const char *options_row_about(const options_ui *o);
+int  options_hit(const options_ui *o, int x, int y);   /* row, or -1 */
+int  options_legend(const options_ui *o, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games > ROM folder (2026-11-04): drives, then folders.
  * A opens a folder; "Use this folder", the first row inside a drive, picks

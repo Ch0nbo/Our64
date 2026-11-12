@@ -861,9 +861,14 @@ static uint8_t * screen_rgb(int w, int h)
 // sd:/wiiu/our64/res-720 is on the card (the 480 against 720 measurement for
 // 1.2.0, #22 and #35). Read at each game start.
 static int g_res_h = 480;
+static int g_res_wanted = 480; // the game's own (Our ROMs > Options), set before it starts
+
+extern "C" void video_set_lines(int lines) { g_res_wanted = lines == 720 ? 720 : 480; }
 
 static int res_height_from_card()
 {
+	if (g_res_wanted == 720)
+		return 720;
 #ifndef OUR64_RELEASE
 	if (const char * root = report_sd_root()) {
 		char path[256];
@@ -1377,7 +1382,7 @@ void start_on_graphics_core(void * result)
 	our64_config_override(settings);
 	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s. Drawn at %dx%d%s.", copy,
 	            async ? "in the background" : "before drawing", g_res_h * 4 / 3, g_res_h,
-	            g_res_h != 480 ? " (TEST: res-720)" : "");
+	            g_res_h != 480 && g_res_wanted != 720 ? " (TEST: res-720)" : "");
 
 	GFX_INFO gi = {};
 	gi.HEADER = g_mem.header;

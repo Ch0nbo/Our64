@@ -86,7 +86,7 @@ typedef struct {
 } loading_view;
 
 /* The setup screens (setup_wiiu.c fills it). */
-enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START, SETUP_DELETING };
+enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START, SETUP_DELETING, SETUP_OPTIONS };
 typedef struct {
 	int screen;              /* SETUP_ */
 	settings_ui settings;
@@ -94,6 +94,7 @@ typedef struct {
 	look_ui look;
 	games_ui games;
 	start_ui start;          /* Settings > Games > Start on */
+	options_ui options;      /* Our ROMs > Options: the game in `game` */
 	browse_ui browse;        /* about 80 KB: setup_view is a static, never on the stack */
 	controllers_ui controllers;
 	order_ui order;
@@ -165,6 +166,10 @@ void ui_thumbnail(uint16_t *out);
 /* Controller notices over the game (notices.h); any core. */
 void ui_notice(int key, int kind, double secs, const char *line1, const char *line2);
 void ui_notice_clear(int key);
+/* The speed display (Settings > Picture, 2026-11-11): the game's speed as a
+ * percentage of a real Nintendo 64's, in the top right corner over the game;
+ * below 0 hides it. Any core. */
+void ui_speed(int percent);
 
 #ifdef __cplusplus
 }
