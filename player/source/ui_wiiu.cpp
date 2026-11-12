@@ -550,6 +550,64 @@ void ui_gfx_game_stopped()
 		free_fx(fx);
 }
 
+#ifndef OUR64_RELEASE
+// Dev build: what the GamePad's filter drew, read back once for each filter
+// chosen, two seconds in: the light of its even rows against its odd rows
+// over the picture's middle. Zach, 2026-11-12: "scanlines on all filters on
+// gamepad arent very noticable": drawn faint (the rows not on the lines'
+// middles), or drawn as on the PC (odd rows at about half) and lost on the
+// way to the GamePad's screen?
+static void pad_rows_check(GX2ColorBuffer & cb)
+{
+	static int checked = -1, frames;
+	if (checked == g_shader || g_copy_ctx == nullptr)
+		return;
+	if (++frames < 120)
+		return;
+	frames = 0;
+	checked = g_shader;
+	GX2Surface lin;
+	memset(&lin, 0, sizeof(lin));
+	lin.dim = GX2_SURFACE_DIM_TEXTURE_2D;
+	lin.width = cb.surface.width;
+	lin.height = cb.surface.height;
+	lin.depth = 1;
+	lin.mipLevels = 1;
+	lin.format = GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8;
+	lin.aa = GX2_AA_MODE1X;
+	lin.use = GX2_SURFACE_USE_TEXTURE;
+	lin.tileMode = GX2_TILE_MODE_LINEAR_ALIGNED;
+	GX2CalcSurfaceSizeAndAlignment(&lin);
+	lin.image = MEMAllocFromDefaultHeapEx(lin.imageSize, lin.alignment);
+	if (lin.image == nullptr)
+		return;
+	GX2SetContextState(g_copy_ctx);
+	GX2CopySurface(&cb.surface, 0, 0, &lin, 0, 0);
+	GX2DrawDone();
+	DCInvalidateRange(lin.image, lin.imageSize);
+	const uint8_t * px = static_cast<const uint8_t *>(lin.image);
+	const uint32_t W = lin.width, H = lin.height;
+	uint64_t sum[2] = {0, 0};
+	unsigned row16[16];
+	for (uint32_t y = H / 4; y < H * 3 / 4; y++) {
+		unsigned row = 0;
+		for (uint32_t x = W / 3; x < W * 2 / 3; x++) {
+			const uint8_t * q = px + (size_t(y) * lin.pitch + x) * 4;
+			row += q[0] + q[1] + q[2];
+		}
+		sum[y & 1] += row;
+		if (y - H / 4 < 16)
+			row16[y - H / 4] = row / (3 * (W * 2 / 3 - W / 3));
+	}
+	const double n = double(H / 4) * 3.0 * (W * 2 / 3 - W / 3);
+	report_line("TV SHADER: GamePad %s as drawn: even rows %.1f, odd rows %.1f of 255 (middle of the picture); 16 rows from %u: "
+	            "%u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u", shader_name(g_shader), sum[0] / n, sum[1] / n, unsigned(H / 4),
+	            row16[0], row16[1], row16[2], row16[3], row16[4], row16[5], row16[6], row16[7], row16[8], row16[9],
+	            row16[10], row16[11], row16[12], row16[13], row16[14], row16[15]);
+	MEMFreeToDefaultHeap(lin.image);
+}
+#endif
+
 // A screen's picture through the filter, from the unshaped frame (the pass
 // places the 4:3 or 16:9 picture itself), or nullptr: none chosen, the
 // screen is off or shows the GamePad-only card, or the pass cannot run.
@@ -593,6 +651,10 @@ static GX2ColorBuffer * filtered(GX2ColorBuffer * frame, int which)
 		return nullptr;
 	}
 	fx.shape = g_picture_43;
+#ifndef OUR64_RELEASE
+	if (pad)
+		pad_rows_check(fx.buffer);
+#endif
 	return &fx.buffer;
 }
 
