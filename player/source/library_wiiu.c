@@ -612,14 +612,8 @@ static void show(void)
  * follows at once, written as settings.cfg is. In Favorites an unstarred
  * game stays in the list until the player leaves the tab, so a second press
  * undoes the first. */
-static void toggle_favorite(void)
+static int write_favorites(void)
 {
-	roms_view *v = &g_view;
-	library_game *g = &g_games[g_shown[v->sel]];
-	library_favorite_toggle(g);
-	const int was = v->has[v->category];
-	library_categories(g_games, g_count, v->has);
-	v->has[v->category] |= was;
 	const int n = library_favorites_text(NULL, 0);
 	char *text = malloc((size_t)n + 1);
 	int r = -1;
@@ -628,6 +622,81 @@ static void toggle_favorite(void)
 		r = savefile_write(g_favorites_path, text, (unsigned)n);
 	}
 	free(text);
+	return r;
+}
+
+static void rescan(void);
+
+/* Game options > Rename: the ROM file `file` becomes `to` (both names in the
+ * ROM folder). Its favorite star and its own cover go with it; saves follow
+ * the ROM's contents, not its name. The list is read again, the game under
+ * its new name selected. 0 done; 1 a file of that name is there already;
+ * 2 the card refused; 3 not on a USB drive. */
+int library_rename(const char *file, const char *to)
+{
+	roms_view *v = &g_view;
+	char from_path[512], to_path[512], cover_from[600], cover_to[600];
+	struct stat st;
+	if (v->usb)
+		return 3;
+	int at = -1;
+	for (int i = 0; i < g_count; i++)
+		if (!strcmp(g_games[i].file, file))
+			at = i;
+	in_roms(file, from_path, sizeof(from_path));
+	in_roms(to, to_path, sizeof(to_path));
+	if (at < 0 || strlen(to) >= sizeof(g_games[0].file))
+		return 2;
+	if (strcasecmp(file, to) && !stat(to_path, &st))
+		return 1;
+	loader_wait(1); /* the loader reads games by file name */
+	const int was_favorite = g_games[at].favorite;
+	if (was_favorite)
+		library_favorite_toggle(&g_games[at]);
+	if (rename(from_path, to_path)) {
+		if (was_favorite)
+			library_favorite_toggle(&g_games[at]);
+		report_line("OUR ROMS: rename %s to %s: NOT renamed", file, to);
+		return 2;
+	}
+	library_custom_cover_path(file, cover_from, sizeof(cover_from));
+	library_custom_cover_path(to, cover_to, sizeof(cover_to));
+	if (!stat(cover_from, &st))
+		rename(cover_from, cover_to);
+	snprintf(g_games[at].file, sizeof(g_games[at].file), "%s", to);
+	if (was_favorite) {
+		library_favorite_toggle(&g_games[at]);
+		write_favorites();
+	}
+	report_line("OUR ROMS: renamed %s to %s", file, to);
+	rescan();
+	const int game = library_index_of(to);
+	int found = 0;
+	for (int k = 0; k < v->count; k++)
+		if (g_shown[k] == game) {
+			v->sel = k;
+			found = 1;
+		}
+	if (!found && game >= 0) { /* its new first letter is another tab: All has it */
+		v->category = LIBRARY_ALL;
+		v->count = library_show(g_games, g_count, LIBRARY_ALL, g_shown);
+		for (int k = 0; k < v->count; k++)
+			if (g_shown[k] == game)
+				v->sel = k;
+	}
+	v->pos = (float)v->sel;
+	return 0;
+}
+
+static void toggle_favorite(void)
+{
+	roms_view *v = &g_view;
+	library_game *g = &g_games[g_shown[v->sel]];
+	library_favorite_toggle(g);
+	const int was = v->has[v->category];
+	library_categories(g_games, g_count, v->has);
+	v->has[v->category] |= was;
+	int r = write_favorites();
 	report_line("OUR ROMS: %s %s; favorites %s", g->favorite ? "starred" : "unstarred", g->file, r ? "NOT written" : "written");
 	if (r)
 		snprintf(v->notice, sizeof(v->notice), "Couldn't save to the SD card: check its lock switch or free space. OUR-0203");
@@ -929,6 +998,8 @@ int library_run(int *game, const char *notice)
 				result = LIB_WIIU;
 			if (r == 2)
 				delete_game();
+			if (r == 4) /* renamed: the list was read again (library_rename) */
+				snprintf(v->notice, sizeof(v->notice), "Renamed");
 			continue;
 		}
 		if (plus) {

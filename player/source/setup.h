@@ -118,19 +118,19 @@ int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
  * unless the player chose it. Cover: the fetched one, or an image picked
  * with the folder finder. Delete: from Our ROMs only (not while the game
  * runs); greyed on a USB drive, which Our64 never writes to. ---- */
-enum { OPT_RES, OPT_PICTURE, OPT_COVER, OPT_DELETE, OPT_ROWS }; /* Zach's order, 2026-11-11 */
+enum { OPT_RES, OPT_PICTURE, OPT_COVER, OPT_RENAME, OPT_DELETE, OPT_ROWS }; /* Zach's order, 2026-11-11 */
 enum { COVER_NONE, COVER_FETCHED, COVER_CUSTOM };
 typedef struct {
 	int row;
 	int lines;        /* 480 or 720 */
 	int picture_set;  /* the game has picture settings of its own (Picture reads "Custom", else "Default") */
 	int cover;        /* COVER_ */
-	int can_delete;   /* from Our ROMs: the Delete row is there */
-	int delete_off;   /* on a USB drive: Delete is greyed */
+	int can_delete;   /* from Our ROMs: the Rename and Delete rows are there */
+	int delete_off;   /* on a USB drive: Rename and Delete are greyed */
 	int paused;       /* opened from the pause menu: the game is running */
 	int touched;
 } options_ui;
-enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_PICTURE, OACT_COVER, OACT_DELETE };
+enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_PICTURE, OACT_COVER, OACT_RENAME, OACT_DELETE };
 void options_open(options_ui *o, int lines, int picture_set, int cover, int can_delete, int delete_off, int paused);
 int  options_rows(const options_ui *o);
 int  options_event(options_ui *o, int event, int target);
@@ -138,6 +138,7 @@ const char *options_row_name(int row);
 int  options_row_off(const options_ui *o, int row);   /* greyed: shown, A does nothing */
 void options_value(const options_ui *o, int row, char *out, unsigned size);
 const char *options_row_about(const options_ui *o);
+void options_row_rect(const options_ui *o, int row, int r[4]); /* five rows sit closer than Settings' four; row == rows: the about line's place */
 int  options_hit(const options_ui *o, int x, int y);   /* row, or -1 */
 int  options_legend(const options_ui *o, int type, pause_key *keys, int max);
 

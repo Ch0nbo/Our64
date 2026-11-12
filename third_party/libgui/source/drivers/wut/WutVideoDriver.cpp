@@ -603,6 +603,10 @@ void WutVideoDriver::drawOverlay(GX2ColorBuffer * target)
 }
 #endif
 
+#ifdef OUR64
+extern "C" { void (*our64_ui_before_present)(void) = nullptr; }
+#endif
+
 void WutVideoDriver::presentBuffer()
 {
 	if(!isForeground())
@@ -612,6 +616,10 @@ void WutVideoDriver::presentBuffer()
 	}
 
 	flushDrawQueue();
+#ifdef OUR64 // the system keyboard (player/source/keyboard_wiiu.cpp) draws over the screen just drawn
+	if(our64_ui_before_present != nullptr)
+		our64_ui_before_present();
+#endif
 
 	WHBGfxBeginRender();
 	WHBGfxFinishRenderTV();

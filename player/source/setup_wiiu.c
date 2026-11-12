@@ -1186,6 +1186,61 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 				o->picture_set = picture_set_any(file);
 				i = f.n;
 				break;
+			case OACT_RENAME: {
+				/* The system keyboard, starting from the name as it is, without its
+				 * extension; the new name keeps the extension. Characters a FAT card
+				 * refuses are dropped. */
+				char name[128], typed[256], clean[128], to[160];
+				const char *dot = strrchr(file, '.');
+				const int stem = dot && dot != file ? (int)(dot - file) : (int)strlen(file);
+				snprintf(name, sizeof(name), "%.*s", stem, file);
+				const int k = keyboard_ask(name, typed, sizeof(typed));
+				input_withhold(); /* the press that closed the keyboard is not a press here */
+				if (k < 0) {
+					line("Couldn't open the keyboard.");
+				} else if (k > 0) {
+					unsigned n = 0;
+					for (const char *c = typed; *c && n + 1 < sizeof(clean) - 8; c++)
+						if ((unsigned char)*c >= 32 && !strchr("\\/:*?\"<>|", *c))
+							clean[n++] = *c;
+					while (n > 0 && (clean[n - 1] == ' ' || clean[n - 1] == '.'))
+						n--;
+					clean[n] = 0;
+					const char *start = clean;
+					while (*start == ' ')
+						start++;
+					snprintf(to, sizeof(to), "%s%s", start, dot && dot != file ? dot : "");
+					if (!*start) {
+						line("A name needs at least one letter.");
+					} else if (strlen(to) >= 128) {
+						line("That name is too long.");
+					} else if (!strcmp(to, file)) {
+						;
+					} else {
+						char old[128];
+						snprintf(old, sizeof(old), "%s", file);
+						const int r = library_rename(old, to);
+						if (r == 1) {
+							line("A ROM with that name is already there.");
+						} else if (r) {
+							write_failed();
+						} else {
+							/* the name also lives in Recent, the last game and its own options */
+							for (int i = 0; i < RECENT_GAMES; i++)
+								if (!strcmp(g_settings.recent[i], old))
+									snprintf(g_settings.recent[i], sizeof(g_settings.recent[i]), "%s", to);
+							if (!strcmp(g_settings.last_game, old))
+								snprintf(g_settings.last_game, sizeof(g_settings.last_game), "%s", to);
+							setup_save_settings();
+							gameopt_renamed(old, to);
+							gameopt_save();
+							result = 4;
+						}
+					}
+				}
+				i = f.n;
+				break;
+			}
 			case OACT_DELETE: {
 				/* asked here: Cancel stays in Game options (Zach, 2026-11-11) */
 				char question[96];

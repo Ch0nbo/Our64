@@ -2007,19 +2007,24 @@ void draw_options(const setup_view & sv)
 {
 	const options_ui & o = sv.options;
 	setup_header("GAME OPTIONS", sv.line[0] ? sv.line : sv.game);
-	for (int row = 0; row < options_rows(&o); row++) {
+	const int rows = options_rows(&o);
+	for (int row = 0; row < rows; row++) {
 		int r[4];
-		settings_row_rect(row, r);
+		options_row_rect(&o, row, r);
 		const bool sel = o.row == row;
+		const int ty = r[1] + (r[3] - 26) / 2 - 2;
 		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
 		const PixelColor ink = options_row_off(&o, row) ? rgb(theme_off(&surface_of(sel, false))) : card_ink(sel, false);
-		text(r[0] + 20, r[1] + 12, options_row_name(row), 26, ink);
+		text(r[0] + 20, ty, options_row_name(row), 26, ink);
 		char value[32];
 		options_value(&o, row, value, sizeof(value));
 		if (value[0])
-			text(r[0] + r[2] - 24, r[1] + 15, value, 22, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+			text(r[0] + r[2] - 24, ty + 3, value, 22, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
 	}
-	row_about(options_rows(&o), options_row_about(&o));
+	int under[4];
+	options_row_rect(&o, rows, under);
+	const char * about = options_row_about(&o);
+	text(40, under[1] + 4, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
 	pause_key keys[6];
 	int n = options_legend(&o, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);

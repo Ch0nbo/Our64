@@ -475,7 +475,7 @@ int start_legend(const start_ui *s, int type, pause_key *keys, int max)
 
 /* ---- Game options ---- */
 
-static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Picture", "Cover", "Delete" };
+static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Picture", "Cover", "Rename", "Delete" };
 
 const char *options_row_name(int row) { return row >= 0 && row < OPT_ROWS ? g_opt_row[row] : ""; }
 
@@ -491,15 +491,16 @@ void options_open(options_ui *o, int lines, int picture_set, int cover, int can_
 	o->touched = -1;
 }
 
-int options_rows(const options_ui *o) { return o->can_delete ? OPT_ROWS : OPT_ROWS - 1; }
+int options_rows(const options_ui *o) { return o->can_delete ? OPT_ROWS : OPT_RENAME; }
 
-int options_row_off(const options_ui *o, int row) { return row == OPT_DELETE && o->delete_off; }
+int options_row_off(const options_ui *o, int row) { return (row == OPT_DELETE || row == OPT_RENAME) && o->delete_off; }
 
 static int options_act(const options_ui *o)
 {
 	if (options_row_off(o, o->row))
 		return OACT_NONE;
-	return o->row == OPT_RES ? OACT_RES : o->row == OPT_PICTURE ? OACT_PICTURE : o->row == OPT_COVER ? OACT_COVER : OACT_DELETE;
+	return o->row == OPT_RES ? OACT_RES : o->row == OPT_PICTURE ? OACT_PICTURE : o->row == OPT_COVER ? OACT_COVER
+	       : o->row == OPT_RENAME ? OACT_RENAME : OACT_DELETE;
 }
 
 int options_event(options_ui *o, int event, int target)
@@ -543,8 +544,19 @@ const char *options_row_about(const options_ui *o)
 	case OPT_DELETE:
 		return o->delete_off ? "On a USB drive: delete it on a computer" : "Moves the ROM to the trash folder. Its saves stay";
 	case OPT_COVER: return "The picture shown for this game in Our ROMs";
+	case OPT_RENAME:
+		return o->delete_off ? "On a USB drive: rename it on a computer" : "Changes the ROM file's name. Its saves stay";
 	case OPT_PICTURE: return "This game's own screen mode, shape and speed display";
 	default: return o->paused ? "How sharp this game is drawn on a TV. Changing it restarts the game" : "How sharp this game is drawn on a TV";
+	}
+}
+
+void options_row_rect(const options_ui *o, int row, int r[4])
+{
+	settings_row_rect(row, r);
+	if (options_rows(o) > 4) { /* with Rename and Delete: closer, so the line under them clears the legend */
+		r[1] = SROW_Y + row * 48;
+		r[3] = 42;
 	}
 }
 
@@ -552,7 +564,7 @@ int options_hit(const options_ui *o, int x, int y)
 {
 	int r[4];
 	for (int row = 0; row < options_rows(o); row++) {
-		settings_row_rect(row, r);
+		options_row_rect(o, row, r);
 		if (inside(x, y, r))
 			return row;
 	}

@@ -61,13 +61,18 @@ int  settings_pick_rom_folder(int glyphs);
 /* Game options, for the game with this ROM file: from Our ROMs (X) or the
  * pause menu (paused: no Delete, HOME is the pause menu's to ask). 0 back,
  * 1 HOME (confirmed, or for the pause menu to ask), 2 Delete was chosen,
- * 3 the running game's resolution changed and the player accepted a restart. */
+ * 3 the running game's resolution changed and the player accepted a restart,
+ * 4 the ROM was renamed (the list was read again: file and title are gone). */
 void player_restart_request(void);            /* main.c: the game starts again right after it leaves */
 int  game_options_run(const char *file, const char *title, int glyphs, int paused, int usb);
 void library_custom_cover_path(const char *file, char *out, unsigned size);
 int  library_cover_state(const char *file);   /* COVER_ (setup.h), -1 not listed */
 void library_cover_changed(const char *file);
+int  library_rename(const char *file, const char *to); /* 0 done (the list read again), 1 name taken, 2 refused, 3 USB */
 int  library_decode_png(const char *path, int max_w, int max_h, uint8_t *out, int *pw, int *ph); /* 0 when read */
+/* keyboard_wiiu.cpp: the Wii U's own keyboard over the last screen, starting from initial. 1: OK, the
+ * text in out (UTF-8); 0: cancelled; -1: it could not be shown. */
+int  keyboard_ask(const char *initial, char *out, unsigned size);
 const char *player_rom_file(void);            /* main.c: the running game's ROM file name */
 
 /* ---- library_wiiu.c: Our ROMs ---- */
