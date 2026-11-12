@@ -658,6 +658,16 @@ uint32_t input_keys(int port)
 }
 int input_waiting_port(void) { return input_ports_waiting(&g_ports); }
 
+/* HOME seen by someone else who reads the controllers (the system keyboard,
+ * keyboard_wiiu.cpp): a press for the next input_take_home, and not a second
+ * one when the next read here finds it still down. */
+void input_post_home(void)
+{
+	g_home = 1;
+	for (int i = 0; i < INPUT_CONTROLLERS; i++)
+		g_home_held[i] = 1;
+}
+
 int input_take_home(void)
 {
 	int h = g_home;

@@ -1204,7 +1204,10 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 				const char *dot = strrchr(file, '.');
 				ui_name_for_edit(name, sizeof(name), file);
 				const int k = keyboard_ask(name, typed, sizeof(typed));
+				const int home = input_take_home(); /* HOME closed the keyboard: kept for this screen */
 				input_withhold(); /* the press that closed the keyboard is not a press here */
+				if (home)
+					input_post_home();
 				if (k < 0) {
 					line("Couldn't open the keyboard.");
 				} else if (k > 0) {

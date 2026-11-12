@@ -120,6 +120,7 @@ void input_age_reset(void);       /* input delay: the reading's age at the game'
 unsigned input_age_stats(double *median, double *p95, double *p99, double *most);
 int  input_waiting_port(void);    /* a port whose controller is gone, or -1 */
 int  input_take_home(void);       /* HOME was pressed on any controller since the last call */
+void input_post_home(void);       /* HOME was pressed while the system keyboard read the controllers */
 void input_set_joining(int on);   /* off while the prompt runs: presses put no controller in a port */
 void input_withhold(void);        /* a menu closes: buttons held now reach the game only once released */
 void input_rumble_allow(int port, int on); /* the player's Rumble setting for an N64 port */

@@ -21,6 +21,7 @@
 
 extern "C" {
 #include "pause_wiiu.h"
+#include "player.h"
 #include "report.h"
 #include "ui.h"
 extern void (*our64_ui_before_present)(void); // third_party/libgui's WutVideoDriver.cpp
@@ -35,6 +36,11 @@ void * g_work;
 volatile int g_state = KB_IDLE;
 std::u16string g_initial, g_result;
 bool g_opened;
+// HOME while the keyboard is up (the keyboard reads the controllers, Our64's
+// menus do not, so a press went nowhere): the keyboard closes as for Cancel
+// and the press goes to the screen under it, which asks about leaving as it
+// does for any HOME (as HOME on one of Our64's dialogs cancels it and asks).
+bool g_home_down, g_home;
 
 // Each frame, on the graphics core: the controllers to the keyboard, its own
 // bookkeeping, what the player decided, and its picture on both screens.
@@ -55,6 +61,18 @@ void frame_hook()
 		if (KPADReadEx(KPADChan(ch), &kpad[ch], 1, &ke) > 0 && ke == KPAD_ERROR_OK)
 			info.kpad[ch] = &kpad[ch];
 	}
+	bool home = info.vpad != nullptr && (vpad.hold & VPAD_BUTTON_HOME) != 0;
+	for (int ch = 0; ch < 4; ch++)
+		if (info.kpad[ch] != nullptr) {
+			const KPADStatus & k = kpad[ch];
+			const bool pad = k.extensionType == WPAD_EXT_PRO_CONTROLLER || k.extensionType == WPAD_EXT_CLASSIC ||
+			                 k.extensionType == WPAD_EXT_MPLUS_CLASSIC;
+			// as input_wiiu.c reads it: the Pro Controller's and the Classic Controller's HOME share a bit
+			const uint32_t h = k.extensionType == WPAD_EXT_PRO_CONTROLLER ? k.pro.hold : k.classic.hold;
+			home = home || (k.hold & WPAD_BUTTON_HOME) != 0 || (pad && (h & WPAD_PRO_BUTTON_HOME) != 0);
+		}
+	const bool home_pressed = home && !g_home_down;
+	g_home_down = home;
 	nn::swkbd::Calc(info);
 	if (nn::swkbd::IsNeedCalcSubThreadFont())
 		nn::swkbd::CalcSubThreadFont();
@@ -66,9 +84,10 @@ void frame_hook()
 			g_result = s != nullptr ? s : u"";
 			nn::swkbd::DisappearInputForm();
 			g_state = KB_OK;
-		} else if (nn::swkbd::IsDecideCancelButton(nullptr)) {
+		} else if (nn::swkbd::IsDecideCancelButton(nullptr) || home_pressed) {
 			nn::swkbd::DisappearInputForm();
 			g_state = KB_CANCEL;
+			g_home = home_pressed;
 		}
 	}
 	WHBGfxBeginRenderTV();
@@ -125,6 +144,8 @@ void open_on_graphics_core(void *)
 		return;
 	}
 	g_result.clear();
+	g_home = false;
+	g_home_down = true; // HOME held as it opens is not a press
 	g_state = KB_SHOWN;
 	our64_ui_before_present = frame_hook;
 	g_opened = true;
@@ -215,6 +236,10 @@ extern "C" int keyboard_ask(const char * initial, char * out, unsigned size)
 	const bool ok = g_state == KB_OK;
 	video_call(close_on_graphics_core, nullptr);
 	ui_redraw();
+	if (g_home) {
+		report_line("KEYBOARD: closed by HOME");
+		input_post_home();
+	}
 	if (!ok)
 		return 0;
 	snprintf(out, size, "%s", narrow(g_result).c_str());
