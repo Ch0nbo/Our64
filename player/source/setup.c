@@ -544,7 +544,7 @@ const char *options_row_about(const options_ui *o)
 		return o->delete_off ? "On a USB drive: delete it on a computer" : "Moves the ROM to the trash folder. Its saves stay";
 	case OPT_COVER: return "The picture shown for this game in Our ROMs";
 	case OPT_PICTURE: return "This game's own screen mode, shape and speed display";
-	default: return o->paused ? "Changes when the game next starts" : "How sharp this game is drawn on a TV";
+	default: return o->paused ? "How sharp this game is drawn on a TV. Changing it restarts the game" : "How sharp this game is drawn on a TV";
 	}
 }
 

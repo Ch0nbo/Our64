@@ -233,8 +233,13 @@ static int act(int what)
 			pause_event(&g_view.ui, PEV_HOME, -1);
 		break;
 	case PACT_OPTIONS: {
-		const int home = game_options_run(player_rom_file(), g_view.title, g_view.glyphs, 1, 0) == 1;
+		const int r = game_options_run(player_rom_file(), g_view.title, g_view.glyphs, 1, 0);
+		const int home = r == 1;
 		input_take_home();
+		if (r == 3) { /* a new resolution, restart accepted: out as for Our ROMs, and straight back in */
+			player_restart_request();
+			return leave(LEAVE_ROMS);
+		}
 		g_view.ui.screen = PAUSE_MENU; /* back here, Game options still selected */
 		if (home) /* HOME there: asks here before the Wii U Menu */
 			pause_event(&g_view.ui, PEV_HOME, -1);

@@ -60,7 +60,9 @@ int  settings_take_home(void);
 int  settings_pick_rom_folder(int glyphs);
 /* Game options, for the game with this ROM file: from Our ROMs (X) or the
  * pause menu (paused: no Delete, HOME is the pause menu's to ask). 0 back,
- * 1 HOME (confirmed, or for the pause menu to ask), 2 Delete was chosen. */
+ * 1 HOME (confirmed, or for the pause menu to ask), 2 Delete was chosen,
+ * 3 the running game's resolution changed and the player accepted a restart. */
+void player_restart_request(void);            /* main.c: the game starts again right after it leaves */
 int  game_options_run(const char *file, const char *title, int glyphs, int paused, int usb);
 void library_custom_cover_path(const char *file, char *out, unsigned size);
 int  library_cover_state(const char *file);   /* COVER_ (setup.h), -1 not listed */

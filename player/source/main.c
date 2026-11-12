@@ -144,6 +144,9 @@ static volatile int g_closing; /* the system asked us to save and close (power b
 static uint32_t g_quit_vi;    /* when */
 enum { QUIT_HOME = 1, QUIT_SYSTEM, QUIT_ROMS };
 const char *player_rom_file(void);
+static int g_restart_game; /* Game options changed the running game's resolution: it starts again at once */
+static int g_restarted;    /* this start is that restart: the game does not open paused */
+void player_restart_request(void) { g_restart_game = 1; }
 static int g_mode_before_game = -1; /* Settings' screen mode while a game with its own runs; -1 outside a game */
 static char g_rom[512]; /* the ROM folder (up to 300) + '/' + a file name (up to 127): fileBrowser_file.name holds it */
 static int g_capture_left;  /* graphics tasks still to save (GamePad minus starts 120) */
@@ -2080,8 +2083,10 @@ static int play_game(int index)
 	dynacore = g_interpreter ? 2 : 1;
 	stop = 0;
 	/* From its autosave, a game opens paused, Resume selected; HOME during loading pauses it too. */
-	if (launch == LAUNCH_RESUME || g_home_while_loading)
+	/* Not after a restart for a new resolution (Game options): the player was playing. */
+	if ((launch == LAUNCH_RESUME && !g_restarted) || g_home_while_loading)
 		g_pause_at_vi = g_bench.vis + 4;
+	g_restarted = 0;
 	input_withhold();
 	ui_resume();
 	g_in_game = 1;
@@ -2590,10 +2595,17 @@ static int emu_thread(int argc, const char **argv)
 		}
 		char file[sizeof(library_get(game)->file)];
 		snprintf(file, sizeof(file), "%s", library_get(game)->file);
-		r = play_game(game);
-		game = library_index_of(file); /* Settings may have listed another ROM folder meanwhile: -1 when it lacks the game */
-		if (game >= 0)
-			library_refresh(game);
+		/* Again when Game options asked for a restart (a new resolution: the game
+		 * left as for Our ROMs, its resume point written, and starts from it). */
+		do {
+			g_restarted = g_restart_game;
+			g_restart_game = 0;
+			r = play_game(game);
+			game = library_index_of(file); /* Settings may have listed another ROM folder meanwhile: -1 when it lacks the game */
+			if (game >= 0)
+				library_refresh(game);
+		} while (r != PLAY_EXIT && g_restart_game && game >= 0);
+		g_restart_game = g_restarted = 0;
 		if (r == PLAY_EXIT)
 			break;
 		g_quit = 0; /* back on Our ROMs: main reads system messages again (power press) */

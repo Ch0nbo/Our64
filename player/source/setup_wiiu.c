@@ -809,7 +809,7 @@ static void options_set_lines(options_ui *o, const char *file, int lines)
 	}
 	o->lines = lines;
 	report_line("OPTIONS: %s draws at %dp", file, lines);
-	snprintf(g_view.line, sizeof(g_view.line), "Resolution: %dp%s", lines, o->paused ? ", when the game next starts" : "");
+	snprintf(g_view.line, sizeof(g_view.line), "Resolution: %dp", lines);
 }
 
 /* A page of choices over Game options: the row picked, -1 for B, -2 for HOME (confirmed, or the pause menu's). */
@@ -1138,16 +1138,27 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 			case OACT_RES: {
 				const int pick = run_choice("RESOLUTION", "720p is sharper on a TV. Many games slow down with it",
 				                            res_names, 2, o->lines == 720);
-				if (pick == -2)
+				const int lines = pick == 1 ? 720 : 480;
+				if (pick == -2) {
 					result = 1;
-				/* never on by itself: the player reads this first (Zach, 2026-11-11) */
-				else if (pick == 1 && o->lines != 720 &&
-				         !player_ask("Use 720p for this game?",
-				                     paused ? "Many games slow down or stutter with it. It starts when the game next starts."
-				                            : "Many games slow down or stutter with it.", "Use 720p"))
-					;
-				else if (pick >= 0)
-					options_set_lines(o, file, pick ? 720 : 480);
+				} else if (pick >= 0 && lines != o->lines) {
+					/* 720p is never on by itself: the player reads the warning first. In a
+					 * running game the change needs a restart, which the player accepts
+					 * here too (Zach, 2026-11-11): it picks up from its resume point, or
+					 * from the beginning with Auto-Resume off. */
+					const char *restart = !paused ? "" : g_settings.auto_resume ? " The game restarts now."
+					                                                             : " The game restarts from its beginning.";
+					char body[160];
+					snprintf(body, sizeof(body), "%s%s", lines == 720 ? "Many games slow down or stutter with it." : "", restart);
+					const int ok = (lines == 480 && !paused) ||
+					               player_ask(lines == 720 ? "Use 720p for this game?" : "Go back to 480p?", body[0] == ' ' ? body + 1 : body,
+					                          lines == 720 ? "Use 720p" : "Restart");
+					if (ok) {
+						options_set_lines(o, file, lines);
+						if (paused && o->lines == lines)
+							result = 3;
+					}
+				}
 				i = f.n;
 				break;
 			}
