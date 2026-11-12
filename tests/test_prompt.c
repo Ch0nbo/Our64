@@ -322,8 +322,47 @@ static void test_line(void)
 	CHECK(strstr(s, "today 9:40 PM") != NULL);
 }
 
+/* Game options > Rename: what is typed, the file name kept for it, the name
+ * shown again in the keyboard, and the title in Our ROMs. */
+static void typed_names_keep_every_character(void)
+{
+	char file[300], edit[300], title[300], with_ext[320];
+	struct { const char *typed, *stem, *title; } t[] = {
+		{ "What? Why", "What%3F Why", "What? Why" },
+		{ "Mario Kart 64: Amped Up", "Mario Kart 64 - Amped Up", "Mario Kart 64: Amped Up" },
+		{ "Up - Down", "Up %2D Down", "Up - Down" },
+		{ "Half-Life", "Half-Life", "Half-Life" },
+		{ "A:B", "A%3AB", "A:B" },
+		{ "100% <\"Fun\"> a/b\\c|d*", "100%25 %3C%22Fun%22%3E a%2Fb%5Cc%7Cd%2A", "100% <\"Fun\"> a/b\\c|d*" },
+		{ "  Trim me. ", "Trim me", "Trim me" },
+	};
+	for (unsigned i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
+		ui_name_from_edit(file, sizeof(file), t[i].typed);
+		CHECK(!strcmp(file, t[i].stem));
+		CHECK(!strpbrk(file, "\\/:*?\"<>|"));
+		snprintf(with_ext, sizeof(with_ext), "%s.z64", file);
+		ui_game_title(title, sizeof(title), with_ext);
+		CHECK(!strcmp(title, t[i].title));
+		ui_name_for_edit(edit, sizeof(edit), with_ext);
+		ui_name_from_edit(title, sizeof(title), edit); /* opening the keyboard and pressing OK changes nothing */
+		CHECK(!strcmp(title, file));
+	}
+	/* a list name untouched: its separator reads ": " in the keyboard and is written back as it was */
+	ui_name_for_edit(edit, sizeof(edit), "Legend of Zelda, The - Majora's Mask (USA).z64");
+	CHECK(!strcmp(edit, "Legend of Zelda, The: Majora's Mask (USA)"));
+	ui_name_from_edit(file, sizeof(file), edit);
+	CHECK(!strcmp(file, "Legend of Zelda, The - Majora's Mask (USA)"));
+	ui_game_title(title, sizeof(title), "Legend of Zelda, The - Majora's Mask (USA).z64");
+	CHECK(!strcmp(title, "The Legend of Zelda: Majora's Mask"));
+	ui_name_from_edit(file, sizeof(file), " . ");
+	CHECK(!file[0]);
+	ui_game_title(title, sizeof(title), "50%.z64"); /* a % that is no code stays */
+	CHECK(!strcmp(title, "50%"));
+}
+
 int main(void)
 {
+	typed_names_keep_every_character();
 	test_first_launch_and_last_choice();
 	test_moves_stop_at_the_ends();
 	test_no_gamepad();

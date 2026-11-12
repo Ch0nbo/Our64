@@ -363,6 +363,76 @@ void ui_when(char *out, unsigned size, time_t now, time_t then, int us)
 		snprintf(out, size, "%d %s %d %s", t.tm_mday, g_month[t.tm_mon], t.tm_year + 1900, clock);
 }
 
+static int hex_digit(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'A' && c <= 'F' ? c - 'A' + 10 : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1; }
+
+/* "%3F" back to "?", in place: only a % with two hexadecimal digits that make a printable character. */
+static void name_decode(char *s)
+{
+	char *w = s;
+	for (const char *r = s; *r; r++) {
+		const int hi = *r == '%' ? hex_digit(r[1]) : -1, lo = hi >= 0 ? hex_digit(r[2]) : -1;
+		const int c = hi * 16 + lo;
+		if (hi >= 0 && lo >= 0 && c >= 0x20 && c < 0x7F) {
+			*w++ = (char)c;
+			r += 2;
+		} else {
+			*w++ = *r;
+		}
+	}
+	*w = 0;
+}
+
+void ui_name_for_edit(char *out, unsigned size, const char *file)
+{
+	char s[256], t[256];
+	const char *slash = strrchr(file, '/');
+	snprintf(s, sizeof(s), "%s", slash ? slash + 1 : file);
+	char *dot = strrchr(s, '.');
+	if (dot && dot != s)
+		*dot = 0;
+	unsigned n = 0;
+	for (const char *r = s; *r && n + 3 < sizeof(t); r++) {
+		if (!strncmp(r, " - ", 3)) { /* the lists' separator, shown as it reads */
+			t[n++] = ':';
+			t[n++] = ' ';
+			r += 2;
+		} else {
+			t[n++] = *r;
+		}
+	}
+	t[n] = 0;
+	name_decode(t);
+	snprintf(out, size, "%s", t);
+}
+
+void ui_name_from_edit(char *out, unsigned size, const char *typed)
+{
+	char t[256];
+	unsigned n = 0;
+	while (*typed == ' ')
+		typed++;
+	for (const char *r = typed; *r && n + 6 < sizeof(t); r++) {
+		const unsigned char c = (unsigned char)*r;
+		if (c < 0x20 || c == 0x7F)
+			continue;
+		if (c == ':' && r[1] == ' ') { /* ": " is the lists' " - " */
+			n += (unsigned)snprintf(t + n, sizeof(t) - n, " - ");
+			r++;
+		} else if (!strncmp(r, " - ", 3)) { /* a typed " - " stays a hyphen */
+			n += (unsigned)snprintf(t + n, sizeof(t) - n, " %%2D ");
+			r += 2;
+		} else if (strchr("\\/:*?\"<>|%", c)) {
+			n += (unsigned)snprintf(t + n, sizeof(t) - n, "%%%02X", c);
+		} else {
+			t[n++] = (char)c;
+		}
+	}
+	while (n > 0 && (t[n - 1] == ' ' || t[n - 1] == '.')) /* a card drops these at a name's end */
+		n--;
+	t[n] = 0;
+	snprintf(out, size, "%s", t);
+}
+
 void ui_game_title(char *out, unsigned size, const char *file)
 {
 	const char *slash = strrchr(file, '/');
@@ -420,6 +490,7 @@ void ui_game_title(char *out, unsigned size, const char *file)
 			n = sizeof(t) - 1;
 		part = dash + 3;
 	}
+	name_decode(t); /* characters a card refuses, kept as %XX by Rename */
 	snprintf(out, size, "%s", t);
 }
 

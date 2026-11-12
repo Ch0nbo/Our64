@@ -1187,28 +1187,19 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 				i = f.n;
 				break;
 			case OACT_RENAME: {
-				/* The system keyboard, starting from the name as it is, without its
-				 * extension; the new name keeps the extension. Characters a FAT card
-				 * refuses are dropped. */
-				char name[128], typed[256], clean[128], to[160];
+				/* The system keyboard, starting from the name as it reads, without its
+				 * extension; the new name keeps the extension. */
+				char name[200], typed[256], clean[200], to[260];
 				const char *dot = strrchr(file, '.');
-				const int stem = dot && dot != file ? (int)(dot - file) : (int)strlen(file);
-				snprintf(name, sizeof(name), "%.*s", stem, file);
+				ui_name_for_edit(name, sizeof(name), file);
 				const int k = keyboard_ask(name, typed, sizeof(typed));
 				input_withhold(); /* the press that closed the keyboard is not a press here */
 				if (k < 0) {
 					line("Couldn't open the keyboard.");
 				} else if (k > 0) {
-					unsigned n = 0;
-					for (const char *c = typed; *c && n + 1 < sizeof(clean) - 8; c++)
-						if ((unsigned char)*c >= 32 && !strchr("\\/:*?\"<>|", *c))
-							clean[n++] = *c;
-					while (n > 0 && (clean[n - 1] == ' ' || clean[n - 1] == '.'))
-						n--;
-					clean[n] = 0;
+					/* characters a card refuses are kept as %XX and shown as typed (prompt.h) */
+					ui_name_from_edit(clean, sizeof(clean), typed);
 					const char *start = clean;
-					while (*start == ' ')
-						start++;
 					snprintf(to, sizeof(to), "%s%s", start, dot && dot != file ? dot : "");
 					if (!*start) {
 						line("A name needs at least one letter.");

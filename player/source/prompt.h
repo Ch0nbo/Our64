@@ -97,6 +97,16 @@ void ui_clock(char *out, unsigned size, time_t t, int us); /* "9:40 PM", "21:40"
 /* A title from the ROM's file name: no folder, no extension, no trailing
  * "(USA)" or "[!]" tags. */
 void ui_game_title(char *out, unsigned size, const char *file);
+/* Names typed on the keyboard (Game options > Rename, 2026-11-11). A card
+ * refuses \ / : * ? " < > | in a file name, so each is kept as % and its two
+ * hexadecimal digits ("%3F" for "?"), % itself too, and ui_game_title shows
+ * the character again. ": " is written " - ", the separator the game lists
+ * use (shown as ": "), and a typed " - " as " %2D ", so both read back as
+ * typed. ui_name_for_edit: a ROM file's name without its extension, as the
+ * keyboard should show it. ui_name_from_edit: what was typed, as a file name
+ * without extension ("" when nothing usable is left). */
+void ui_name_for_edit(char *out, unsigned size, const char *file);
+void ui_name_from_edit(char *out, unsigned size, const char *typed);
 /* The title without a leading The, A or An: what Our ROMs sorts and files under a letter by. */
 const char *ui_sort_title(const char *title);
 
