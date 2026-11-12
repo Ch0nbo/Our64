@@ -151,8 +151,21 @@ void our64_dynarec_unlink(void)
  * frees the function (our64_pad_returned), and it is compiled again, with the
  * guard, when next entered. At most our64_edge_retries_left times a game. */
 unsigned int our64_edge_recompile, our64_edge_retries, our64_edge_retries_left = 256;
+unsigned int our64_edge_pending_calls, our64_edge_slow_calls; /* passes through each interpreted path */
+/* The guard's own interpreter call: counted, and the first few logged. */
+unsigned int our64_edge_slow(MIPS_instr mips, unsigned int pc, int isDelaySlot){
+	extern void report_line(const char *fmt, ...);
+	if(our64_edge_slow_calls++ < 8){
+		const unsigned long entry = tlb_LUT_r[(pc + 4) >> 12];
+		const MIPS_instr* at = (entry >> 23) == 0x100 ? (const MIPS_instr*)fast_mem_access(entry & ~0xFFFul) : NULL;
+		report_line("EDGE: the guard at 0x%08X failed: the next page's entry is 0x%08lX, its first word 0x%08X",
+		            pc, entry, at ? (unsigned)*at : 0);
+	}
+	return decodeNInterpret(mips, pc, isDelaySlot);
+}
 unsigned int our64_edge_interp(MIPS_instr mips, unsigned int pc, int isDelaySlot){
 	const unsigned long entry = tlb_LUT_r[(pc + 4) >> 12];
+	our64_edge_pending_calls++;
 #ifdef USE_EXPANSION
 	if((entry >> 23) == 0x100 && our64_edge_retries_left)
 #else

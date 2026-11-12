@@ -1872,7 +1872,9 @@ static int play_game(int index)
 			extern unsigned int our64_edge_retries, our64_edge_retries_left, our64_edge_recompile;
 			our64_edge_off = 0;
 			our64_edge_branches = our64_edge_pads = 0;
+			extern unsigned int our64_edge_pending_calls, our64_edge_slow_calls;
 			our64_edge_retries = our64_edge_recompile = 0;
+			our64_edge_pending_calls = our64_edge_slow_calls = 0;
 			our64_edge_retries_left = 256;
 #ifndef OUR64_RELEASE
 			char path[256];
@@ -2065,10 +2067,13 @@ static int play_game(int index)
 		report_line("GAME: %s (%s): %.0f min%s, %u audio underruns", played, id,
 		            (report_now_us() - g_sweep_t0_us) / 60e6, low, audio_underruns() - g_sweep_under0);
 		{
-			extern unsigned int our64_edge_branches, our64_edge_pads, our64_edge_retries;
+			extern unsigned int our64_edge_branches, our64_edge_pads, our64_edge_retries, our64_edge_pending_calls,
+				our64_edge_slow_calls;
 			if (our64_edge_branches || our64_edge_pads)
-				report_line("CPU: %u branches on a page's last word compiled (%u functions compiled again for one), %u linked page ends",
-				            our64_edge_branches, our64_edge_retries, our64_edge_pads);
+				report_line("CPU: %u branches on a page's last word compiled (%u functions compiled again for one), %u linked page ends; "
+				            "interpreted passes: %u with the next page unmapped at compile time, %u with the guard failing",
+				            our64_edge_branches, our64_edge_retries, our64_edge_pads, our64_edge_pending_calls,
+				            our64_edge_slow_calls);
 		}
 	}
 	{

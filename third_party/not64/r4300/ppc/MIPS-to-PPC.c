@@ -93,7 +93,7 @@ static inline short extractLower16(void* address){
 static int FP_need_check;
 
 #ifdef __WIIU__
-static int edge_pending; /* the next genCallInterp is for a page-edge branch whose next page was unmapped */
+static int edge_pending; /* the next genCallInterp is for a page-edge branch: 1 its next page was unmapped, 2 its guard failed */
 static int genEdgeGuard(MIPS_instr mips);
 /* A branch that CANT_COMPILE_DELAY sends to the interpreter is compiled after
  * all when genEdgeGuard could guard its delay slot. */
@@ -5430,7 +5430,9 @@ static void genCallInterp(MIPS_instr mips){
 	// Branch to decodeNInterpret
 #ifdef __WIIU__
 	{ extern unsigned int our64_edge_interp(MIPS_instr, unsigned int, int); /* Wrappers.c */
-	  GEN_B(ppc, add_jump(edge_pending ? (int)&our64_edge_interp : (int)&decodeNInterpret, 1, 1), 0, 1);
+	  extern unsigned int our64_edge_slow(MIPS_instr, unsigned int, int);
+	  GEN_B(ppc, add_jump(edge_pending == 1 ? (int)&our64_edge_interp :
+	                      edge_pending == 2 ? (int)&our64_edge_slow : (int)&decodeNInterpret, 1, 1), 0, 1);
 	  edge_pending = 0; }
 #else
 	GEN_B(ppc, add_jump(&decodeNInterpret, 1, 1), 0, 1);
@@ -5476,10 +5478,17 @@ static int genEdgeGuard(MIPS_instr mips){
 	extern void our64_edge_set(MIPS_instr word);
 	extern void our64_set_code_addr(PowerPC_instr* at);
 	PowerPC_instr ppc = NEW_PPC_INSTR();
+	extern void report_line(const char *fmt, ...);
+	static unsigned told;
 	const unsigned int next = get_src_pc() + 4;
-	if(!our64_tlb_links || our64_edge_off || isDelaySlot || our64_code_room() <= 4096) return 0;
+	if(!our64_tlb_links || our64_edge_off) return 0;
 	unsigned long* slot = &tlb_LUT_r[next >> 12];
 	const unsigned long entry = *slot;
+	if(isDelaySlot || our64_code_room() <= 4096){
+		if(told++ < 48) report_line("EDGE: branch at 0x%08X left interpreted (delay slot %d, room %d)", next - 4, isDelaySlot, our64_code_room());
+		return 0;
+	}
+	if(told++ < 48) report_line("EDGE: branch at 0x%08X: the next page's entry is 0x%08lX", next - 4, entry);
 	// Unmapped, or not in RDRAM: interpreted, and looked at again later (our64_edge_interp)
 #ifdef USE_EXPANSION
 	if((entry >> 23) != 0x100){ edge_pending = 1; return 0; }
@@ -5498,9 +5507,13 @@ static int genEdgeGuard(MIPS_instr mips){
 	set_next_dst(ppc);
 	GEN_LWZ(ppc, R4, extractLower16(slot), R4);
 	set_next_dst(ppc);
+	// its page only: the low 12 bits vary between fills of the table (0x80752FFE
+	// at compile time, 0x80752FFF after: every pass failed, Naboo 2026-11-11)
+	GEN_RLWINM(ppc, R4, R4, 0, 0, 19);
+	set_next_dst(ppc);
 	GEN_LIS(ppc, R5, entry >> 16);
 	set_next_dst(ppc);
-	GEN_ORI(ppc, R5, R5, entry);
+	GEN_ORI(ppc, R5, R5, entry & 0xF000);
 	set_next_dst(ppc);
 	GEN_CMPL(ppc, CR0, R4, R5);
 	set_next_dst(ppc);
@@ -5523,6 +5536,7 @@ static int genEdgeGuard(MIPS_instr mips){
 	set_next_dst(ppc);
 	// Not so: the interpreter runs the branch, and always leaves for the dispatcher
 	PPC_SET_BD(*to_slow, get_curr_dst() - to_slow);
+	edge_pending = 2; // our64_edge_slow
 	genCallInterp(mips);
 	delaySlotNext = 0; // the compiled branch below takes its delay slot itself
 	PPC_SET_BD(*to_fast, get_curr_dst() - to_fast);
