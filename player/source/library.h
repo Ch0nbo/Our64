@@ -51,6 +51,9 @@ enum { LIBRARY_FAVORITES, LIBRARY_RECENT, LIBRARY_ALL, LIBRARY_HASH };
  * every word of library_search_set's text, in All's order. */
 #define LIBRARY_LAST_LETTER 29
 #define LIBRARY_SEARCH 30
+/* Search's first entry in library_show's list (2026-11-12): not a game but
+ * the card that opens the keyboard and says what the search found. */
+#define LIBRARY_CARD (-1)
 void library_search_set(const char *text);
 const char *library_search_text(void);
 int  library_search_matches(const library_game *g); /* 1 when the game is among Search's */

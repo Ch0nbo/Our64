@@ -923,6 +923,8 @@ float g_cover_aspect = 387 / SEL_H;
 
 float cover_aspect(const roms_view & rv, int game)
 {
+	if (game < 0) // Search's card: the shape of a game without a cover
+		return g_cover_aspect;
 	for (int i = 0; i < ROMS_ART; i++)
 		if (rv.art[i].game == game && rv.art[i].rgba != nullptr && rv.art[i].w > 0 && rv.art[i].h > 0)
 			return float(rv.art[i].w) / float(rv.art[i].h);
@@ -943,9 +945,42 @@ float by_distance(const float * at, float a)
 const float COVER_SCALE[4] = { 1, 0.72f, 0.55f, 0.45f };
 const float COVER_OFF[4] = { 0, 189, 313, 380 };
 
+// Search's card (Zach, 2026-11-12), where a cover would be and the size of a
+// game without one: how to search, then what the search found.
+std::string search_card_text(const roms_view & rv)
+{
+	char s[96];
+	const char * q = library_search_text();
+	if (!rv.searched)
+		snprintf(s, sizeof(s), "Press %s to search", rv.glyphs == INPUT_WIIMOTE ? "2" : "A");
+	else if (rv.count <= 1)
+		snprintf(s, sizeof(s), "No games match \"%.40s\"", q);
+	else
+		snprintf(s, sizeof(s), "%d game%s for \"%.40s\"", rv.count - 1, rv.count == 2 ? "" : "s", q);
+	return s;
+}
+
 void stage_cover(const roms_view & rv, int at, float d)
 {
 	const int game = rv.shown[at];
+	if (game < 0) {
+		const float a = fabsf(d), scale = by_distance(COVER_SCALE, a);
+		float w, h;
+		cover_box(g_cover_aspect, w, h);
+		w *= scale;
+		h *= scale;
+		const float x = STAGE_CX + (d < 0 ? -1 : 1) * by_distance(COVER_OFF, a) - w / 2, top = STAGE_CY - h / 2;
+		if (a > 2.2f)
+			return;
+		if (a < 0.5f && !rv.bar_focus)
+			box(x - 3, top - 3, w + 6, h + 6, PixelColor{0, 0, 0, 0}, 0, 0, rgb(T.panel.fill), 18);
+		poster(x, top, w, h, search_card_text(rv).c_str(), false);
+		if (a > 0.05f)
+			box(x, top, w, h, PixelColor{0, 0, 0, uint8_t(fminf(a, 3) * 50)});
+		else if (rv.bar_focus)
+			box(x, top, w, h, PixelColor{0, 0, 0, 60});
+		return;
+	}
 	const library_game & g = rv.games[game];
 	const float a = fabsf(d);
 	const float scale = by_distance(COVER_SCALE, a);
@@ -1155,7 +1190,9 @@ float drawer_reach(float d)
 void drawer_cover(const roms_view & rv, int at, float d)
 {
 	const int game = rv.shown[at];
-	const library_game & g = rv.games[game];
+	static const library_game card_game = {}; // Search's card: no art, no badge
+	const bool card = game < 0;
+	const library_game & g = card ? card_game : rv.games[game];
 	const float a = fabsf(d);
 	const float scale = 1 - 0.07f * (a < 3 ? a : 3);
 	float w, h, sel_w, sel_h;
@@ -1163,6 +1200,15 @@ void drawer_cover(const roms_view & rv, int at, float d)
 	w *= scale;
 	h *= scale;
 	drawer_box(cover_aspect(rv, rv.shown[rv.sel]), sel_w, sel_h);
+	if (card) { // only ever the first, so before the selection or it
+		const float ctop = DRAWER_Y - sel_h / 2 - drawer_reach(d), cx = DRAWER_X - w / 2 + (a < 1 ? PULL * (1 - a) : 0);
+		if (a > 2.4f)
+			return;
+		poster(cx, ctop, w, h, search_card_text(rv).c_str(), false);
+		if (a > 0.05f)
+			box(cx, ctop, w, h, PixelColor{0, 0, 0, uint8_t(fminf(a, 3) * 45)});
+		return;
+	}
 	const float reach = drawer_reach(d);
 	// before the selection: the top edge rises; after it: the bottom edge drops
 	const float top = d < 0 ? DRAWER_Y - sel_h / 2 - reach : DRAWER_Y + sel_h / 2 + reach - h;
@@ -1279,7 +1325,9 @@ void draw_roms_list(const ui_view & v)
 	// The names as a list beside the drawer: the selected game's row framed,
 	// with its autosave and save states inside, and the games before and after
 	// it in rows of their own, evenly spaced (Zach, 2026-10-17).
-	const library_game & g = rv.games[rv.shown[sel]];
+	static const library_game no_game = {};
+	const bool card = rv.shown[sel] < 0;
+	const library_game & g = card ? no_game : rv.games[rv.shown[sel]];
 	const float lx = 392, lw = UI_W - 40 - lx, pad = 18, gap = 12, row_h = 44, sel_h = 100;
 	const float sel_y = DRAWER_Y - sel_h / 2;
 	for (int d = -1; d <= 1; d += 2) {
@@ -1287,12 +1335,22 @@ void draw_roms_list(const ui_view & v)
 		if (at < 0 || at >= rv.count)
 			continue;
 		const float y = d < 0 ? sel_y - gap - row_h : sel_y + sel_h + gap;
+		if (rv.shown[at] < 0) { // Search's card, above the first game found
+			box(lx, y, lw, row_h, rgb(T.bar.fill), 10);
+			text(lx + pad, y + 11, "Search", 20, rgb(T.bar.muted));
+			continue;
+		}
 		const library_game & n = rv.games[rv.shown[at]];
 		const bool unreadable = n.known && !n.readable; // a failure: red
 		const our_surface & row = unreadable ? T.fail : T.bar;
 		box(lx, y, lw, row_h, rgb(row.fill), 10);
 		// down to 13: Ocarina of Time - Master Quest, Our64's longest title, is 2 too wide at 14
 		text(lx + pad, y + 11, n.title, fit(n.title, 20, 13, int(lw - 2 * pad)), rgb(row.muted));
+	}
+	if (card) { // the card says it all: no row for it, and A searches
+		keys[n++] = pause_key{ rv.glyphs == INPUT_WIIMOTE ? GLYPH_2 : GLYPH_A, "Search", 0 };
+		draw_keys(keys, n, nullptr);
+		return;
 	}
 	selectable(lx, sel_y, lw, sel_h, true, false, 0, 12, g.known && !g.readable);
 	const our_surface & on = g.known && !g.readable ? T.fail : T.select; // selectable's
@@ -1374,9 +1432,18 @@ void draw_roms(const ui_view & v)
 	for (int i = 0; i < k; i++)
 		stage_cover(rv, order[i], order[i] - pos);
 
+	if (rv.shown[sel] < 0) { // Search's card: A searches (on the magnifier too); no title box
+		keys[n++] = pause_key{ rv.glyphs == INPUT_WIIMOTE ? GLYPH_2 : GLYPH_A, "Search", 0 };
+		keys[n++] = pause_key{ GLYPH_PLUS, "Settings", 0 };
+		draw_side_keys(keys, n, rv.notice[0] ? ROW_BOX_W : UI_W - ROW_BOX_W);
+		if (rv.notice[0])
+			draw_title_pill(rv, nullptr);
+		draw_count_box(rv);
+		return;
+	}
 	const library_game & g = rv.games[rv.shown[sel]];
 	keys[n++] = pause_key{ rv.glyphs == INPUT_WIIMOTE ? GLYPH_2 : GLYPH_A,
-	                        rv.bar_focus ? "Games" : g.autosave && g.autosave_ok ? "Resume" : "Start",
+	                        rv.bar_focus ? (rv.category == LIBRARY_SEARCH ? "Search" : "Games") : g.autosave && g.autosave_ok ? "Resume" : "Start",
 	                        !rv.bar_focus && g.known && !g.readable };
 	keys[n++] = pause_key{ rv.glyphs == INPUT_WIIMOTE || rv.glyphs == INPUT_NUNCHUK ? GLYPH_MINUS : GLYPH_Y,
 	                        g.favorite ? "Unfavorite" : "Favorite", 0 };

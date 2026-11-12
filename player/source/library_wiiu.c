@@ -122,7 +122,7 @@ int library_scan(const char *root)
 	snprintf(g_root, sizeof(g_root), "%s", root);
 	if (!g_games) {
 		g_games = calloc(MAX_GAMES, sizeof(*g_games));
-		g_shown = calloc(MAX_GAMES, sizeof(*g_shown));
+		g_shown = calloc(MAX_GAMES + 1, sizeof(*g_shown)); /* and Search's card */
 		g_info = calloc(MAX_GAMES, 1);
 		if (!g_games || !g_shown || !g_info)
 			return 0;
@@ -577,13 +577,12 @@ static void prepare(int sel)
 	OSUnlockMutex(&g_load_lock);
 }
 
-/* The letter bar's category: its games, with the game the player was on
- * still selected when it is among them (All), else the first. */
-/* The Search tab (2026-11-11, #22): the keyboard, starting from the last
- * search; then the games whose title or file name holds every word typed.
- * Cancel, nothing typed or no game found: the tab it was on stays, with a
- * line saying so. 1 when Search has games to show. */
-static int search_ask(void)
+/* The Search tab (2026-11-11, #22; the card 2026-11-12, Zach): its first
+ * entry is a card, "Press A to search". A on it (or a tap) brings the
+ * keyboard, starting from the last search; then come the games whose title
+ * or file name holds every word typed, the first of them selected. No game
+ * found: the card says so, and A on it asks again. Cancel changes nothing. */
+static void search_ask(void)
 {
 	roms_view *v = &g_view;
 	char typed[128];
@@ -592,37 +591,32 @@ static int search_ask(void)
 	if (k < 0)
 		snprintf(v->notice, sizeof(v->notice), "Couldn't open the keyboard.");
 	if (k <= 0)
-		return 0;
-	char before[128];
-	snprintf(before, sizeof(before), "%s", library_search_text());
+		return;
 	library_search_set(typed);
-	int n = 0;
-	for (int i = 0; i < g_count; i++)
-		n += !g_games[i].deleted && library_search_matches(&g_games[i]);
-	report_line("OUR ROMS: search \"%s\": %d games", typed, n);
-	if (n == 0) {
-		char shown[64];
-		snprintf(shown, sizeof(shown), "%.48s", typed);
-		snprintf(v->notice, sizeof(v->notice), shown[0] ? "No games match \"%s\"" : "Nothing typed%s", shown[0] ? shown : "");
-		if (v->category == LIBRARY_SEARCH)
-			library_search_set(before); /* the results on screen stay what they were */
-		return 0;
-	}
-	snprintf(v->notice, sizeof(v->notice), "%d game%s for \"%.48s\"", n, n == 1 ? "" : "s", typed);
-	return 1;
+	v->category = LIBRARY_SEARCH;
+	v->count = library_show(g_games, g_count, LIBRARY_SEARCH, g_shown);
+	v->searched = typed[strspn(typed, " ")] != 0;
+	v->sel = v->count > 1 ? 1 : 0;
+	v->pos = (float)v->sel;
+	if (v->count > 1)
+		v->bar_focus = 0; /* onto the games found */
+	report_line("OUR ROMS: search \"%s\": %d games", typed, v->count - 1);
 }
 
+/* The entry selected is Search's card, not a game. */
+static int on_card(void) { return g_view.count > 0 && g_shown[g_view.sel] == LIBRARY_CARD; }
+
+/* The letter bar's category: its games, with the game the player was on
+ * still selected when it is among them (All), else the first. */
 static void pick_category(int category)
 {
 	roms_view *v = &g_view;
-	if (category == LIBRARY_SEARCH && !search_ask())
-		return;
 	int game = v->count > 0 ? g_shown[v->sel] : -1;
 	v->category = category;
 	v->count = library_show(g_games, g_count, category, g_shown);
 	v->sel = 0;
 	for (int i = 0; i < v->count; i++)
-		if (g_shown[i] == game)
+		if (g_shown[i] == game && game >= 0)
 			v->sel = i;
 	v->pos = (float)v->sel;
 }
@@ -802,7 +796,7 @@ static void rescan(void)
 {
 	roms_view *v = &g_view;
 	char file[sizeof(g_games[0].file)] = "";
-	if (v->count > 0)
+	if (v->count > 0 && !on_card())
 		snprintf(file, sizeof(file), "%s", g_games[g_shown[v->sel]].file);
 	loader_wait(1);
 	for (int s = 0; s < ROMS_ART; s++)
@@ -962,8 +956,8 @@ int library_run(int *game, const char *notice)
 			if (dir)
 				side = dir;
 			dir = 0;
-			if (ok && v->category == LIBRARY_SEARCH) { /* A on the magnifier: search again */
-				pick_category(LIBRARY_SEARCH);
+			if (ok && v->category == LIBRARY_SEARCH) { /* A on the magnifier: the keyboard */
+				search_ask();
 				continue;
 			}
 			if (down || ok || back)
@@ -1011,12 +1005,17 @@ int library_run(int *game, const char *notice)
 			}
 		} else if (touching) {
 			touching = 0;
-			if (touch_target >= 100 && v->has[touch_target - 100])
+			if (touch_target == 100 + LIBRARY_SEARCH && v->category == LIBRARY_SEARCH) { /* the magnifier again: the keyboard */
+				search_ask();
+				continue;
+			} else if (touch_target >= 100 && v->has[touch_target - 100]) {
 				pick_category(touch_target - 100);
-			else if (!dragged && touch_target == 0)
+			} else if (!dragged && touch_target == 0) {
 				ok = 1;
-			else if (!dragged && touch_target >= -2 && touch_target <= 2 && touch_target != 0 && v->count > 0)
+			} else if (!dragged && touch_target >= -2 && touch_target <= 2 && touch_target != 0 && v->count > 0) {
 				v->sel = v->sel + touch_target < 0 ? 0 : v->sel + touch_target >= v->count ? v->count - 1 : v->sel + touch_target;
+				ok = on_card(); /* a tap on the search card beside a game: the keyboard at once */
+			}
 		}
 		/* The drawer glides to the selection; far behind, it jumps closer first. */
 		float gap = (float)v->sel - v->pos;
@@ -1025,6 +1024,15 @@ int library_run(int *game, const char *notice)
 		v->pos += ((float)v->sel - v->pos) * 0.35f;
 		if (fabsf((float)v->sel - v->pos) < 0.02f)
 			v->pos = (float)v->sel;
+		/* Search's card: A (or a tap on it) brings the keyboard; it has no
+		 * favorite star and no options. */
+		if (on_card()) {
+			if (ok && !v->missing) {
+				search_ask();
+				continue;
+			}
+			star = del = 0;
+		}
 		if (star && v->count > 0)
 			toggle_favorite();
 		/* X: Game options (2026-11-11): the game's resolution and cover, and Delete. */
@@ -1066,7 +1074,7 @@ int library_run(int *game, const char *notice)
 				result = LIB_WIIU;
 			continue;
 		}
-		if (ok && v->count > 0) {
+		if (ok && v->count > 0 && !on_card()) {
 			int i = g_shown[v->sel];
 			need_info(i);
 			*game = i;
@@ -1074,10 +1082,10 @@ int library_run(int *game, const char *notice)
 		}
 	}
 	player_paused(0);
-	if (v->count > 0)
+	if (v->count > 0 && !on_card())
 		*game = g_shown[v->sel];
 	report_line("OUR ROMS: %s %s", result == LIB_PLAY ? "play" : result == LIB_WIIU ? "HOME" : "system closing",
-	            g_count > 0 ? g_games[*game].file : "");
+	            g_count > 0 && *game >= 0 ? g_games[*game].file : "");
 	return result;
 }
 

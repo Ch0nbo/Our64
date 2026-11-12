@@ -69,6 +69,7 @@ typedef struct {
 		unsigned gen;
 	} art[ROMS_ART];
 	char notice[160];        /* under the header until the first press */
+	int searched;            /* Search's card: 0 nothing searched yet ("Press A to search"), 1 the count of games found */
 	time_t now;
 	int us;
 	int glyphs;

@@ -519,7 +519,7 @@ void load_games()
 	}
 	library_sort(g_games.data(), int(g_games.size()));
 	g_covers.assign(g_games.size(), nullptr);
-	g_shown.assign(g_games.size(), 0);
+	g_shown.assign(g_games.size() + 1, 0); // and Search's card
 	for (size_t i = 0; i < g_games.size(); i++) // a favorite with save states: its badge is the star, not the count
 		if (strstr(g_games[i].title, "Banjo-Kazooie")) {
 			g_games[i].favorite = 1;
@@ -542,6 +542,8 @@ void fill_art()
 		if (at < 0 || at >= g_rv.count)
 			continue;
 		int game = g_rv.shown[at];
+		if (game < 0) // Search's card
+			continue;
 		if (g_covers[game] == nullptr)
 			g_covers[game] = load_image(std::string("../results/art/") + g_games[game].rom.id + ".png");
 		Tex * c = g_covers[game];
@@ -564,7 +566,7 @@ void roms_shot(const char * name, int category, const char * title, float slide)
 	g_rv.count = library_show(g_games.data(), int(g_games.size()), category, g_shown.data());
 	g_rv.sel = 0;
 	for (int i = 0; i < g_rv.count; i++)
-		if (strstr(g_games[g_rv.shown[i]].title, title))
+		if (g_rv.shown[i] >= 0 && strstr(g_games[g_rv.shown[i]].title, title))
 			g_rv.sel = i;
 	g_rv.pos = g_rv.sel - slide;
 	fill_art();
@@ -613,6 +615,24 @@ void shots_roms()
 	g_rv.bar_focus = 1; // up from the covers: left/right move along the bar
 	roms_shot("roms-bar", library_category_of("B"), "Banjo-Tooie", 0);
 	g_rv.bar_focus = 0;
+	// Search (2026-11-12): its card before a search, after one that found games, and after one that found none
+	library_search_set("");
+	g_rv.searched = 0;
+	roms_shot("roms-search-card", LIBRARY_SEARCH, "\x01", 0);
+	library_search_set("usa b");
+	g_rv.searched = 1;
+	roms_shot("roms-search-found", LIBRARY_SEARCH, "Blast", 0);
+	roms_shot("roms-search-found-card", LIBRARY_SEARCH, "\x01", 0);
+	library_search_set("xyzzy");
+	roms_shot("roms-search-none", LIBRARY_SEARCH, "\x01", 0);
+	theme_use_layout(LAYOUT_LIST);
+	roms_shot("roms-list-search-none", LIBRARY_SEARCH, "\x01", 0);
+	library_search_set("usa b");
+	roms_shot("roms-list-search-found", LIBRARY_SEARCH, "Blast", 0);
+	roms_shot("roms-list-search-found-card", LIBRARY_SEARCH, "\x01", 0);
+	theme_use_layout(LAYOUT_COVERS);
+	library_search_set("");
+	g_rv.searched = 0;
 	theme_use_layout(LAYOUT_LIST); // Settings > Theme > Our ROMs: List, as it was
 	roms_shot("roms-list", LIBRARY_ALL, "Majora", 0);
 	roms_shot("roms-list-sliding", LIBRARY_ALL, "Majora", 0.45f);

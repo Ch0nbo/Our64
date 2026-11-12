@@ -191,6 +191,8 @@ void library_sort(library_game *g, int n) { qsort(g, (size_t)n, sizeof(*g), comp
 int library_show(const library_game *g, int n, int category, int *shown)
 {
 	int k = 0;
+	if (category == LIBRARY_SEARCH)
+		shown[k++] = LIBRARY_CARD; /* the search card, then what it found */
 	for (int i = 0; i < n; i++)
 		if (!g[i].deleted && (category == LIBRARY_ALL || (category == LIBRARY_RECENT ? g[i].recent
 		                                : category == LIBRARY_SEARCH ? library_search_matches(&g[i])
