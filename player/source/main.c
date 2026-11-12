@@ -144,6 +144,7 @@ static volatile int g_closing; /* the system asked us to save and close (power b
 static uint32_t g_quit_vi;    /* when */
 enum { QUIT_HOME = 1, QUIT_SYSTEM, QUIT_ROMS };
 const char *player_rom_file(void);
+static int g_mode_before_game = -1; /* Settings' screen mode while a game with its own runs; -1 outside a game */
 static char g_rom[512]; /* the ROM folder (up to 300) + '/' + a file name (up to 127): fileBrowser_file.name holds it */
 static int g_capture_left;  /* graphics tasks still to save (GamePad minus starts 120) */
 
@@ -1993,9 +1994,19 @@ static int play_game(int index)
 	if (loading_cancelled())
 		goto teardown;
 	loading("Preparing graphics", 0.7f);
-	video_set_picture(s.picture == PICTURE_WIDE);
-	ui_speed(-1);
-	player_speed_display(s.speed);
+	{ /* the game's own picture settings (Game options > Picture) win over Settings > Picture; -1: none set */
+		const char *file = player_rom_file();
+		const int mode = gameopt_picture(file, GAMEOPT_MODE), shape = gameopt_picture(file, GAMEOPT_SHAPE),
+		          speed = gameopt_picture(file, GAMEOPT_SPEED);
+		video_set_picture((shape >= 0 ? shape : s.picture) == PICTURE_WIDE);
+		ui_speed(-1);
+		player_speed_display(speed >= 0 ? speed : s.speed);
+		g_mode_before_game = ui_mode();
+		if (mode >= 0 && mode != g_mode_before_game) {
+			ui_set_mode(mode);
+			report_line("OPTIONS: this game's screen mode: %s", mode_name(mode));
+		}
+	}
 	if (video_start()) {
 		report_line("Graphics did not start.");
 		goto teardown;
@@ -2159,6 +2170,12 @@ static int play_game(int index)
 	audio_dump_write();
 	pace_write();
 teardown:
+	if (g_mode_before_game >= 0) { /* a game's own screen mode ends with it */
+		if (ui_mode() != g_mode_before_game)
+			ui_set_mode(g_mode_before_game);
+		g_mode_before_game = -1;
+	}
+	ui_speed(-1);
 	if (g_capture_left) { /* a capture belongs to one game: the next one's tasks would join its files */
 		report_line("Capture stopped with the game, %d graphics tasks short", g_capture_left);
 		g_capture_left = 0;

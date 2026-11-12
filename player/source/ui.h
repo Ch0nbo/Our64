@@ -86,7 +86,7 @@ typedef struct {
 } loading_view;
 
 /* The setup screens (setup_wiiu.c fills it). */
-enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START, SETUP_DELETING, SETUP_OPTIONS, SETUP_CHOICE };
+enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START, SETUP_DELETING, SETUP_OPTIONS, SETUP_CHOICE, SETUP_GAMEPIC };
 typedef struct {
 	int screen;              /* SETUP_ */
 	settings_ui settings;
@@ -96,6 +96,11 @@ typedef struct {
 	start_ui start;          /* Settings > Games > Start on */
 	options_ui options;      /* Game options: the game in `game` */
 	choice_ui choice;        /* a page of choices under it (Resolution, Cover) */
+	gamepic_ui gamepic;      /* Game options > Picture */
+	/* the cover picker (browse.files): the selected image, decoded; NULL while there is none */
+	const uint8_t *preview_rgba;
+	int preview_w, preview_h;
+	unsigned preview_gen;    /* changes with the picture */
 	browse_ui browse;        /* about 80 KB: setup_view is a static, never on the stack */
 	controllers_ui controllers;
 	order_ui order;

@@ -392,9 +392,12 @@ void draw_speed(int percent)
 		return;
 	char words[16];
 	snprintf(words, sizeof(words), "%d%%", percent > 999 ? 999 : percent);
+	// placed by its measured width, as the notices' words are: centre-justified
+	// text sat off the box's middle over the game (Zach, 2026-11-11)
+	const int px = 24, tw = text_width(words, px);
 	const float w = 92, h = 40, x = UI_W - w - 20, y = 16;
 	box(x, y, w, h, rgb(T.bar.fill), 10, 0, rgb(over().accent), 10);
-	text(x + w / 2, y + 7, words, 24, rgb(T.bar.ink), GUI_TEXT_JUSTIFY_CENTER);
+	text(x + (w - tw) / 2.0f, y + (h - px) / 2.0f - 2, words, px, rgb(T.bar.ink));
 }
 
 // ---- the pause screens (pause.h) ----
@@ -1456,7 +1459,8 @@ void setup_header(const char * headline, const char * sub)
 // page has ">", a value row its values with the one in use ticked and the one
 // left/right is on in a thick light border.
 void value_rows(int rows, int sel, const char * (*name)(int), int (*values)(int), const char * (*value)(int, int),
-                const int * pick, const int * in_use, const bool * page, bool (*off)(int, int))
+                const int * pick, const int * in_use, const bool * page, bool (*off)(int, int),
+                void (*rect)(int, int, int *) = settings_value_rect)
 {
 	for (int row = 0; row < rows; row++) {
 		int r[4];
@@ -1469,7 +1473,7 @@ void value_rows(int rows, int sel, const char * (*name)(int), int (*values)(int)
 		}
 		for (int i = 0; i < values(row); i++) {
 			int vr[4];
-			settings_value_rect(row, i, vr);
+			rect(row, i, vr);
 			const bool picked = pick[row] == i, dead = off != nullptr && off(row, i);
 			if (picked)
 				box(vr[0] - 3, vr[1] - 3, vr[2] + 6, vr[3] + 6, rgb(T.panel.fill), 24);
@@ -1953,6 +1957,8 @@ void draw_deleting(const setup_view & sv)
 
 // Settings > Games > ROM folder: the drives, then a drive's folders, with
 // "Use this folder" first; arrows in the margin when rows are out of view.
+void draw_preview(const setup_view & sv);
+
 void draw_browse(const setup_view & sv)
 {
 	const browse_ui & b = sv.browse;
@@ -1962,6 +1968,8 @@ void draw_browse(const setup_view & sv)
 		const int row = b.top + i;
 		int r[4];
 		browse_row_rect(i, r);
+		if (b.files)
+			r[2] = BROWSE_FILES_W; // the preview has the right side
 		const bool sel = b.row == row;
 		selectable(r[0], r[1], r[2], r[3], sel, false, 4, 8);
 		char value[32];
@@ -1985,6 +1993,8 @@ void draw_browse(const setup_view & sv)
 		browse_row_rect(BROWSE_SHOWN - 1, r);
 		text(UI_W - 20, r[1] + 10, "▼", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
 	}
+	if (b.files)
+		draw_preview(sv);
 	pause_key keys[6];
 	int n = browse_legend(&b, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
@@ -2013,6 +2023,64 @@ void draw_options(const setup_view & sv)
 	pause_key keys[6];
 	int n = options_legend(&o, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
+}
+
+// Game options > Picture: Settings > Picture's rows for one game, Default
+// first in each; the game's name under the header (Zach, 2026-11-11).
+const gamepic_ui * g_rows_gamepic; // for gamepic_greyed
+bool gamepic_greyed(int row, int i) { return gamepic_off(g_rows_gamepic, row, i) != 0; }
+
+void draw_gamepic(const setup_view & sv)
+{
+	const gamepic_ui & g = sv.gamepic;
+	setup_header("PICTURE", sv.line[0] ? sv.line : sv.game);
+	int in_use[PIC_ROWS];
+	bool page[PIC_ROWS] = {};
+	for (int row = 0; row < PIC_ROWS; row++)
+		in_use[row] = g.set[row] + 1;
+	g_rows_gamepic = &g;
+	value_rows(PIC_ROWS, g.row, picture_row_name, gamepic_columns, gamepic_column_name, g.pick, in_use, page, gamepic_greyed,
+	           gamepic_value_rect);
+	row_about(PIC_ROWS, "Default uses Settings > Picture");
+	pause_key keys[6];
+	int n = gamepic_legend(&g, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
+// The cover picker's preview: the selected image, to the right of the rows.
+void * g_preview_tex;
+unsigned g_preview_gen;
+int g_preview_w, g_preview_h;
+
+void draw_preview(const setup_view & sv)
+{
+	const float x0 = 40 + BROWSE_FILES_W + 16, y0 = 130, w0 = UI_W - 40 - x0, h0 = 6 * 44 - 4;
+	box(x0, y0, w0, h0, rgb(T.bar.fill), 10);
+	if (sv.preview_rgba == nullptr || sv.preview_w <= 0 || sv.preview_h <= 0)
+		return;
+	if (g_preview_tex != nullptr && (g_preview_w != sv.preview_w || g_preview_h != sv.preview_h)) {
+		g_images->destroyTexture(g_preview_tex);
+		g_preview_tex = nullptr;
+	}
+	if (g_preview_tex == nullptr) {
+		g_preview_tex = g_images->createTexture(sv.preview_w, sv.preview_h);
+		g_preview_gen = ~sv.preview_gen;
+	}
+	if (g_preview_tex == nullptr)
+		return;
+	if (g_preview_gen != sv.preview_gen) {
+		g_images->loadTextureData(g_preview_tex, sv.preview_rgba, sv.preview_w, sv.preview_h);
+		g_preview_gen = sv.preview_gen;
+		g_preview_w = sv.preview_w;
+		g_preview_h = sv.preview_h;
+	}
+	// whole, inside the box with a margin, its own shape kept
+	const float room_w = w0 - 16, room_h = h0 - 16;
+	float k = room_w / sv.preview_w;
+	if (sv.preview_h * k > room_h)
+		k = room_h / sv.preview_h;
+	const float w = sv.preview_w * k, h = sv.preview_h * k;
+	g_images->drawTexture(g_preview_tex, x0 + (w0 - w) / 2, y0 + (h0 - h) / 2, uint16_t(lroundf(w)), uint16_t(lroundf(h)), 0, 1, 1, 255);
 }
 
 // A page of choices (Resolution, Cover): rows with a ring at the right, the
@@ -2051,6 +2119,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_START: draw_start(sv); break;
 	case SETUP_OPTIONS: draw_options(sv); break;
 	case SETUP_CHOICE: draw_choice(sv); break;
+	case SETUP_GAMEPIC: draw_gamepic(sv); break;
 	case SETUP_DELETING: draw_deleting(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;

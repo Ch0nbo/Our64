@@ -687,13 +687,37 @@ void shots_setup()
 		static const char * const cover[2] = { "Fetched cover", "Choose an image" };
 		snprintf(sv.game, sizeof(sv.game), "Super Mario 64");
 		sv.screen = SETUP_OPTIONS;
-		options_open(&sv.options, 480, COVER_FETCHED, 1, 0, 0);
+		options_open(&sv.options, 480, 0, COVER_FETCHED, 1, 0, 0);
 		shot("options", v);
-		options_open(&sv.options, 720, COVER_CUSTOM, 1, 1, 0);
+		options_open(&sv.options, 720, 1, COVER_CUSTOM, 1, 1, 0);
 		sv.options.row = OPT_DELETE;
 		shot("options-usb-delete", v);
-		options_open(&sv.options, 720, COVER_NONE, 0, 0, 1);
+		options_open(&sv.options, 720, 0, COVER_NONE, 0, 0, 1);
 		shot("options-paused", v);
+		sv.screen = SETUP_GAMEPIC; // Game options > Picture: Default first in each row
+		gamepic_open(&sv.gamepic, -1, PICTURE_WIDE, -1, 1);
+		shot("options-picture", v);
+		sv.gamepic.row = PIC_SCREEN;
+		sv.gamepic.pick[PIC_SCREEN] = 2;
+		shot("options-picture-pick", v);
+		{ // the cover picker: folders, then PNG files, the selected one's picture at the right
+			static uint8_t pic[64 * 90 * 4];
+			for (unsigned k = 0; k < sizeof(pic); k += 4) { pic[k] = 200; pic[k + 1] = 60; pic[k + 2] = 40; pic[k + 3] = 255; }
+			sv.screen = SETUP_BROWSE;
+			browse_open(&sv.browse);
+			sv.browse.files = 1;
+			sv.browse.depth = 2;
+			snprintf(sv.browse.path, sizeof(sv.browse.path), "sd:/covers");
+			browse_entered(&sv.browse, 0);
+			browse_add(&sv.browse, "Hacks", "sd:/covers/Hacks", 0);
+			browse_add_file(&sv.browse, "Super Mario 64 - The Green Comet (v1.0.1).png", "sd:/covers/a.png");
+			browse_add_file(&sv.browse, "Mario Kart 64 Amped Up.png", "sd:/covers/b.png");
+			sv.browse.row = 1;
+			sv.preview_rgba = pic; sv.preview_w = 64; sv.preview_h = 90; sv.preview_gen = 1;
+			shot("options-cover-picker", v);
+			sv.preview_rgba = nullptr;
+			sv.browse.files = 0;
+		}
 		sv.screen = SETUP_CHOICE;
 		choice_open(&sv.choice, "RESOLUTION", "720p is sharper on a TV. Many games slow down with it", res, 2, 0);
 		sv.choice.row = 1;

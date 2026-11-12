@@ -118,19 +118,20 @@ int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
  * unless the player chose it. Cover: the fetched one, or an image picked
  * with the folder finder. Delete: from Our ROMs only (not while the game
  * runs); greyed on a USB drive, which Our64 never writes to. ---- */
-enum { OPT_RES, OPT_COVER, OPT_DELETE, OPT_ROWS };
+enum { OPT_RES, OPT_PICTURE, OPT_COVER, OPT_DELETE, OPT_ROWS }; /* Zach's order, 2026-11-11 */
 enum { COVER_NONE, COVER_FETCHED, COVER_CUSTOM };
 typedef struct {
 	int row;
 	int lines;        /* 480 or 720 */
+	int picture_set;  /* the game has picture settings of its own (Picture reads "Custom", else "Default") */
 	int cover;        /* COVER_ */
 	int can_delete;   /* from Our ROMs: the Delete row is there */
 	int delete_off;   /* on a USB drive: Delete is greyed */
 	int paused;       /* opened from the pause menu: the game is running */
 	int touched;
 } options_ui;
-enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_COVER, OACT_DELETE };
-void options_open(options_ui *o, int lines, int cover, int can_delete, int delete_off, int paused);
+enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_PICTURE, OACT_COVER, OACT_DELETE };
+void options_open(options_ui *o, int lines, int picture_set, int cover, int can_delete, int delete_off, int paused);
 int  options_rows(const options_ui *o);
 int  options_event(options_ui *o, int event, int target);
 const char *options_row_name(int row);
@@ -139,6 +140,30 @@ void options_value(const options_ui *o, int row, char *out, unsigned size);
 const char *options_row_about(const options_ui *o);
 int  options_hit(const options_ui *o, int x, int y);   /* row, or -1 */
 int  options_legend(const options_ui *o, int type, pause_key *keys, int max);
+
+/* Game options > Picture (2026-11-11): Settings > Picture's three rows for one
+ * game, each with Default first. Default follows Settings > Picture and is
+ * what every game has until the player picks something else here; picking
+ * Default again clears it. set[]: the game's own value per row, -1 Default.
+ * pick[]: the column left/right is on (0 Default, then the values); A applies
+ * it (GPACT_SET: row and pick, then gamepic_applied). */
+typedef struct {
+	int row;
+	int set[PIC_ROWS];
+	int pick[PIC_ROWS];
+	int gamepad;      /* a GamePad is connected: GamePad only can be picked */
+	int touched;
+} gamepic_ui;
+enum { GPACT_NONE, GPACT_BACK, GPACT_HOME, GPACT_SET };
+void gamepic_open(gamepic_ui *g, int mode, int shape, int speed, int gamepad); /* each -1 for Default */
+int  gamepic_event(gamepic_ui *g, int event, int target);
+void gamepic_applied(gamepic_ui *g);
+int  gamepic_columns(int row);                       /* Default and the row's values */
+const char *gamepic_column_name(int row, int i);     /* "Default", "TV only", ... */
+int  gamepic_off(const gamepic_ui *g, int row, int i);
+void gamepic_value_rect(int row, int i, int r[4]);   /* four fit beside the row's name */
+int  gamepic_hit(int x, int y);                      /* as picture_hit */
+int  gamepic_legend(const gamepic_ui *g, int type, pause_key *keys, int max);
 
 /* A page of up to four choices, the one in use marked (Resolution, Cover):
  * A picks the selected one, B goes back unchanged. */
@@ -161,6 +186,7 @@ int  choice_legend(const choice_ui *c, int type, pause_key *keys, int max);
  * folder (paths "sd:/...", "usb1p1:/..."): this never touches files. ---- */
 #define BROWSE_MAX 256
 #define BROWSE_SHOWN 6
+#define BROWSE_FILES_W 470 /* a row's width while picking a file: the selected image shows to the right */
 typedef struct { char name[64]; char path[256]; int off; int file; } browse_entry;
 typedef struct {
 	int depth;              /* 0: the drives */

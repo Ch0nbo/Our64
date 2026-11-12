@@ -65,6 +65,7 @@ int  game_options_run(const char *file, const char *title, int glyphs, int pause
 void library_custom_cover_path(const char *file, char *out, unsigned size);
 int  library_cover_state(const char *file);   /* COVER_ (setup.h), -1 not listed */
 void library_cover_changed(const char *file);
+int  library_decode_png(const char *path, int max_w, int max_h, uint8_t *out, int *pw, int *ph); /* 0 when read */
 const char *player_rom_file(void);            /* main.c: the running game's ROM file name */
 
 /* ---- library_wiiu.c: Our ROMs ---- */

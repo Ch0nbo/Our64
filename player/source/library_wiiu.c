@@ -244,6 +244,8 @@ static void read_info_of(library_game *g)
 /* A cover into out (ART_W x ART_H at most), scaled down by an area average
  * (library_fit_rgba): libretro's 512 x 374 covers draw at 493 x 360, not
  * halved to whole pixels. */
+static int decode_png(const char *path, int max_w, int max_h, uint8_t *out, int *pw, int *ph);
+
 static int decode_art(const library_game *g, uint8_t *out, int *pw, int *ph)
 {
 	char path[600];
@@ -251,6 +253,17 @@ static int decode_art(const library_game *g, uint8_t *out, int *pw, int *ph)
 		library_custom_cover_path(g->file, path, sizeof(path));
 	else
 		snprintf(path, sizeof(path), "%s/art/%s.png", g_root, g->rom.id);
+	return decode_png(path, ART_W, ART_H, out, pw, ph);
+}
+
+/* The cover picker's preview (setup_wiiu.c): a PNG at a real path into out, at most max_w x max_h. */
+int library_decode_png(const char *path, int max_w, int max_h, uint8_t *out, int *pw, int *ph)
+{
+	return decode_png(path, max_w, max_h, out, pw, ph);
+}
+
+static int decode_png(const char *path, int max_w, int max_h, uint8_t *out, int *pw, int *ph)
+{
 	png_image im;
 	memset(&im, 0, sizeof(im));
 	im.version = PNG_IMAGE_VERSION;
@@ -259,7 +272,7 @@ static int decode_art(const library_game *g, uint8_t *out, int *pw, int *ph)
 	im.format = PNG_FORMAT_RGBA;
 	uint8_t *full = (uint64_t)im.width * im.height <= LIBRARY_FIT_MAX_PIXELS ? malloc(PNG_IMAGE_SIZE(im)) : NULL;
 	int ok = full && png_image_finish_read(&im, NULL, full, 0, NULL) &&
-	         !library_fit_rgba(full, (int)im.width, (int)im.height, ART_W, ART_H, out, pw, ph);
+	         !library_fit_rgba(full, (int)im.width, (int)im.height, max_w, max_h, out, pw, ph);
 	free(full);
 	png_image_free(&im);
 	return ok ? 0 : -1;
@@ -637,10 +650,7 @@ static void delete_game(void)
 		snprintf(v->notice, sizeof(v->notice), "On a USB drive: delete it on a computer");
 		return;
 	}
-	char question[96];
-	snprintf(question, sizeof(question), "Delete %s?", g->title);
-	if (!player_ask(question, "Its saves and save states stay.", "Delete"))
-		return;
+	/* asked in Game options, where Cancel stays (Zach, 2026-11-11) */
 	char trash[300], from[512], to[450];
 	snprintf(trash, sizeof(trash), "%s/trash", g_root);
 	mkdir(trash, 0777);

@@ -29,7 +29,8 @@ enum { PAUSE_MENU, PAUSE_SLOTS, PAUSE_ASK };
  * Settings, Exit to Our ROMs; then Save state, Load state, Reset game.
  * Change disc only for a game on several discs (pause_ui.discs). */
 /* Game options (2026-11-11): the running game's own settings, the first
- * column's third, above Exit. */
+ * column's second, above Settings (Zach). Up on a column's first item goes to
+ * its last and Down on the last to the first (Zach: seven items now). */
 enum { ITEM_RESUME, ITEM_SETTINGS, ITEM_EXIT, ITEM_SAVE, ITEM_LOAD, ITEM_RESET, ITEM_DISC, ITEM_OPTIONS, ITEMS };
 #define ITEM_ROWS 3 /* items in a column, without Change disc */
 enum { SLOTS_SAVE, SLOTS_LOAD };

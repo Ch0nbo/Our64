@@ -40,7 +40,7 @@ int pause_item_shown(const pause_ui *p, int item)
  * column's fourth, or, while what failed takes the fourth row's room, the
  * third column's first. */
 #define COLUMNS 3
-static const int g_columns[COLUMNS][4] = { { ITEM_RESUME, ITEM_SETTINGS, ITEM_OPTIONS, ITEM_EXIT },
+static const int g_columns[COLUMNS][4] = { { ITEM_RESUME, ITEM_OPTIONS, ITEM_SETTINGS, ITEM_EXIT },
                                            { ITEM_SAVE, ITEM_LOAD, ITEM_RESET, ITEM_DISC },
                                            { -1, -1, -1, -1 } };
 /* Game options is a fourth row too: with the panel up it heads the third column, Change disc under it. */
@@ -281,12 +281,17 @@ static int menu_event(pause_ui *p, int event)
 		break;
 	}
 	case PEV_UP:
-		if (row > 0)
+		if (row > 0) {
 			p->item = item_at(p, col, row - 1);
+		} else { /* the column's first: round to its last (Zach, 2026-11-11) */
+			int last = row;
+			while (item_at(p, col, last + 1) >= 0)
+				last++;
+			p->item = item_at(p, col, last);
+		}
 		break;
 	case PEV_DOWN:
-		if (item_at(p, col, row + 1) >= 0)
-			p->item = item_at(p, col, row + 1);
+		p->item = item_at(p, col, row + 1) >= 0 ? item_at(p, col, row + 1) : item_at(p, col, 0);
 		break;
 	case PEV_BACK:
 		return PACT_RESUME;

@@ -42,9 +42,8 @@ static void go_item(int item)
 {
 	for (int c = 0; c < 3; c++) {
 		for (int k = 0; k < 3; k++) ev(PEV_LEFT);
-		for (int k = 0; k < 4; k++) ev(PEV_UP);
 		for (int k = 0; k < c; k++) ev(PEV_RIGHT);
-		for (int k = 0; k < 4 && g_p.item != item; k++) ev(PEV_DOWN);
+		for (int k = 0; k < 5 && g_p.item != item; k++) ev(PEV_DOWN); /* Down goes round each column */
 		if (g_p.item == item)
 			return;
 	}
@@ -79,24 +78,31 @@ static void six_items_in_two_columns_of_three(void)
 {
 	open_with(NULL, 0);
 	CHECK(ITEMS == 8 && !pause_item_shown(&g_p, ITEM_DISC)); /* seven shown: Change disc only for several discs */
-	ev(PEV_UP);
 	ev(PEV_LEFT);
 	CHECK(g_p.item == ITEM_RESUME);
+	ev(PEV_UP);
+	CHECK(g_p.item == ITEM_EXIT); /* Up on Resume goes round to Exit (Zach, 2026-11-11) */
+	ev(PEV_DOWN);
+	CHECK(g_p.item == ITEM_RESUME); /* and Down on the last to the first */
+	ev(PEV_DOWN);
+	CHECK(g_p.item == ITEM_OPTIONS); /* Game options (2026-11-11): the first column's second, above Settings */
+	CHECK(!strcmp(pause_item_name(&g_p, ITEM_OPTIONS), "Game options") && pause_item_enabled(&g_p, ITEM_OPTIONS));
 	ev(PEV_DOWN);
 	CHECK(g_p.item == ITEM_SETTINGS);
 	ev(PEV_DOWN);
-	CHECK(g_p.item == ITEM_OPTIONS); /* Game options (2026-11-11): the first column's third, above Exit */
-	CHECK(!strcmp(pause_item_name(&g_p, ITEM_OPTIONS), "Game options") && pause_item_enabled(&g_p, ITEM_OPTIONS));
+	CHECK(g_p.item == ITEM_EXIT);
+	ev(PEV_RIGHT);
+	CHECK(g_p.item == ITEM_RESET); /* the second column's last, it being shorter */
 	ev(PEV_DOWN);
-	ev(PEV_DOWN);
-	CHECK(g_p.item == ITEM_EXIT); /* stops at the column's end */
+	CHECK(g_p.item == ITEM_SAVE); /* the second column goes round too */
+	ev(PEV_UP);
+	CHECK(g_p.item == ITEM_RESET);
 	go_item(ITEM_OPTIONS);
 	CHECK(ev(PEV_OK) == PACT_OPTIONS);
 	ev(PEV_RIGHT);
-	CHECK(g_p.item == ITEM_RESET); /* the same row in the other column */
+	CHECK(g_p.item == ITEM_LOAD); /* the same row in the other column */
 	ev(PEV_RIGHT);
-	CHECK(g_p.item == ITEM_RESET);
-	ev(PEV_UP);
+	CHECK(g_p.item == ITEM_LOAD);
 	ev(PEV_UP);
 	CHECK(g_p.item == ITEM_SAVE);
 	ev(PEV_LEFT);
@@ -105,7 +111,7 @@ static void six_items_in_two_columns_of_three(void)
 	pause_item_rect(&g_p, ITEM_RESUME, a);
 	pause_item_rect(&g_p, ITEM_SETTINGS, b);
 	pause_item_rect(&g_p, ITEM_SAVE, c);
-	CHECK(a[0] == b[0] && b[1] > a[1]); /* Settings under Resume */
+	CHECK(a[0] == b[0] && b[1] > a[1]); /* Settings under Resume (Game options between them) */
 	CHECK(c[1] == a[1] && c[0] > a[0]);  /* Save state beside Resume */
 }
 

@@ -890,10 +890,46 @@ static void list_images(browse_ui *b)
 		line("No folders or PNG images here.");
 }
 
+/* The picker's preview: the selected image, read once the selection has
+ * rested a quarter of a second (a big PNG takes a moment off the card), so
+ * moving through a long folder stays quick. */
+#define PREVIEW_W 320
+#define PREVIEW_H 256
+static uint8_t g_preview[PREVIEW_W * PREVIEW_H * 4] __attribute__((aligned(64)));
+static char g_preview_of[256];  /* the path shown, or tried */
+static char g_preview_sel[256]; /* the path selected now */
+static double g_preview_since;
+
+static void preview_tick(const browse_ui *b)
+{
+	const char *sel = browse_picked(b);
+	if (strcmp(sel, g_preview_sel)) {
+		snprintf(g_preview_sel, sizeof(g_preview_sel), "%s", sel);
+		g_preview_since = now_s();
+	}
+	if (!strcmp(g_preview_of, g_preview_sel) || now_s() - g_preview_since < 0.25)
+		return;
+	snprintf(g_preview_of, sizeof(g_preview_of), "%s", g_preview_sel);
+	char real[600];
+	int w = 0, h = 0;
+	if (g_preview_sel[0] && open_path(g_preview_sel, real, sizeof(real)) &&
+	    !library_decode_png(real, PREVIEW_W, PREVIEW_H, g_preview, &w, &h)) {
+		g_view.preview_rgba = g_preview;
+		g_view.preview_w = w;
+		g_view.preview_h = h;
+	} else {
+		g_view.preview_rgba = NULL; /* a folder, or a file that is not a PNG it can read */
+	}
+	g_view.preview_gen++;
+}
+
 /* The folder finder, picking a PNG: 1 with its path (as the finder names it) in out; 0 for B; -2 for HOME. */
 static int run_pick_image(char *out, unsigned size)
 {
 	browse_ui *b = &g_view.browse;
+	g_preview_of[0] = g_preview_sel[0] = 0;
+	g_view.preview_rgba = NULL;
+	g_view.preview_gen++;
 	browse_open(b);
 	b->files = 1;
 	library_usb_rescan();
@@ -904,6 +940,7 @@ static int run_pick_image(char *out, unsigned size)
 	memset(&f, 0, sizeof(f));
 	int touching = 0, target = -1, result = -3;
 	while (result == -3) {
+		preview_tick(b);
 		show();
 		read_frame(&f, NULL, &touching, &target);
 		if (player_closing())
@@ -934,6 +971,73 @@ static int run_pick_image(char *out, unsigned size)
 		}
 	}
 	b->files = 0;
+	g_view.preview_rgba = NULL;
+	g_view.line[0] = 0;
+	g_view.screen = SETUP_OPTIONS;
+	return result;
+}
+
+/* Game options > Picture: this game's own Screen mode, Shape and Speed
+ * display. Stored at once; in a paused game they also apply at once (Shape as
+ * the page closes: each change rebuilds frame buffers). -2 for HOME. */
+static int gamepic_hit_now(int x, int y) { return gamepic_hit(x, y); }
+
+static int picture_set_any(const char *file)
+{
+	return gameopt_picture(file, GAMEOPT_MODE) >= 0 || gameopt_picture(file, GAMEOPT_SHAPE) >= 0 ||
+	       gameopt_picture(file, GAMEOPT_SPEED) >= 0;
+}
+
+static int run_gamepic(const char *file, int paused)
+{
+	static const int key_of[PIC_ROWS] = { GAMEOPT_MODE, GAMEOPT_SHAPE, GAMEOPT_SPEED };
+	static const char *const row_words[PIC_ROWS] = { "Screen mode", "Shape", "Speed display" };
+	gamepic_ui *g = &g_view.gamepic;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	input_menu_state(&f.m);
+	gamepic_open(g, gameopt_picture(file, GAMEOPT_MODE), gameopt_picture(file, GAMEOPT_SHAPE),
+	             gameopt_picture(file, GAMEOPT_SPEED), f.m.type[0] >= 0);
+	const int shape_at_open = g->set[PIC_SHAPE];
+	g_view.screen = SETUP_GAMEPIC;
+	g_view.line[0] = 0;
+	int touching = 0, target = -1, result = -3;
+	while (result == -3) {
+		g->gamepad = f.m.type[0] >= 0;
+		show();
+		read_frame(&f, gamepic_hit_now, &touching, &target);
+		if (player_closing())
+			result = -2;
+		for (int i = 0; i < f.n && result == -3; i++) {
+			switch (gamepic_event(g, f.events[i], f.targets[i])) {
+			case GPACT_BACK: result = 0; break;
+			case GPACT_HOME:
+				if (home_ok())
+					result = -2;
+				break;
+			case GPACT_SET: {
+				const int row = g->row, value = g->pick[row] - 1, keep = g->set[row];
+				if (gameopt_set_picture(file, key_of[row], value) || gameopt_save()) {
+					gameopt_set_picture(file, key_of[row], keep);
+					g->pick[row] = keep + 1;
+					write_failed();
+					break;
+				}
+				gamepic_applied(g);
+				report_line("OPTIONS: %s: %s %s", file, row_words[row], gamepic_column_name(row, value + 1));
+				snprintf(g_view.line, sizeof(g_view.line), "%s: %s%s", row_words[row], gamepic_column_name(row, value + 1),
+				         paused && row == PIC_SHAPE ? ", on Resume" : "");
+				if (paused && row == PIC_SCREEN)
+					apply_mode(value >= 0 ? value : g_settings.mode >= 0 ? g_settings.mode : ui_mode());
+				if (paused && row == PIC_SPEED)
+					player_speed_display(value >= 0 ? value : g_settings.speed);
+				break;
+			}
+			}
+		}
+	}
+	if (paused && g->set[PIC_SHAPE] != shape_at_open)
+		video_set_picture((g->set[PIC_SHAPE] >= 0 ? g->set[PIC_SHAPE] : g_settings.picture) == PICTURE_WIDE);
 	g_view.line[0] = 0;
 	g_view.screen = SETUP_OPTIONS;
 	return result;
@@ -1012,7 +1116,7 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 	g_view.line[0] = 0;
 	g_view.screen = SETUP_OPTIONS;
 	const int cover = library_cover_state(file);
-	options_open(o, gameopt_lines(file), cover < 0 ? COVER_NONE : cover, !paused, usb, paused);
+	options_open(o, gameopt_lines(file), picture_set_any(file), cover < 0 ? COVER_NONE : cover, !paused, usb, paused);
 	input_take_home();
 	frame_input f;
 	memset(&f, 0, sizeof(f));
@@ -1038,7 +1142,9 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 					result = 1;
 				/* never on by itself: the player reads this first (Zach, 2026-11-11) */
 				else if (pick == 1 && o->lines != 720 &&
-				         !player_ask("Use 720p for this game?", "Many games slow down or stutter with it.", "Use 720p"))
+				         !player_ask("Use 720p for this game?",
+				                     paused ? "Many games slow down or stutter with it. It starts when the game next starts."
+				                            : "Many games slow down or stutter with it.", "Use 720p"))
 					;
 				else if (pick >= 0)
 					options_set_lines(o, file, pick ? 720 : 480);
@@ -1063,7 +1169,21 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 				i = f.n;
 				break;
 			}
-			case OACT_DELETE: result = 2; break;
+			case OACT_PICTURE:
+				if (run_gamepic(file, paused) == -2)
+					result = 1;
+				o->picture_set = picture_set_any(file);
+				i = f.n;
+				break;
+			case OACT_DELETE: {
+				/* asked here: Cancel stays in Game options (Zach, 2026-11-11) */
+				char question[96];
+				snprintf(question, sizeof(question), "Delete %s?", title);
+				if (player_ask(question, "Its saves and save states stay.", "Delete"))
+					result = 2;
+				i = f.n;
+				break;
+			}
 			}
 		}
 	}
@@ -1219,8 +1339,8 @@ void settings_run(int from_pause)
 		}
 	}
 done:
-	if (g_settings.picture != picture_at_open)
-		video_set_picture(g_settings.picture == PICTURE_WIDE);
+	if (g_settings.picture != picture_at_open && !(from_pause && gameopt_picture(player_rom_file(), GAMEOPT_SHAPE) >= 0))
+		video_set_picture(g_settings.picture == PICTURE_WIDE); /* not over a game's own Shape (Game options > Picture) */
 	input_withhold();
 	if (home) /* HOME means Wii U Menu: the caller asks first (a paused game) or leaves */
 		g_home_asked = 1;

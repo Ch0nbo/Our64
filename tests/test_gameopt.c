@@ -14,4 +14,19 @@ int main(void){
 	assert(!strcmp(t,"Star Fox 64 (USA) (Rev 1).z64\t720p\nNew.z64\t720p\n"));
 	assert(gameopt_text(NULL,0)==n);
 	gameopt_parse(t); assert(gameopt_lines("New.z64")==720);
+	/* a game's own picture settings: nothing set until the player sets it, and cleared again */
+	assert(gameopt_picture("New.z64",GAMEOPT_SHAPE)==-1 && gameopt_picture("nope",GAMEOPT_MODE)==-1);
+	assert(gameopt_set_picture("Only.z64",GAMEOPT_SHAPE,1)==0 && gameopt_picture("Only.z64",GAMEOPT_SHAPE)==1);
+	assert(gameopt_lines("Only.z64")==480);
+	assert(gameopt_set_picture("New.z64",GAMEOPT_MODE,2)==0 && gameopt_set_picture("New.z64",GAMEOPT_SPEED,0)==0);
+	n=gameopt_text(t,sizeof t);
+	assert(!strcmp(t,"Star Fox 64 (USA) (Rev 1).z64\t720p\nNew.z64\t720p\tmode=2\tspeed=0\nOnly.z64\tshape=1\n"));
+	gameopt_parse(t);
+	assert(gameopt_picture("New.z64",GAMEOPT_MODE)==2 && gameopt_picture("New.z64",GAMEOPT_SPEED)==0 && gameopt_picture("New.z64",GAMEOPT_SHAPE)==-1);
+	assert(gameopt_set_picture("Only.z64",GAMEOPT_SHAPE,-1)==0);
+	n=gameopt_text(t,sizeof t); assert(!strstr(t,"Only.z64")); /* all default again: no line */
+	gameopt_renamed("New.z64","Renamed.z64");
+	assert(gameopt_lines("Renamed.z64")==720 && gameopt_lines("New.z64")==480);
+	gameopt_parse("Bad.z64\tmode=9\tspeed=x\n"); assert(gameopt_picture("Bad.z64",GAMEOPT_MODE)==-1);
+	(void)n;
 	puts("gameopt ok"); return 0; }

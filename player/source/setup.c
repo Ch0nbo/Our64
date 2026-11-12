@@ -475,14 +475,15 @@ int start_legend(const start_ui *s, int type, pause_key *keys, int max)
 
 /* ---- Game options ---- */
 
-static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Cover", "Delete" };
+static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Picture", "Cover", "Delete" };
 
 const char *options_row_name(int row) { return row >= 0 && row < OPT_ROWS ? g_opt_row[row] : ""; }
 
-void options_open(options_ui *o, int lines, int cover, int can_delete, int delete_off, int paused)
+void options_open(options_ui *o, int lines, int picture_set, int cover, int can_delete, int delete_off, int paused)
 {
 	memset(o, 0, sizeof(*o));
 	o->lines = lines == 720 ? 720 : 480;
+	o->picture_set = picture_set;
 	o->cover = cover;
 	o->can_delete = can_delete;
 	o->delete_off = delete_off;
@@ -498,7 +499,7 @@ static int options_act(const options_ui *o)
 {
 	if (options_row_off(o, o->row))
 		return OACT_NONE;
-	return o->row == OPT_RES ? OACT_RES : o->row == OPT_COVER ? OACT_COVER : OACT_DELETE;
+	return o->row == OPT_RES ? OACT_RES : o->row == OPT_PICTURE ? OACT_PICTURE : o->row == OPT_COVER ? OACT_COVER : OACT_DELETE;
 }
 
 int options_event(options_ui *o, int event, int target)
@@ -531,6 +532,7 @@ int options_event(options_ui *o, int event, int target)
 void options_value(const options_ui *o, int row, char *out, unsigned size)
 {
 	snprintf(out, size, "%s", row == OPT_RES ? (o->lines == 720 ? "720p" : "480p")
+	                          : row == OPT_PICTURE ? (o->picture_set ? "Custom" : "Default")
 	                          : row == OPT_COVER ? (o->cover == COVER_CUSTOM ? "Custom" : o->cover == COVER_FETCHED ? "Fetched" : "None")
 	                          : "");
 }
@@ -541,6 +543,7 @@ const char *options_row_about(const options_ui *o)
 	case OPT_DELETE:
 		return o->delete_off ? "On a USB drive: delete it on a computer" : "Moves the ROM to the trash folder. Its saves stay";
 	case OPT_COVER: return "The picture shown for this game in Our ROMs";
+	case OPT_PICTURE: return "This game's own screen mode, shape and speed display";
 	default: return o->paused ? "Changes when the game next starts" : "How sharp this game is drawn on a TV";
 	}
 }
@@ -563,6 +566,118 @@ int options_legend(const options_ui *o, int type, pause_key *keys, int max)
 	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
 	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
 	keys_add(keys, &n, max, ok_glyph(type), "OK", options_act(o) == OACT_NONE);
+	return n;
+}
+
+/* ---- Game options > Picture ---- */
+
+int gamepic_columns(int row) { return picture_values(row) + 1; }
+
+const char *gamepic_column_name(int row, int i) { return i == 0 ? "Default" : picture_value_name(row, i - 1); }
+
+int gamepic_off(const gamepic_ui *g, int row, int i) { return i > 0 && row == PIC_SCREEN && !g->gamepad && mode_uses_gamepad(i - 1); }
+
+void gamepic_open(gamepic_ui *g, int mode, int shape, int speed, int gamepad)
+{
+	memset(g, 0, sizeof(*g));
+	g->set[PIC_SCREEN] = mode;
+	g->set[PIC_SHAPE] = shape;
+	g->set[PIC_SPEED] = speed;
+	for (int row = 0; row < PIC_ROWS; row++) {
+		if (g->set[row] < 0 || g->set[row] >= picture_values(row))
+			g->set[row] = -1;
+		g->pick[row] = g->set[row] + 1;
+	}
+	g->gamepad = gamepad;
+	g->touched = -1;
+}
+
+void gamepic_applied(gamepic_ui *g) { g->set[g->row] = g->pick[g->row] - 1; }
+
+static void gamepic_select(gamepic_ui *g, int row)
+{
+	if (row != g->row)
+		for (int r = 0; r < PIC_ROWS; r++)
+			g->pick[r] = g->set[r] + 1; /* a pick not applied is dropped, as on Settings > Picture */
+	g->row = row;
+}
+
+int gamepic_event(gamepic_ui *g, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		const int row = target >= 0 ? target / 8 : -1, value = target >= 0 ? target % 8 - 1 : -1;
+		const int now = row == g->row && (value < 0 || g->pick[row] == value);
+		int e = tap(&g->touched, event, target, now);
+		if (e == -2) {
+			gamepic_select(g, row);
+			if (value >= 0 && value < gamepic_columns(row) && !gamepic_off(g, row, value))
+				g->pick[row] = value;
+			return GPACT_NONE;
+		}
+		if (e < 0)
+			return GPACT_NONE;
+		event = e;
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = g->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < PIC_ROWS)
+			gamepic_select(g, row);
+		break;
+	}
+	case PEV_LEFT:
+	case PEV_RIGHT: {
+		const int step = event == PEV_LEFT ? -1 : 1, n = gamepic_columns(g->row);
+		for (int i = g->pick[g->row] + step; i >= 0 && i < n; i += step)
+			if (!gamepic_off(g, g->row, i)) {
+				g->pick[g->row] = i;
+				break;
+			}
+		break;
+	}
+	case PEV_OK:
+		if (g->pick[g->row] == g->set[g->row] + 1 || gamepic_off(g, g->row, g->pick[g->row]))
+			return GPACT_NONE;
+		return GPACT_SET;
+	case PEV_BACK: return GPACT_BACK;
+	case PEV_HOME: return GPACT_HOME;
+	}
+	return GPACT_NONE;
+}
+
+void gamepic_value_rect(int row, int i, int r[4])
+{
+	r[0] = 264 + i * 137; /* clear of "Speed display", the longest name */
+	r[1] = SROW_Y + row * SROW_STEP + 5;
+	r[2] = 131;
+	r[3] = SROW_H - 10;
+}
+
+int gamepic_hit(int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < PIC_ROWS; row++) {
+		for (int i = 0; i < gamepic_columns(row); i++) {
+			gamepic_value_rect(row, i, r);
+			if (inside(x, y, r))
+				return row * 8 + i + 1;
+		}
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row * 8;
+	}
+	return -1;
+}
+
+int gamepic_legend(const gamepic_ui *g, int type, pause_key *keys, int max)
+{
+	int n = 0;
+	const int same = g->pick[g->row] == g->set[g->row] + 1 || gamepic_off(g, g->row, g->pick[g->row]);
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", same);
 	return n;
 }
 
@@ -713,9 +828,8 @@ int browse_row_off(const browse_ui *b, int row)
 
 void browse_row_value(const browse_ui *b, int row, char *out, unsigned size)
 {
-	const browse_entry *fe = browse_entry_of(b, row);
-	if (b->files)
-		snprintf(out, size, "%s", fe && fe->file ? "Image" : "");
+	if (b->files) /* a file's name says it is an image: no marker (Zach, 2026-11-11) */
+		snprintf(out, size, "%s", "");
 	else if (!browse_use_row(b) || row != 0 || b->games < 0)
 		snprintf(out, size, "%s", "");
 	else if (b->games == 0)
@@ -830,6 +944,8 @@ int browse_hit(const browse_ui *b, int x, int y)
 	int r[4];
 	for (int i = 0; i < BROWSE_SHOWN && b->top + i < browse_rows(b); i++) {
 		browse_row_rect(i, r);
+		if (b->files)
+			r[2] = BROWSE_FILES_W; /* the preview has the right side */
 		if (inside(x, y, r))
 			return b->top + i;
 	}
