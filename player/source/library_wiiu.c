@@ -616,7 +616,7 @@ static void pick_category(int category)
 	v->count = library_show(g_games, g_count, category, g_shown);
 	v->sel = 0;
 	for (int i = 0; i < v->count; i++)
-		if (g_shown[i] == game && game >= 0)
+		if (g_shown[i] == game && game >= 0 && category != LIBRARY_SEARCH) /* Search opens on its card, ready for a new search */
 			v->sel = i;
 	v->pos = (float)v->sel;
 }

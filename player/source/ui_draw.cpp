@@ -866,9 +866,10 @@ void * art_texture(const roms_view & rv, int game)
 
 // A game with no box art: its title light on blue, framed light; a file that
 // cannot be read: light on red, a failure.
-void poster(float x, float y, float w, float h, const char * title, bool failed)
+// Search's card takes the selection's blue (Zach, 2026-11-12): `as`.
+void poster(float x, float y, float w, float h, const char * title, bool failed, const our_surface * as = nullptr)
 {
-	const our_surface & on = failed ? T.fail : T.screen;
+	const our_surface & on = as != nullptr ? *as : failed ? T.fail : T.screen;
 	box(x, y, w, h, rgb(T.panel.fill));
 	box(x + 4, y + 4, w - 8, h - 8, rgb(on.fill));
 	std::string upper(title);
@@ -974,7 +975,7 @@ void stage_cover(const roms_view & rv, int at, float d)
 			return;
 		if (a < 0.5f && !rv.bar_focus)
 			box(x - 3, top - 3, w + 6, h + 6, PixelColor{0, 0, 0, 0}, 0, 0, rgb(T.panel.fill), 18);
-		poster(x, top, w, h, search_card_text(rv).c_str(), false);
+		poster(x, top, w, h, search_card_text(rv).c_str(), false, &T.select);
 		if (a > 0.05f)
 			box(x, top, w, h, PixelColor{0, 0, 0, uint8_t(fminf(a, 3) * 50)});
 		else if (rv.bar_focus)
@@ -1204,7 +1205,7 @@ void drawer_cover(const roms_view & rv, int at, float d)
 		const float ctop = DRAWER_Y - sel_h / 2 - drawer_reach(d), cx = DRAWER_X - w / 2 + (a < 1 ? PULL * (1 - a) : 0);
 		if (a > 2.4f)
 			return;
-		poster(cx, ctop, w, h, search_card_text(rv).c_str(), false);
+		poster(cx, ctop, w, h, search_card_text(rv).c_str(), false, &T.select);
 		if (a > 0.05f)
 			box(cx, ctop, w, h, PixelColor{0, 0, 0, uint8_t(fminf(a, 3) * 45)});
 		return;
