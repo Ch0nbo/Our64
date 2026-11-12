@@ -615,7 +615,13 @@ static GX2ColorBuffer * filtered(GX2ColorBuffer * frame, int which)
 {
 	Fx & fx = g_fx[which];
 	const bool pad = which == FX_PAD;
-	if (!shader_is_filter(g_shader) || g_mode == (pad ? MODE_TV : MODE_GAMEPAD) || fx.failed[g_shader])
+	// A screen the mode does not use gets no pass (GamePad only: none for the
+	// TV; TV only: none for the GamePad), and its picture's memory goes back.
+	if (g_mode == (pad ? MODE_TV : MODE_GAMEPAD)) {
+		free_fx(fx);
+		return nullptr;
+	}
+	if (!shader_is_filter(g_shader) || fx.failed[g_shader])
 		return nullptr;
 	const GX2ColorBuffer * screen = pad ? WHBGfxGetDRCColourBuffer() : WHBGfxGetTVColourBuffer();
 	if (fx.buffer.surface.image != nullptr &&
