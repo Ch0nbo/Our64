@@ -1869,8 +1869,11 @@ static int play_game(int index)
 		   * tlb-links; the dev build's test switch edge-off turns it off for an A/B run. */
 			extern int our64_edge_off;
 			extern unsigned int our64_edge_branches, our64_edge_pads;
+			extern unsigned int our64_edge_retries, our64_edge_retries_left, our64_edge_recompile;
 			our64_edge_off = 0;
 			our64_edge_branches = our64_edge_pads = 0;
+			our64_edge_retries = our64_edge_recompile = 0;
+			our64_edge_retries_left = 256;
 #ifndef OUR64_RELEASE
 			char path[256];
 			struct stat st;
@@ -2062,10 +2065,10 @@ static int play_game(int index)
 		report_line("GAME: %s (%s): %.0f min%s, %u audio underruns", played, id,
 		            (report_now_us() - g_sweep_t0_us) / 60e6, low, audio_underruns() - g_sweep_under0);
 		{
-			extern unsigned int our64_edge_branches, our64_edge_pads;
+			extern unsigned int our64_edge_branches, our64_edge_pads, our64_edge_retries;
 			if (our64_edge_branches || our64_edge_pads)
-				report_line("CPU: %u branches on a page's last word compiled, %u linked page ends", our64_edge_branches,
-				            our64_edge_pads);
+				report_line("CPU: %u branches on a page's last word compiled (%u functions compiled again for one), %u linked page ends",
+				            our64_edge_branches, our64_edge_retries, our64_edge_pads);
 		}
 	}
 	{

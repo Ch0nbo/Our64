@@ -93,6 +93,7 @@ static inline short extractLower16(void* address){
 static int FP_need_check;
 
 #ifdef __WIIU__
+static int edge_pending; /* the next genCallInterp is for a page-edge branch whose next page was unmapped */
 static int genEdgeGuard(MIPS_instr mips);
 /* A branch that CANT_COMPILE_DELAY sends to the interpreter is compiled after
  * all when genEdgeGuard could guard its delay slot. */
@@ -5427,7 +5428,13 @@ static void genCallInterp(MIPS_instr mips){
 	GEN_ORI(ppc, R4, R4, get_src_pc());
 	set_next_dst(ppc);
 	// Branch to decodeNInterpret
+#ifdef __WIIU__
+	{ extern unsigned int our64_edge_interp(MIPS_instr, unsigned int, int); /* Wrappers.c */
+	  GEN_B(ppc, add_jump(edge_pending ? (int)&our64_edge_interp : (int)&decodeNInterpret, 1, 1), 0, 1);
+	  edge_pending = 0; }
+#else
 	GEN_B(ppc, add_jump(&decodeNInterpret, 1, 1), 0, 1);
+#endif
 	set_next_dst(ppc);
 	// Load the old LR
 	GEN_LWZ(ppc, R0, DYNAOFF_LR, R1);
@@ -5473,10 +5480,11 @@ static int genEdgeGuard(MIPS_instr mips){
 	if(!our64_tlb_links || our64_edge_off || isDelaySlot || our64_code_room() <= 4096) return 0;
 	unsigned long* slot = &tlb_LUT_r[next >> 12];
 	const unsigned long entry = *slot;
+	// Unmapped, or not in RDRAM: interpreted, and looked at again later (our64_edge_interp)
 #ifdef USE_EXPANSION
-	if((entry >> 23) != 0x100) return 0; // unmapped, or not in RDRAM
+	if((entry >> 23) != 0x100){ edge_pending = 1; return 0; }
 #else
-	if((entry >> 22) != 0x200) return 0;
+	if((entry >> 22) != 0x200){ edge_pending = 1; return 0; }
 #endif
 	MIPS_instr* at = (MIPS_instr*)fast_mem_access(entry & ~0xFFFul);
 	if(!at) return 0;

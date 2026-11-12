@@ -31,6 +31,7 @@
 #include "../r4300.h"
 #include "../macros.h"
 #include "../Recomp-Cache.h"
+#include "../../gc_memory/tlb.h"
 #include "Recompile.h"
 #include "Wrappers.h"
 
@@ -141,11 +142,45 @@ void our64_dynarec_unlink(void)
 }
 #endif
 
-/* Out of line: see where dynarec calls it. */
+/* Our64: a branch on a page's last word that genEdgeGuard (MIPS-to-PPC.c)
+ * could not compile because the next page was not in the TLB then: Battle for
+ * Naboo fills its TLB on demand, so whether its busiest loop got the compiled
+ * branch depended on the moment it was compiled (2026-11-11: one run 54-56
+ * VIs a second, the next 60). Such a branch calls this in place of
+ * decodeNInterpret: once the next page is mapped to RDRAM, the dispatcher
+ * frees the function (our64_pad_returned), and it is compiled again, with the
+ * guard, when next entered. At most our64_edge_retries_left times a game. */
+unsigned int our64_edge_recompile, our64_edge_retries, our64_edge_retries_left = 256;
+unsigned int our64_edge_interp(MIPS_instr mips, unsigned int pc, int isDelaySlot){
+	const unsigned long entry = tlb_LUT_r[(pc + 4) >> 12];
+#ifdef USE_EXPANSION
+	if((entry >> 23) == 0x100 && our64_edge_retries_left)
+#else
+	if((entry >> 22) == 0x200 && our64_edge_retries_left)
+#endif
+		our64_edge_recompile = pc;
+	return decodeNInterpret(mips, pc, isDelaySlot);
+}
+
+/* Out of line (inline, it changed dynarec enough that Cemu crashed in
+ * dyna_run): what the dispatcher does for the page-edge code on each return. */
 static void __attribute__((noinline)) our64_pad_returned(void){
 	extern PowerPC_instr our64_pad_mark;
 	if(link_branch && our64_pad_mark && link_branch[-1] == our64_pad_mark)
 		noCheckInterrupt = 1;
+	if(our64_edge_recompile){
+		const unsigned int pc = our64_edge_recompile;
+		our64_edge_recompile = 0;
+		PowerPC_block* block = blocks_get(pc >> 12);
+		PowerPC_func* func = block ? find_func(&block->funcs, pc) : NULL;
+		if(func){
+			RecompCache_Free(func->start_addr);
+			link_branch = NULL;
+			last_func = NULL;
+			our64_edge_retries++;
+			our64_edge_retries_left--;
+		}
+	}
 }
 
 void dynarec(unsigned int address){
