@@ -36,8 +36,26 @@ cp "$ROOT/third_party/gliden64/ini/GLideN64.custom.ini" "$STAGE/wiiu/our64/"
 cp -r "$SHADERS" "$STAGE/wiiu/our64/shaders"
 chmod -R u=rwX,go=rX "$STAGE/wiiu" # the card's own modes would unpack as unreadable folders
 
+# Only the games in tools/release-games.txt: a card also holds the shaders of
+# whatever else was played on it (hacks, homebrew). Their .keys and .pack are
+# left out, and so are the single files only their packs hold; index.txt is
+# written again from the files that stay.
+G="$STAGE/wiiu/our64/shaders"
+left=0; : > "$STAGE/out.txt"
+for f in "$G"/games/*; do
+	name=$(basename "$f"); name=${name%.*}
+	grep -qxF -- "$name" "$ROOT/tools/release-games.txt" && continue
+	case "$f" in *.pack) python3 "$ROOT/tools/pack-keys.py" "$f" >> "$STAGE/out.txt"; echo "Left out: $name"; left=$((left + 1));; esac
+	rm -f "$f"
+done
+python3 "$ROOT/tools/pack-keys.py" "$G"/games/*.pack | sort -u > "$STAGE/kept.txt"
+sort -u "$STAGE/out.txt" | comm -23 - "$STAGE/kept.txt" | while read -r k; do rm -f "$G/${k:0:2}/$k.bin"; done
+find "$G" -mindepth 2 -name '*.bin' -printf '%f\n' | sed 's/\.bin$//' | sort > "$G/index.txt"
+rm -f "$STAGE/out.txt" "$STAGE/kept.txt"
+echo "$left games' shaders left out; $(ls "$G"/games/*.pack | wc -l) packs, $(wc -l < "$G/index.txt") single files"
+
 OUT="$ROOT/release/Our64-$VERSION.zip"
 mkdir -p "$ROOT/release"
 rm -f "$OUT"
 (cd "$STAGE" && zip -qr -X "$OUT" wiiu)
-echo "$OUT: $(du -h "$OUT" | cut -f1), $(find "$STAGE/wiiu/our64/shaders" -type f | wc -l) shader files"
+echo "$OUT: $(du -h "$OUT" | cut -f1), $(find "$G" -type f | wc -l) shader files"
