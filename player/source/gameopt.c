@@ -5,10 +5,19 @@
 #include <string.h>
 
 #define GAMEOPT_MAX 512
-static struct { char file[128]; int lines; int pic[GAMEOPT_PICTURE_KEYS]; } g_opt[GAMEOPT_MAX];
+static struct { char file[128]; int lines; int pic[GAMEOPT_PICTURE_KEYS]; char fixes[8]; } g_opt[GAMEOPT_MAX];
 static int g_n;
 static const char *const g_key[GAMEOPT_PICTURE_KEYS] = { "mode=", "shape=", "speed=", "filter=" };
 static const int g_key_max[GAMEOPT_PICTURE_KEYS] = { 2, 1, 1, 3 };
+
+/* A game code: 4 letters or digits ("NZLE"). */
+static int fixes_code_ok(const char *code)
+{
+	int n = 0;
+	while ((code[n] >= 'A' && code[n] <= 'Z') || (code[n] >= '0' && code[n] <= '9'))
+		n++;
+	return n == 4 && !code[4];
+}
 
 static int find(const char *file)
 {
@@ -20,7 +29,7 @@ static int find(const char *file)
 
 static int is_default(int i)
 {
-	if (g_opt[i].lines == 720)
+	if (g_opt[i].lines == 720 || g_opt[i].fixes[0])
 		return 0;
 	for (int k = 0; k < GAMEOPT_PICTURE_KEYS; k++)
 		if (g_opt[i].pic[k] >= 0)
@@ -34,6 +43,7 @@ static int add(const char *file)
 		return -1;
 	snprintf(g_opt[g_n].file, sizeof(g_opt[g_n].file), "%s", file);
 	g_opt[g_n].lines = 480;
+	g_opt[g_n].fixes[0] = 0;
 	for (int k = 0; k < GAMEOPT_PICTURE_KEYS; k++)
 		g_opt[g_n].pic[k] = -1;
 	return g_n++;
@@ -65,6 +75,8 @@ void gameopt_parse(const char *text)
 				*next++ = 0;
 			if (!strcmp(w, "720p"))
 				g_opt[i].lines = 720;
+			if (!strncmp(w, "fixes=", 6) && fixes_code_ok(w + 6))
+				snprintf(g_opt[i].fixes, sizeof(g_opt[i].fixes), "%s", w + 6);
 			for (int k = 0; k < GAMEOPT_PICTURE_KEYS; k++) {
 				const size_t kl = strlen(g_key[k]);
 				if (!strncmp(w, g_key[k], kl) && w[kl] >= '0' && w[kl] <= '9' && !w[kl + 1] && w[kl] - '0' <= g_key_max[k])
@@ -104,6 +116,8 @@ int gameopt_text(char *out, unsigned size)
 		for (int k = 0; k < GAMEOPT_PICTURE_KEYS; k++)
 			if (g_opt[i].pic[k] >= 0)
 				n += snprintf(line + n, sizeof(line) - (size_t)n, "\t%s%d", g_key[k], g_opt[i].pic[k]);
+		if (g_opt[i].fixes[0])
+			n += snprintf(line + n, sizeof(line) - (size_t)n, "\tfixes=%s", g_opt[i].fixes);
 		n += snprintf(line + n, sizeof(line) - (size_t)n, "\n");
 		if (out && (unsigned)(at + n) < size)
 			memcpy(out + at, line, (size_t)n + 1);
@@ -151,6 +165,27 @@ int gameopt_set_picture(const char *file, int key, int value)
 			return -1;
 	}
 	g_opt[i].pic[key] = value < 0 || value > g_key_max[key] ? -1 : value;
+	return 0;
+}
+
+const char *gameopt_fixes(const char *file)
+{
+	const int i = file ? find(file) : -1;
+	return i >= 0 && g_opt[i].fixes[0] ? g_opt[i].fixes : NULL;
+}
+
+int gameopt_set_fixes(const char *file, const char *code)
+{
+	if (code && !fixes_code_ok(code))
+		return -1;
+	int i = find(file);
+	if (i < 0) {
+		if (!code)
+			return 0;
+		if ((i = add(file)) < 0)
+			return -1;
+	}
+	snprintf(g_opt[i].fixes, sizeof(g_opt[i].fixes), "%s", code ? code : "");
 	return 0;
 }
 

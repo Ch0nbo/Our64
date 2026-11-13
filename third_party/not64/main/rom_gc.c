@@ -118,18 +118,24 @@ static struct {
 
 // Checks if the current game is in the ID list for 16kbit eeprom save type
 // cause it's cheaper to have a ID list than an entire .ini file :)
-bool isEEPROM16k()
+// Our64: by any game code, for Game options > Fixes (the player's fixes.h)
+int not64_eeprom16k_of(unsigned short cart_id, unsigned char country)
 {
 	int i;
 	
 	for (i = 0; i < sizeof(ROM_TABLE) / sizeof(ROM_TABLE[0]); i++)
 	{
-		if (ROM_TABLE[i].Cartridge_ID == ROM_HEADER.Cartridge_ID &&
-			strchr(ROM_TABLE[i].Country_codes, ROM_HEADER.Country_code))
+		if (ROM_TABLE[i].Cartridge_ID == cart_id &&
+			strchr(ROM_TABLE[i].Country_codes, country))
 			return true;
 	}
 	
 	return false;
+}
+
+bool isEEPROM16k()
+{
+	return not64_eeprom16k_of(ROM_HEADER.Cartridge_ID, ROM_HEADER.Country_code);
 }
 
 /* Loads the ROM into the ROM cache */

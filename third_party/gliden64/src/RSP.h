@@ -14,10 +14,12 @@ typedef struct
 	bool busy, halt, infloop;
 	bool LLE;
 	char romname[21];
+	char fixname[21]; // Our64: the name per-game fixes are found by: romname, or Game options > Fixes' game (our64_fix_name)
 	wchar_t pluginpath[PLUGIN_PATH_SIZE];
 } RSPInfo;
 
 extern RSPInfo RSP;
+extern "C" char our64_fix_name[21]; // Our64 player (fixes.h): set before RomOpen, empty for the ROM's own name
 
 extern u32 DepthClearColor;
 extern u32 rectDepthBufferCopyFrame;

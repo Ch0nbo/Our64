@@ -9,6 +9,7 @@
 #include "setup.h"
 #include "player.h"
 #include "gameopt.h"
+#include "fixes.h"
 #include "input.h"
 #include "ui.h"
 #include "report.h"
@@ -1054,6 +1055,50 @@ static int run_gamepic(const char *file, int paused)
 	return result;
 }
 
+/* Game options > Fixes: Auto, then the games of fixes.h A to Z. In a running
+ * game a change needs a restart (the fixes are set as a game starts), asked
+ * as Resolution asks. 1 when the running game is to restart, -2 for HOME. */
+static const char *fixes_title(const char *file)
+{
+	const fixes_game *g = fixes_at(fixes_find(gameopt_fixes(file)));
+	return g ? g->title : NULL;
+}
+
+static int options_fixes(options_ui *o, const char *file, int paused)
+{
+	static const char *names[CHOICES_MAX];
+	int n = 0;
+	names[n++] = "Auto";
+	for (int i = 0; i < fixes_count() && n < CHOICES_MAX; i++)
+		names[n++] = fixes_at(i)->title;
+	const int now = fixes_find(gameopt_fixes(file)) + 1;
+	const int pick = run_choice("FIXES", NULL, names, n, now);
+	if (pick == -2)
+		return -2;
+	if (pick < 0 || pick == now)
+		return 0;
+	const fixes_game *g = fixes_at(pick - 1);
+	if (paused) {
+		char question[96];
+		snprintf(question, sizeof(question), g ? "Use %s's fixes?" : "Go back to Auto?", g ? g->title : "");
+		if (!player_ask(question, g_settings.auto_resume ? "The game restarts now." : "The game restarts from its beginning.",
+		                "Restart"))
+			return 0;
+	}
+	char keep[8] = "";
+	if (gameopt_fixes(file))
+		snprintf(keep, sizeof(keep), "%s", gameopt_fixes(file));
+	if (gameopt_set_fixes(file, g ? g->code : NULL) || gameopt_save()) {
+		gameopt_set_fixes(file, keep[0] ? keep : NULL);
+		write_failed();
+		return 0;
+	}
+	o->fixes = g ? g->title : NULL;
+	report_line("OPTIONS: %s gets the fixes of %s", file, g ? g->title : "its own header (Auto)");
+	snprintf(g_view.line, sizeof(g_view.line), "Fixes: %s", g ? g->title : "Auto");
+	return paused;
+}
+
 /* The picked image becomes the game's own cover: a copy at
  * art/custom/<ROM name>.png (library_custom_cover_path), so it stays when
  * its drive is unplugged. Only a PNG of at most 8 MB. */
@@ -1128,6 +1173,7 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 	g_view.screen = SETUP_OPTIONS;
 	const int cover = library_cover_state(file);
 	options_open(o, gameopt_lines(file), picture_set_any(file), cover < 0 ? COVER_NONE : cover, !paused, usb, paused);
+	o->fixes = fixes_title(file);
 	input_take_home();
 	frame_input f;
 	memset(&f, 0, sizeof(f));
@@ -1188,6 +1234,15 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 					else if (r == 1)
 						cover_use(o, file, picked);
 				}
+				i = f.n;
+				break;
+			}
+			case OACT_FIXES: {
+				const int r = options_fixes(o, file, paused);
+				if (r == -2)
+					result = 1;
+				else if (r == 1)
+					result = 3;
 				i = f.n;
 				break;
 			}

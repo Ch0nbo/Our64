@@ -28,5 +28,19 @@ int main(void){
 	gameopt_renamed("New.z64","Renamed.z64");
 	assert(gameopt_lines("Renamed.z64")==720 && gameopt_lines("New.z64")==480);
 	gameopt_parse("Bad.z64\tmode=9\tspeed=x\n"); assert(gameopt_picture("Bad.z64",GAMEOPT_MODE)==-1);
+	/* Fixes: a game code, kept beside the rest, cleared with NULL, and following a rename */
+	gameopt_parse("Hack.z64\tfixes=NZLE\nBoth.z64\t720p\tfixes=NALE\nBad.z64\tfixes=nzle\nLong.z64\tfixes=NZLEX\n");
+	assert(!strcmp(gameopt_fixes("Hack.z64"),"NZLE") && gameopt_lines("Hack.z64")==480);
+	assert(!strcmp(gameopt_fixes("Both.z64"),"NALE") && gameopt_lines("Both.z64")==720);
+	assert(!gameopt_fixes("Bad.z64") && !gameopt_fixes("Long.z64") && !gameopt_fixes("nope") && !gameopt_fixes(NULL));
+	assert(gameopt_set_fixes("New.z64","NKTE")==0 && !strcmp(gameopt_fixes("New.z64"),"NKTE"));
+	assert(gameopt_set_fixes("New.z64","bad!")==-1 && !strcmp(gameopt_fixes("New.z64"),"NKTE"));
+	n=gameopt_text(t,sizeof t);
+	assert(!strcmp(t,"Hack.z64\tfixes=NZLE\nBoth.z64\t720p\tfixes=NALE\nNew.z64\tfixes=NKTE\n"));
+	assert(gameopt_set_fixes("Hack.z64",NULL)==0 && !gameopt_fixes("Hack.z64"));
+	assert(gameopt_set_fixes("Never.z64",NULL)==0 && !gameopt_fixes("Never.z64"));
+	n=gameopt_text(t,sizeof t); assert(!strstr(t,"Hack.z64") && !strstr(t,"Never.z64"));
+	gameopt_renamed("New.z64","Moved.z64");
+	assert(!strcmp(gameopt_fixes("Moved.z64"),"NKTE") && !gameopt_fixes("New.z64"));
 	(void)n;
 	puts("gameopt ok"); return 0; }

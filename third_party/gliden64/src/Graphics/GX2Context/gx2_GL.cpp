@@ -816,9 +816,9 @@ void APIENTRY glLinkProgram(GLuint program)
 	if (our64_gx2_debug != nullptr && strstr(our64_gx2_debug, "noclipdist"))
 		replaceAll(j->vs, "gl_ClipDistance[0] = gl_Position.w - gl_Position.z;", "");
 	const bool early = (our64_gx2_debug != nullptr && strstr(our64_gx2_debug, "earlydiscard") != nullptr) ||
-		keepDiscardsInPlace(RSP.romname);
+		keepDiscardsInPlace(RSP.fixname);
 	std::string psText = debugRewrite(*psSource);
-	if (allHighp(RSP.romname) && (our64_gx2_debug == nullptr || strstr(our64_gx2_debug, "nogamehighp") == nullptr))
+	if (allHighp(RSP.fixname) && (our64_gx2_debug == nullptr || strstr(our64_gx2_debug, "nogamehighp") == nullptr))
 		psText = highpEverywhere(psText);
 	if (our64_gx2_debug != nullptr && strstr(our64_gx2_debug, "highpdepth") != nullptr)
 		psText = highpDepth(psText);

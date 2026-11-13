@@ -100,6 +100,10 @@ Each game has its own options: press X on it in Our ROMs, or pause the game and 
 - **Resolution:** 480p or 720p for this game. 720p is sharper on a TV, but many games slow down or stutter
   with it, so it is never on unless you choose it. The Speed display shows how a game copes.
 - **Picture:** this game's own Screen mode, Shape, Speed display and Filter. Default follows Settings > Picture.
+- **Fixes:** for a ROM hack. Our64 finds a game's fixes by its ROM header, which a hack often changes, so
+  a hack can miss the fixes of the game it is made from (Rumble Pak, picture fixes, save size, speed). Pick
+  that game here and the hack gets them. Auto uses the ROM's own header. The list holds the games most
+  hacks are made from and the games whose fixes no other game has. A change in a running game restarts it.
 - **Cover:** the fetched cover, or a PNG image you choose from the SD card. A PNG named like the ROM file in
   `sd:/wiiu/our64/art/custom/` (`My Game.z64` takes `My Game.png`) works too.
 - **Rename:** changes the ROM file's name. Its favorite star, options and cover go with it.

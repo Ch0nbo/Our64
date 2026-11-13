@@ -2,7 +2,7 @@
 CC	?=	cc
 CFLAGS	:=	-std=gnu11 -O1 -g -Wall -Wextra -I../player/source
 BUILD	:=	build
-TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers test_lwp_heap test_gameopt test_speed
+TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers test_lwp_heap test_gameopt test_fixes test_speed
 
 .PHONY: all clean shots
 all: $(addprefix $(BUILD)/,$(TESTS))
@@ -57,6 +57,10 @@ $(BUILD)/test_gameopt: test_gameopt.c ../player/source/gameopt.c ../player/sourc
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_gameopt.c ../player/source/gameopt.c
 
+$(BUILD)/test_fixes: test_fixes.c ../player/source/fixes.c ../player/source/fixes.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_fixes.c ../player/source/fixes.c
+
 $(BUILD)/test_speed: test_speed.c ../player/source/speed.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_speed.c
@@ -105,7 +109,7 @@ $(BUILD)/test_usbfs: test_usbfs.c usbfs_diskio_file.c ../player/source/usbfs.c .
 # Every screen drawn on the PC with the console's drawing code and font: results/shots.
 LIBGUI	:=	../third_party/libgui/source
 SHOTS_GUI :=	libgui/GuiGeometry libgui/GuiPaint libgui/GuiTextRenderer libgui/GuiMeshCache drivers/Mutex
-SHOTS_C	:=	pause.c prompt.c setup.c input.c library.c notices.c saves.c gamedb.c states.c theme.c covers.c
+SHOTS_C	:=	pause.c prompt.c setup.c input.c library.c notices.c saves.c gamedb.c states.c theme.c covers.c fixes.c
 SHOTS_FLAGS :=	-O1 -g -I../player/source -I$(LIBGUI) -I$(LIBGUI)/libgui $(shell pkg-config --cflags freetype2 libpng)
 $(BUILD)/ui_shots: ui_shots.cpp ../player/source/ui_draw.cpp ../player/source/ui_draw.h ../player/source/ui.h \
 		$(addprefix ../player/source/,$(SHOTS_C)) $(addprefix $(LIBGUI)/,$(addsuffix .cpp,$(SHOTS_GUI)))

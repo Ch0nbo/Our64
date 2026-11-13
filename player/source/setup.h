@@ -122,22 +122,25 @@ int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
  * remembered). Each row opens a page of choices with the one in use marked,
  * as Start-up ROM Category does (Zach: what people are used to), or asks.
  * Resolution: 480p or 720p; 720p asks first with the warning and is never on
- * unless the player chose it. Cover: the fetched one, or an image picked
- * with the folder finder. Delete: from Our ROMs only (not while the game
- * runs); greyed on a USB drive, which Our64 never writes to. ---- */
-enum { OPT_RES, OPT_PICTURE, OPT_COVER, OPT_RENAME, OPT_DELETE, OPT_ROWS }; /* Zach's order, 2026-11-11 */
+ * unless the player chose it. Fixes (2026-11-13): Auto, or a retail game
+ * whose fixes a ROM hack of it gets (fixes.h), from a list A to Z. Cover: the
+ * fetched one, or an image picked with the folder finder. Delete: from Our
+ * ROMs only (not while the game runs); greyed on a USB drive, which Our64
+ * never writes to. ---- */
+enum { OPT_RES, OPT_PICTURE, OPT_FIXES, OPT_COVER, OPT_RENAME, OPT_DELETE, OPT_ROWS }; /* Zach's order, 2026-11-11; Fixes 2026-11-13 */
 enum { COVER_NONE, COVER_FETCHED, COVER_CUSTOM };
 typedef struct {
 	int row;
 	int lines;        /* 480 or 720 */
 	int picture_set;  /* the game has picture settings of its own (Picture reads "Custom", else "Default") */
 	int cover;        /* COVER_ */
+	const char *fixes; /* the game picked in Fixes (its title), NULL: Auto */
 	int can_delete;   /* from Our ROMs: the Rename and Delete rows are there */
 	int delete_off;   /* on a USB drive: Rename and Delete are greyed */
 	int paused;       /* opened from the pause menu: the game is running */
 	int touched;
 } options_ui;
-enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_PICTURE, OACT_COVER, OACT_RENAME, OACT_DELETE };
+enum { OACT_NONE, OACT_BACK, OACT_HOME, OACT_RES, OACT_PICTURE, OACT_FIXES, OACT_COVER, OACT_RENAME, OACT_DELETE };
 void options_open(options_ui *o, int lines, int picture_set, int cover, int can_delete, int delete_off, int paused);
 int  options_rows(const options_ui *o);
 int  options_event(options_ui *o, int event, int target);
@@ -145,7 +148,7 @@ const char *options_row_name(int row);
 int  options_row_off(const options_ui *o, int row);   /* greyed: shown, A does nothing */
 void options_value(const options_ui *o, int row, char *out, unsigned size);
 const char *options_row_about(const options_ui *o);
-void options_row_rect(const options_ui *o, int row, int r[4]); /* five rows sit closer than Settings' four; row == rows: the about line's place */
+void options_row_rect(const options_ui *o, int row, int r[4]); /* six rows sit closer than Settings' four; row == rows: the about line's place */
 int  options_hit(const options_ui *o, int x, int y);   /* row, or -1 */
 int  options_legend(const options_ui *o, int type, pause_key *keys, int max);
 
@@ -173,19 +176,26 @@ void gamepic_value_rect(int row, int i, int r[4]);   /* four fit beside the row'
 int  gamepic_hit(int x, int y);                      /* as picture_hit */
 int  gamepic_legend(const gamepic_ui *g, int type, pause_key *keys, int max);
 
-/* A page of up to four choices, the one in use marked (Resolution, Cover):
- * A picks the selected one, B goes back unchanged. */
-#define CHOICES_MAX 4
+/* A page of choices, the one in use marked (Resolution, Cover, Fixes): A
+ * picks the selected one, B goes back unchanged. Up to four sit on Settings'
+ * rows; more are a list of CHOICES_SHOWN rows at a time that scrolls (Fixes),
+ * on the folder finder's rows. */
+#define CHOICES_MAX 32
+#define CHOICES_FEW 4
+#define CHOICES_SHOWN 6
 typedef struct {
 	const char *title;              /* the header: "RESOLUTION" */
-	const char *about;              /* the line under the rows, or NULL */
+	const char *about;              /* the line under the rows, or NULL (not shown under a list) */
 	const char *names[CHOICES_MAX];
 	int count, row, in_use, touched;
+	int top;                        /* a list: the first row in view */
 } choice_ui;
 enum { CHACT_NONE, CHACT_BACK, CHACT_HOME, CHACT_PICK }; /* CHACT_PICK: row is the choice */
 void choice_open(choice_ui *c, const char *title, const char *about, const char *const *names, int count, int in_use);
 int  choice_event(choice_ui *c, int event, int target);
 int  choice_hit(const choice_ui *c, int x, int y);     /* row, or -1 */
+int  choice_shown(const choice_ui *c);                 /* rows in view: all, or CHOICES_SHOWN of a list */
+void choice_row_rect(const choice_ui *c, int i, int r[4]); /* the i-th row in view */
 int  choice_legend(const choice_ui *c, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games > ROM folder (2026-11-04): drives, then folders.

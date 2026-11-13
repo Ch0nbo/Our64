@@ -2185,26 +2185,45 @@ void draw_preview(const setup_view & sv)
 	g_images->drawTexture(g_preview_tex, x0 + (w0 - w) / 2, y0 + (h0 - h) / 2, uint16_t(lroundf(w)), uint16_t(lroundf(h)), 0, 1, 1, 255);
 }
 
-// A page of choices (Resolution, Cover): rows with a ring at the right, the
-// one in use filled, as Start-up ROM Category.
+// A page of choices (Resolution, Cover, Fixes): rows with a ring at the
+// right, the one in use filled, as Start-up ROM Category. A longer list
+// (Fixes) takes the folder finder's rows and its arrows in the margin.
 void draw_choice(const setup_view & sv)
 {
 	const choice_ui & c = sv.choice;
+	const bool list = c.count > CHOICES_FEW;
 	setup_header(c.title ? c.title : "", sv.line[0] ? sv.line : sv.game);
-	for (int row = 0; row < c.count; row++) {
+	for (int i = 0; i < choice_shown(&c) && c.top + i < c.count; i++) {
+		const int row = c.top + i;
 		int r[4];
-		settings_row_rect(row, r);
+		choice_row_rect(&c, i, r);
 		const bool sel = c.row == row;
-		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
-		text(r[0] + 20, r[1] + 12, c.names[row], 26, card_ink(sel, false));
 		const PixelColor ink = card_ink(sel, false);
-		const float cx = r[0] + r[2] - 44, cy = r[1] + r[3] / 2.0f;
-		box(cx - 14, cy - 14, 28, 28, PixelColor{ 0, 0, 0, 0 }, 14, 3, ink);
+		if (list) {
+			selectable(r[0], r[1], r[2], r[3], sel, false, 4, 8);
+			text(r[0] + 20, r[1] + 8, c.names[row], 22, ink);
+		} else {
+			selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+			text(r[0] + 20, r[1] + 12, c.names[row], 26, ink);
+		}
+		const float ring = list ? 24 : 28, cx = r[0] + r[2] - 44, cy = r[1] + r[3] / 2.0f;
+		box(cx - ring / 2, cy - ring / 2, ring, ring, PixelColor{ 0, 0, 0, 0 }, ring / 2, 3, ink);
 		if (row == c.in_use)
-			box(cx - 8, cy - 8, 16, 16, ink, 8);
+			box(cx - ring / 2 + 6, cy - ring / 2 + 6, ring - 12, ring - 12, ink, ring / 2 - 6);
 	}
-	if (c.about)
+	if (list) {
+		int r[4];
+		if (c.top > 0) {
+			choice_row_rect(&c, 0, r);
+			text(UI_W - 20, r[1] + 10, "▲", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+		}
+		if (c.top + CHOICES_SHOWN < c.count) {
+			choice_row_rect(&c, CHOICES_SHOWN - 1, r);
+			text(UI_W - 20, r[1] + 10, "▼", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+		}
+	} else if (c.about) {
 		row_about(c.count, c.about);
+	}
 	pause_key keys[6];
 	int n = choice_legend(&c, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);

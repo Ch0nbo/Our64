@@ -9,6 +9,8 @@
  * (results/res720-2026-11-11, light-2026-11-11). mode, shape, speed: this
  * game's own Screen mode (MODE_), Shape (PICTURE_) and Speed display (0 off,
  * 1 on) in place of Settings > Picture's; left out, Settings' apply.
+ * fixes: the game code of the game whose fixes this ROM gets (Game options >
+ * Fixes, fixes.h, 2026-11-13); left out, the ROM's own header finds them.
  * Plain C: tests/ runs it. */
 #ifndef OUR64_GAMEOPT_H
 #define OUR64_GAMEOPT_H
@@ -25,6 +27,8 @@ int  gameopt_lines(const char *file);                 /* 480 or 720 */
 int  gameopt_set_lines(const char *file, int lines);  /* 0, or -1 when no room is left */
 int  gameopt_picture(const char *file, int key);      /* the game's own value, -1: Settings' applies */
 int  gameopt_set_picture(const char *file, int key, int value); /* value -1 clears it; 0, or -1 when no room is left */
+const char *gameopt_fixes(const char *file);          /* the game code picked in Fixes, NULL: none */
+int  gameopt_set_fixes(const char *file, const char *code); /* code NULL clears it; 0, or -1 when no room is left */
 void gameopt_renamed(const char *from, const char *to); /* the ROM file was renamed: its line follows */
 
 #ifdef __cplusplus

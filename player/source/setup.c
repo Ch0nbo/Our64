@@ -535,7 +535,7 @@ int start_legend(const start_ui *s, int type, pause_key *keys, int max)
 
 /* ---- Game options ---- */
 
-static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Picture", "Cover", "Rename", "Delete" };
+static const char *const g_opt_row[OPT_ROWS] = { "Resolution", "Picture", "Fixes", "Cover", "Rename", "Delete" };
 
 const char *options_row_name(int row) { return row >= 0 && row < OPT_ROWS ? g_opt_row[row] : ""; }
 
@@ -559,8 +559,8 @@ static int options_act(const options_ui *o)
 {
 	if (options_row_off(o, o->row))
 		return OACT_NONE;
-	return o->row == OPT_RES ? OACT_RES : o->row == OPT_PICTURE ? OACT_PICTURE : o->row == OPT_COVER ? OACT_COVER
-	       : o->row == OPT_RENAME ? OACT_RENAME : OACT_DELETE;
+	return o->row == OPT_RES ? OACT_RES : o->row == OPT_PICTURE ? OACT_PICTURE : o->row == OPT_FIXES ? OACT_FIXES
+	       : o->row == OPT_COVER ? OACT_COVER : o->row == OPT_RENAME ? OACT_RENAME : OACT_DELETE;
 }
 
 int options_event(options_ui *o, int event, int target)
@@ -594,6 +594,7 @@ void options_value(const options_ui *o, int row, char *out, unsigned size)
 {
 	snprintf(out, size, "%s", row == OPT_RES ? (o->lines == 720 ? "720p" : "480p")
 	                          : row == OPT_PICTURE ? (o->picture_set ? "Custom" : "Default")
+	                          : row == OPT_FIXES ? (o->fixes ? o->fixes : "Auto")
 	                          : row == OPT_COVER ? (o->cover == COVER_CUSTOM ? "Custom" : o->cover == COVER_FETCHED ? "Fetched" : "None")
 	                          : "");
 }
@@ -607,6 +608,9 @@ const char *options_row_about(const options_ui *o)
 	case OPT_RENAME:
 		return o->delete_off ? "On a USB drive: rename it on a computer" : "Changes the ROM file's name. Its saves stay";
 	case OPT_PICTURE: return "This game's own screen mode, shape and speed display";
+	case OPT_FIXES:
+		return o->paused ? "For a ROM hack: the fixes of the game it is made from. Changing it restarts the game"
+		                 : "For a ROM hack: the fixes of the game it is made from";
 	default: return o->paused ? "How sharp this game is drawn on a TV. Changing it restarts the game" : "How sharp this game is drawn on a TV";
 	}
 }
@@ -615,8 +619,8 @@ void options_row_rect(const options_ui *o, int row, int r[4])
 {
 	settings_row_rect(row, r);
 	if (options_rows(o) > 4) { /* with Rename and Delete: closer, so the line under them clears the legend */
-		r[1] = SROW_Y + row * 48;
-		r[3] = 42;
+		r[1] = 128 + row * 43;
+		r[3] = 38;
 	}
 }
 
@@ -779,6 +783,34 @@ void choice_open(choice_ui *c, const char *title, const char *about, const char 
 	c->in_use = in_use;
 	c->row = in_use >= 0 && in_use < c->count ? in_use : 0;
 	c->touched = -1;
+	/* a list opens with the one in use in view, as near the middle as it goes */
+	if (c->count > CHOICES_FEW) {
+		c->top = c->row - CHOICES_SHOWN / 2;
+		if (c->top > c->count - CHOICES_SHOWN)
+			c->top = c->count - CHOICES_SHOWN;
+		if (c->top < 0)
+			c->top = 0;
+	}
+}
+
+int choice_shown(const choice_ui *c) { return c->count > CHOICES_FEW ? CHOICES_SHOWN : c->count; }
+
+void choice_row_rect(const choice_ui *c, int i, int r[4])
+{
+	if (c->count > CHOICES_FEW)
+		browse_row_rect(i, r);
+	else
+		settings_row_rect(i, r);
+}
+
+static void choice_scroll(choice_ui *c)
+{
+	if (c->count <= CHOICES_FEW)
+		return;
+	if (c->row < c->top)
+		c->top = c->row;
+	if (c->row >= c->top + CHOICES_SHOWN)
+		c->top = c->row - CHOICES_SHOWN + 1;
 }
 
 int choice_event(choice_ui *c, int event, int target)
@@ -786,7 +818,10 @@ int choice_event(choice_ui *c, int event, int target)
 	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
 		int e = tap(&c->touched, event, target, target == c->row);
 		if (e == -2) {
-			c->row = target;
+			if (target >= 0 && target < c->count) {
+				c->row = target;
+				choice_scroll(c);
+			}
 			return CHACT_NONE;
 		}
 		if (e < 0)
@@ -797,8 +832,10 @@ int choice_event(choice_ui *c, int event, int target)
 	case PEV_UP:
 	case PEV_DOWN: {
 		int row = c->row + (event == PEV_UP ? -1 : 1);
-		if (row >= 0 && row < c->count)
+		if (row >= 0 && row < c->count) {
 			c->row = row;
+			choice_scroll(c);
+		}
 		break;
 	}
 	case PEV_OK: return CHACT_PICK;
@@ -811,10 +848,10 @@ int choice_event(choice_ui *c, int event, int target)
 int choice_hit(const choice_ui *c, int x, int y)
 {
 	int r[4];
-	for (int row = 0; row < c->count; row++) {
-		settings_row_rect(row, r);
+	for (int i = 0; i < choice_shown(c) && c->top + i < c->count; i++) {
+		choice_row_rect(c, i, r);
 		if (inside(x, y, r))
-			return row;
+			return c->top + i;
 	}
 	return -1;
 }

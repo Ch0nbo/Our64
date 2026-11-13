@@ -21,6 +21,7 @@
 
 #include "ui_draw.h"
 #include "covers.h"
+#include "fixes.h"
 #include "theme.h"
 extern "C" {
 #include "states.h"
@@ -716,11 +717,16 @@ void shots_setup()
 		sv.screen = SETUP_OPTIONS;
 		options_open(&sv.options, 480, 0, COVER_FETCHED, 1, 0, 0);
 		shot("options", v);
+		sv.options.fixes = "Super Smash Bros.";
+		sv.options.row = OPT_FIXES;
+		shot("options-fixes", v);
 		options_open(&sv.options, 720, 1, COVER_CUSTOM, 1, 1, 0);
 		sv.options.row = OPT_DELETE;
 		shot("options-usb-delete", v);
 		options_open(&sv.options, 720, 0, COVER_NONE, 0, 0, 1);
 		shot("options-paused", v);
+		sv.options.row = OPT_FIXES;
+		shot("options-paused-fixes", v);
 		sv.screen = SETUP_GAMEPIC; // Game options > Picture: Default first in each row
 		gamepic_open(&sv.gamepic, -1, PICTURE_WIDE, -1, SHADER_CRT, 1);
 		shot("options-picture", v);
@@ -751,6 +757,20 @@ void shots_setup()
 		shot("options-resolution", v);
 		choice_open(&sv.choice, "COVER", "A PNG image from the SD card or a USB drive", cover, 2, 0);
 		shot("options-cover", v);
+		{ // Game options > Fixes: Auto, then the games A to Z, a list that scrolls
+			static const char * names[CHOICES_MAX];
+			int n = 0;
+			names[n++] = "Auto";
+			for (int i = 0; i < fixes_count(); i++)
+				names[n++] = fixes_at(i)->title;
+			snprintf(sv.game, sizeof(sv.game), "Smash Remix");
+			choice_open(&sv.choice, "FIXES", nullptr, names, n, 0);
+			shot("options-fixes-auto", v);
+			choice_open(&sv.choice, "FIXES", nullptr, names, n, fixes_find("NALE") + 1);
+			shot("options-fixes-list", v);
+			choice_open(&sv.choice, "FIXES", nullptr, names, n, n - 1);
+			shot("options-fixes-end", v);
+		}
 		sv.game[0] = 0;
 	}
 	sv.screen = SETUP_THEME; // Settings > Theme

@@ -42,6 +42,7 @@
 #include "ui.h"
 #include "pause_wiiu.h"
 #include "gamedb.h"
+#include "fixes.h"
 #include "tpak_wiiu.h"
 #include "usbfs_wiiu.h"
 
@@ -148,6 +149,25 @@ const char *player_rom_file(void);
 static int g_restart_game; /* Game options changed the running game's resolution: it starts again at once */
 static int g_restarted;    /* this start is that restart: the game does not open paused */
 void player_restart_request(void) { g_restart_game = 1; }
+
+/* Game options > Fixes (fixes.h): the header this game's fixes are looked up
+ * by, its own or the picked game's. Before init_memory: GLideN64 reads its
+ * name at RomOpen, Not64 its EEPROM size at the PIF's first answer. */
+extern char our64_fix_name[21];                                       /* GLideN64's RSP.cpp */
+extern int not64_eeprom16k_of(unsigned short cart_id, unsigned char country); /* Not64's rom_gc.c */
+static void fixes_for(const char *file)
+{
+	fixes_start(ROM_HEADER.Name, ROM_HEADER.CRC1, ROM_HEADER.CRC2, ROM_HEADER.Cartridge_ID, ROM_HEADER.Country_code,
+	            gameopt_fixes(file));
+	const fixes_header *h = fixes_now();
+	our64_fix_name[0] = 0;
+	if (h->picked < 0)
+		return;
+	snprintf(our64_fix_name, sizeof(our64_fix_name), "%.20s", h->name);
+	ROM_SETTINGS.isEEPROM16k = not64_eeprom16k_of(h->cart_id, h->country);
+	report_line("FIXES: %s's (Game options > Fixes): \"%.20s\" %08X-%08X", fixes_at(h->picked)->title, h->name,
+	            (unsigned)h->crc1, (unsigned)h->crc2);
+}
 static int g_mode_before_game = -1; /* Settings' screen mode while a game with its own runs; -1 outside a game */
 static char g_rom[512]; /* the ROM folder (up to 300) + '/' + a file name (up to 127): fileBrowser_file.name holds it */
 static int g_capture_left;  /* graphics tasks still to save (GamePad minus starts 120) */
@@ -1817,41 +1837,44 @@ static int play_game(int index)
 				return PLAY_BACK;
 		}
 	}
+	fixes_for(lg->file);
+	const fixes_header *fix = fixes_now();
+	const char *fixname = fix->name;
 	init_memory();
 	player_plugins_init();
 	input_game_start(); /* after the plugins: their init has only port 1 present */
 	running_mark(lg->file);
 	/* The game's counter factor (mupen64plus's CountPerOp): the recompiler
 	 * builds it into each block, so it is set before the first one. */
-	int cpo = gamedb_count_per_op(ROM_HEADER.CRC1, ROM_HEADER.CRC2);
+	int cpo = gamedb_count_per_op(fix->crc1, fix->crc2);
 	/* Gauntlet Legends: mupen64plus.ini's factor 1 doubles the CPU's work per
 	 * VI, and the Wii U fell to 44 VIs a second with choppy audio (2026-10-20). */
-	if (!strncmp((const char *)ROM_HEADER.Name, "GAUNTLET LEGENDS", 16))
+	if (!strncmp(fixname, "GAUNTLET LEGENDS", 16))
 		cpo = 2;
 	/* Star Wars Episode I Racer: with factor 2 its own pod was missing for up
 	 * to 10 frames after a switch to the chase camera (a load the game spreads
 	 * over frames, short of CPU time per VI); with 1 it shows at once, at 60 VIs
 	 * a second (2026-10-22). */
-	if (!strncmp((const char *)ROM_HEADER.Name, "STAR WARS EP1 RACER", 19))
+	if (!strncmp(fixname, "STAR WARS EP1 RACER", 19))
 		cpo = 1;
 	/* Conker's Bad Fur Day: not in mupen64plus.ini, so 2, and in play it drew
 	 * 25.4 frames a second, 70% of them held 2 VIs and 27% 3. ares, timed
 	 * closer to the hardware, drew 28.1 at the same spot (88% and 11%);
 	 * factor 1 drew 27.4 (86.5% and 9%), at 60 VIs a second (2026-11-02). */
-	if (!strncmp((const char *)ROM_HEADER.Name, "CONKER BFD", 10))
+	if (!strncmp(fixname, "CONKER BFD", 10))
 		cpo = 1;
 	/* V-Rally Edition 99: at factor 2 its menus wrote audio every other VI in
 	 * places (11,000 frames a second of 21,617), and the VIs ran on at 65-77 a
 	 * second with the sound breaking up (GitHub issue 17); at factor 1 those
 	 * stretches lack at most 3,600 frames a second and the underruns fell from
 	 * up to 15 to 0-3 in 10 s, at 60 VIs a second (2026-11-02). */
-	if (!strncmp((const char *)ROM_HEADER.Name, "V-RALLY", 7))
+	if (!strncmp(fixname, "V-RALLY", 7))
 		cpo = 1;
 	/* Banjo-Tooie: at factor 2 it drew 24-28 graphics tasks a second in play,
 	 * at factor 1 29-30, at 60 VIs a second, and it played clearly smoother
 	 * (Zach on the console, 2026-11-02). Japan's is "BANJO KAZOOIE 2". */
-	if (!strncmp((const char *)ROM_HEADER.Name, "BANJO TOOIE", 11) ||
-	    !strncmp((const char *)ROM_HEADER.Name, "BANJO KAZOOIE 2", 15))
+	if (!strncmp(fixname, "BANJO TOOIE", 11) ||
+	    !strncmp(fixname, "BANJO KAZOOIE 2", 15))
 		cpo = 1;
 	/* Castlevania and Legacy of Darkness ("CASTLEVANIA2") swap code overlays
 	 * at 0x0F000000 that begin with the same instructions: the recompiler
@@ -1860,8 +1883,8 @@ static int play_game(int index)
 	 * are "DRACULA MOKUSHIROKU" and "DRACULA MOKUSHIROKU2". */
 	{
 		extern int our64_full_code_check;
-		our64_full_code_check = !strncmp((const char *)ROM_HEADER.Name, "CASTLEVANIA", 11) ||
-		                        !strncmp((const char *)ROM_HEADER.Name, "DRACULA MOKUSHIROKU", 19);
+		our64_full_code_check = !strncmp(fixname, "CASTLEVANIA", 11) ||
+		                        !strncmp(fixname, "DRACULA MOKUSHIROKU", 19);
 	}
 	if (g_count_switch)
 		cpo = g_count_switch;
@@ -1878,8 +1901,8 @@ static int play_game(int index)
 	/* Known before the first task is decoded: a state saved with signal 0
 	 * set (ZSortBOSS's "carry on") made the first task after a resume look
 	 * like a yield request, and Stunt Racer waited for it forever. */
-	video_set_signal_ucode(!strncmp((const char *)ROM_HEADER.Name, "Stunt Racer 64", 14) ||
-	                       !strncasecmp((const char *)ROM_HEADER.Name, "World Driver Champ", 18));
+	video_set_signal_ucode(!strncmp(fixname, "Stunt Racer 64", 14) ||
+	                       !strncasecmp(fixname, "World Driver Champ", 18));
 	/* The same studio's audio driver plays one ring with the AI and mixes
 	 * just ahead of the DMA (plugins.c ai_stream_tick). */
 	/* mupen64plus.ini's DisableExtraMem: these games get 4 MB (Not64's dma.c). */
@@ -1890,12 +1913,12 @@ static int play_game(int index)
 		};
 		our64_ram_4mb = 0;
 		for (unsigned i = 0; i < sizeof(ram_4mb) / sizeof(ram_4mb[0]); i++)
-			our64_ram_4mb |= ROM_HEADER.CRC1 == ram_4mb[i][0] && ROM_HEADER.CRC2 == ram_4mb[i][1];
+			our64_ram_4mb |= fix->crc1 == ram_4mb[i][0] && fix->crc2 == ram_4mb[i][1];
 		if (our64_ram_4mb)
 			report_line("MEMORY: 4 MB, no Expansion Pak (mupen64plus.ini DisableExtraMem)");
 	}
-	g_ai_stream = !strncmp((const char *)ROM_HEADER.Name, "Stunt Racer 64", 14) ||
-	              !strncasecmp((const char *)ROM_HEADER.Name, "World Driver Champ", 18);
+	g_ai_stream = !strncmp(fixname, "Stunt Racer 64", 14) ||
+	              !strncasecmp(fixname, "World Driver Champ", 18);
 	/* Gauntlet Legends runs its code at TLB addresses: 41-56 VIs a second
 	 * with choppy audio without links there, a steady 60 with them, resumes
 	 * included (2026-10-20). Conker crashed on resume with them, so only
@@ -1912,12 +1935,12 @@ static int play_game(int index)
 		 * Conker played 15 minutes over three runs with a resume, no missed
 		 * timer and its best frame test (2026-11-06). Conker's crash with
 		 * links on 2026-10-20 was GLideN64's mip tile bug (be7206d). */
-		our64_tlb_links = g_tlb_links_switch || !strncmp((const char *)ROM_HEADER.Name, "GAUNTLET LEGENDS", 16) ||
-		                  !strncmp((const char *)ROM_HEADER.Name, "CONKER BFD", 10) ||
-		                  !strncmp((const char *)ROM_HEADER.Name, "GOLDENEYE", 9) ||
-		                  !strncmp((const char *)ROM_HEADER.Name, "Indiana Jones", 13) ||
-		                  !strncmp((const char *)ROM_HEADER.Name, "Battle for Naboo", 16) ||
-		                  !strncasecmp((const char *)ROM_HEADER.Name, "Perfect Dark", 12);
+		our64_tlb_links = g_tlb_links_switch || !strncmp(fixname, "GAUNTLET LEGENDS", 16) ||
+		                  !strncmp(fixname, "CONKER BFD", 10) ||
+		                  !strncmp(fixname, "GOLDENEYE", 9) ||
+		                  !strncmp(fixname, "Indiana Jones", 13) ||
+		                  !strncmp(fixname, "Battle for Naboo", 16) ||
+		                  !strncasecmp(fixname, "Perfect Dark", 12);
 		if (our64_tlb_links)
 			report_line("CPU: code at TLB addresses is linked; a TLB write cuts the links into its pages (tlb-links)");
 		{ /* Page-edge code (Not64's genEdgeGuard and linked pad, 2026-11-11): on with
@@ -1945,18 +1968,18 @@ static int play_game(int index)
 		}
 	}
 	int paks[4];
-	g_game_paks = gamedb_paks(ROM_HEADER.CRC1, ROM_HEADER.CRC2);
+	g_game_paks = gamedb_paks(fix->crc1, fix->crc2);
 	for (int p = 0; p < 4; p++)
 		paks[p] = gamedb_pak_for(g_game_paks);
 	player_set_paks(paks);
-	if ((g_game_paks & GAMEDB_RUMBLE) && !strncmp((const char *)ROM_HEADER.Name, "Chameleon Twist ", 16))
+	if ((g_game_paks & GAMEDB_RUMBLE) && !strncmp(fixname, "Chameleon Twist ", 16))
 		player_pak_rumble_only(); /* not Chameleon Twist 2 */
 	/* A Transfer Pak game: a Game Boy game's save from RetroArch, a Virtual
 	 * Console inject or OurGB, when there is one, goes in port 1's Transfer
 	 * Pak (tpak_wiiu.c). */
 	if ((g_game_paks & GAMEDB_TRANSFER) && !g_sweep_s) { /* the sweep never touches the Game Boy saves */
 		loading("Finding the Game Boy game", 0.6f);
-		tpak_wiiu_start(report_sd_root(), ROM_HEADER.Name, ROM_HEADER.CRC1);
+		tpak_wiiu_start(report_sd_root(), (const unsigned char *)fix->name, fix->crc1);
 	}
 	int cpu_up = 0, video_up = 0, launch = LAUNCH_FIRST;
 	time_t when = 0;
@@ -2267,6 +2290,7 @@ static int build_rom_shaders(int index, char *line, unsigned size_line)
 		snprintf(line, size_line, "%s: could not read the ROM", lg->file);
 		return -1;
 	}
+	fixes_for(lg->file); /* the shader choices play makes */
 	init_memory();
 	player_plugins_init();
 	char name[24];

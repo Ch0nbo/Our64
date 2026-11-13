@@ -2029,7 +2029,7 @@ void GraphicsDrawer::_initStates()
 
 void GraphicsDrawer::_setSpecialTexrect() const
 {
-	std::string name(RSP.romname);
+	std::string name(RSP.fixname); // Our64: Game options > Fixes
 	std::transform(name.begin(), name.end(), name.begin(), ::toupper);
 #define FOUND(romname) name.find(romname) != std::string::npos
 

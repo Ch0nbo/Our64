@@ -17,6 +17,7 @@
 #include "player.h"
 #include "bench.h"
 #include "report.h"
+#include "fixes.h"
 #include "tpak.h"
 #include "rsp_lle.h"
 #include "gb_tower_hle.h"
@@ -569,7 +570,7 @@ static void boot_patches_vi(void)
 		return;
 	g_boot_patched++;
 	for (unsigned i = 0; i < sizeof(g_boot_patches) / sizeof(g_boot_patches[0]); i++)
-		if (g_boot_patches[i].crc1 == ROM_HEADER.CRC1 && g_boot_patches[i].crc2 == ROM_HEADER.CRC2 &&
+		if (g_boot_patches[i].crc1 == fixes_now()->crc1 && g_boot_patches[i].crc2 == fixes_now()->crc2 &&
 		    rdram[(g_boot_patches[i].addr & ~3u) / 4] == 0) {
 			/* both halves of the word, so the second half's check does not see the first half's write */
 			for (unsigned j = i; j < sizeof(g_boot_patches) / sizeof(g_boot_patches[0]) &&
