@@ -61,7 +61,8 @@ Files Our64 writes, all under `sd:/wiiu/our64`:
 | `saves/`         | in-game saves (cartridge saves, Controller Paks) |
 | `states/`        | save states and the autosave                     |
 | `config/`        | settings and button mappings                     |
-| `art/`           | covers (Fetch covers)                            |
+| `art/`           | covers (Fetch covers); `art/custom/` your own    |
+| `trash/`         | ROMs deleted in Game options                     |
 | `player-log.txt` | which games ran and how, errors, crashes         |
 
 Error screens show a code such as `OUR-0104`. What each one means and how to fix it:
@@ -73,7 +74,9 @@ Settings > Picture:
 
 - **Screen mode:** TV only, TV + GamePad or GamePad only. The prompt at each start begins on this choice.
 - **Shape:** 4:3, the games' own shape, or 16:9, stretched to fill a wide TV.
-- **Filter:** Off, Scanlines, CRT or CRT Curved, on the TV and the GamePad.
+- **Speed display:** On shows the game's speed over the picture, as a percentage of a real N64's. Off by default.
+- **Filter:** Off, Scanlines, CRT or CRT Curved, on the TV and the GamePad. A filter also enlarges the picture
+  by 3% a side, as a tube TV did, which hides the black borders most games leave around it.
 
 ## Games
 
@@ -86,6 +89,23 @@ Settings > Games:
   save states stay.
 - **Start-up ROM Category:** the category shown when Our64 starts: All, Recent or Favorites. Recent opens only
   when the last game played is in it, Favorites only when you have favorites; otherwise All.
+
+Titles come from the ROMs' file names, without the region and dump tags, so a ROM hack shows under its own
+name. The magnifier at the start of the letter bar searches titles and file names.
+
+## Game options
+
+Each game has its own options: press X on it in Our ROMs, or pause the game and choose Game options.
+
+- **Resolution:** 480p or 720p for this game. 720p is sharper on a TV, but many games slow down or stutter
+  with it, so it is never on unless you choose it. The Speed display shows how a game copes.
+- **Picture:** this game's own Screen mode, Shape, Speed display and Filter. Default follows Settings > Picture.
+- **Cover:** the fetched cover, or a PNG image you choose from the SD card. A PNG named like the ROM file in
+  `sd:/wiiu/our64/art/custom/` (`My Game.z64` takes `My Game.png`) works too.
+- **Rename:** changes the ROM file's name. Its favorite star, options and cover go with it.
+- **Delete:** moves the ROM to `sd:/wiiu/our64/trash/`. Its saves and save states stay.
+
+Rename and Delete need the game closed and its ROM on the SD card.
 
 ## Reporting a problem
 
