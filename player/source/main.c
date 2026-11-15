@@ -1945,8 +1945,14 @@ static int play_game(int index)
 		if (our64_ram_4mb)
 			report_line("MEMORY: 4 MB, no Expansion Pak (mupen64plus.ini DisableExtraMem)");
 	}
+	/* Pokemon Stadium (not 2: "POKEMON STADIUM 2") hands the AI each buffer and
+	 * goes on mixing into it while it plays: taken whole, every one of 2267
+	 * buffers had changed after it was taken and each buffer's edge jumped
+	 * ~4300 against ~500 inside, constant static (audio-dump, Europe Rev 1,
+	 * GitHub issue 48, 2026-11-15; LLE audio did not help). */
 	g_ai_stream = !strncmp(fixname, "Stunt Racer 64", 14) ||
-	              !strncasecmp(fixname, "World Driver Champ", 18);
+	              !strncasecmp(fixname, "World Driver Champ", 18) ||
+	              !strncmp(fixname, "POKEMON STADIUM ", 16);
 	/* Gauntlet Legends runs its code at TLB addresses: 41-56 VIs a second
 	 * with choppy audio without links there, a steady 60 with them, resumes
 	 * included (2026-10-20). Conker crashed on resume with them, so only
