@@ -1985,18 +1985,20 @@ void draw_mapping(const setup_view & sv)
 }
 
 // Settings > Games: the ROM folder, with the folder as words at the right in
-// the room the row's name leaves, and Fetch covers.
+// the room the row's name leaves, and Fetch covers. Five rows since Match
+// changed ROMs (2026-11-15): spaced as Our Settings' own (settings_main_rect).
 void draw_games(const setup_view & sv)
 {
 	const games_ui & g = sv.games;
 	setup_header("GAMES", sv.line[0] ? sv.line : nullptr);
 	for (int row = 0; row < GAMES_ROWS; row++) {
 		int r[4];
-		settings_row_rect(row, r);
+		settings_main_rect(row, r);
 		const bool sel = g.row == row;
 		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
 		const char * name = games_row_name(row);
-		text(r[0] + 20, r[1] + 12, name, 26, card_ink(sel, false));
+		const int ty = r[1] + (r[3] - 26) / 2 - 2;
+		text(r[0] + 20, ty, name, 26, card_ink(sel, false));
 		char value[sizeof(g.folder)];
 		games_value(&g, row, value, sizeof(value));
 		if (!value[0])
@@ -2006,9 +2008,10 @@ void draw_games(const setup_view & sv)
 		while (px > 15 && text_width(value, px) > room)
 			px--;
 		// one line: a long path loses its middle, so the drive and the last folder stay
-		text(r[0] + r[2] - 24, r[1] + 15, cut_to_fit(value, px, room).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+		text(r[0] + r[2] - 24, r[1] + (r[3] - px) / 2 - 1, cut_to_fit(value, px, room).c_str(), px, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
 	}
-	row_about(GAMES_ROWS, games_row_about(&g));
+	const char * about = games_row_about(&g);
+	text(40, 384, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
 	pause_key keys[6];
 	int n = games_legend(&g, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);

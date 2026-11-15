@@ -361,16 +361,18 @@ int picture_legend(const picture_ui *p, int type, pause_key *keys, int max)
 
 /* ---- Settings > Games ---- */
 
-static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers", "Auto-Resume", "Start-up ROM Category" };
+static const char *const g_games_row[GAMES_ROWS] = { "ROM folder", "Fetch covers", "Match changed ROMs", "Auto-Resume",
+                                                         "Start-up ROM Category" };
 
 const char *games_row_name(int row) { return row >= 0 && row < GAMES_ROWS ? g_games_row[row] : ""; }
 
-void games_open(games_ui *g, const char *folder, int auto_resume, int start_on)
+void games_open(games_ui *g, const char *folder, int auto_resume, int start_on, int match)
 {
 	memset(g, 0, sizeof(*g));
 	snprintf(g->folder, sizeof(g->folder), "%s", folder ? folder : "");
 	g->auto_resume = auto_resume;
 	g->start_on = start_on;
+	g->match = match;
 	g->touched = -1;
 }
 
@@ -404,6 +406,7 @@ static int games_act(const games_ui *g)
 	case GAMES_FOLDER: return GACT_FOLDER;
 	case GAMES_RESUME: return g->auto_resume ? GACT_RESUME_OFF : GACT_RESUME_ON;
 	case GAMES_START: return GACT_START;
+	case GAMES_MATCH: return GACT_MATCH;
 	default: return GACT_FETCH;
 	}
 }
@@ -444,6 +447,7 @@ void games_value(const games_ui *g, int row, char *out, unsigned size)
 {
 	snprintf(out, size, "%s", row == GAMES_FOLDER ? g->folder
 	                          : row == GAMES_RESUME ? (g->auto_resume ? "On" : "Off")
+	                          : row == GAMES_MATCH ? (g->match ? "On" : "Off")
 	                          : row == GAMES_START ? start_name(g->start_on) : "");
 }
 
@@ -453,6 +457,7 @@ const char *games_row_about(const games_ui *g)
 	case GAMES_FOLDER: return "Where we find your games";
 	case GAMES_RESUME: return "Saves where you stop and picks up there next time";
 	case GAMES_START: return "The category shown when Our64 starts";
+	case GAMES_MATCH: return "Hacks and translations get the original game's cover";
 	default: return "Fetches box art from the internet. Requires Wi-Fi";
 	}
 }
@@ -474,7 +479,7 @@ int games_hit(int x, int y)
 {
 	int r[4];
 	for (int row = 0; row < GAMES_ROWS; row++) {
-		settings_row_rect(row, r);
+		settings_main_rect(row, r);
 		if (inside(x, y, r))
 			return row;
 	}

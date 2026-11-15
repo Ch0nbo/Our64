@@ -646,6 +646,8 @@ static void fetch_start(games_ui *g, int n)
 	int k = list ? library_missing_list(list, n, NULL) : 0; /* n again: every header is read by now */
 	if (k > n)
 		k = n;
+	for (int i = 0; i < k; i++)
+		list[i].wide = g_settings.cover_match; /* Settings > Games > Match changed ROMs */
 	if (k > 0 && !covers_start(report_sd_root(), list, k)) {
 		games_fetching(g, 0, k);
 	} else { /* no memory or no thread */
@@ -1168,10 +1170,77 @@ static void cover_fetched(options_ui *o, const char *file)
 	line(o->cover == COVER_FETCHED ? "Cover: Fetched" : "Cover: None");
 }
 
+/* Game options > Cover > Original game's cover (2026-11-15, Zach: Match
+ * changed ROMs also per game): this game's cover fetched now with the game
+ * code and title lookups, on the Fetch covers screen ("1 of 1", B stops), over
+ * the cover it has; when one is saved, a cover of its own is taken away so the
+ * fetched one shows. 1: HOME, and leaving was confirmed, or closing. */
+static int cover_original(options_ui *o, const char *file)
+{
+	games_ui *g = &g_view.games;
+	covers_game one;
+	if (library_cover_game(file, &one)) {
+		line("Couldn't read this game.");
+		return 0;
+	}
+	one.wide = 1;
+	one.replace = 1;
+	g_view.line[0] = 0;
+	if (covers_start(report_sd_root(), &one, 1)) {
+		report_line("ERROR Fetch covers not started: OUR-0403");
+		covers_summary(COVERS_NO_START, 0, 0, 0, 0, g_view.line, sizeof(g_view.line));
+		return 0;
+	}
+	games_fetching(g, 0, 1);
+	g_view.screen = SETUP_FETCH;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1, home = 0, closing = 0;
+	while (g->running) {
+		if (!covers_running()) {
+			fetch_end(g, 0);
+			break;
+		}
+		fetch_follow(g);
+		show();
+		read_frame(&f, NULL, &touching, &target);
+		if (player_closing()) {
+			fetch_end(g, 1);
+			closing = 1;
+			break;
+		}
+		for (int i = 0; i < f.n && g->running; i++) {
+			const int a = games_event(g, f.events[i], f.targets[i]);
+			if (a == GACT_STOP || a == GACT_HOME) {
+				fetch_end(g, 1);
+				home = a == GACT_HOME;
+			}
+		}
+	}
+	g_view.screen = SETUP_OPTIONS;
+	char saved_line[sizeof(g_view.line)];
+	snprintf(saved_line, sizeof(saved_line), "%s", g_view.line);
+	int dummy, saved = 0;
+	covers_progress(&dummy, &dummy, &saved);
+	if (saved > 0 && o->cover == COVER_CUSTOM) { /* the fetched one shows, not the picked image */
+		char path[600];
+		library_custom_cover_path(file, path, sizeof(path));
+		remove(path);
+	}
+	library_cover_changed(file);
+	const int now = library_cover_state(file);
+	o->cover = now < 0 ? COVER_NONE : now;
+	report_line("COVER: %s: original game's cover %s", file, saved > 0 ? "saved" : "not saved");
+	snprintf(g_view.line, sizeof(g_view.line), "%s", saved > 0 ? "Cover: Original game's" : saved_line);
+	if (closing)
+		return 1;
+	return home ? home_ok() : 0;
+}
+
 int game_options_run(const char *file, const char *title, int glyphs, int paused, int usb)
 {
 	static const char *const res_names[3] = { "Native", "480p", "720p" };
-	static const char *const cover_names[2] = { "Fetched cover", "Choose an image" };
+	static const char *const cover_names[3] = { "Fetched cover", "Choose an image", "Original game's cover" };
 	options_ui *o = &g_view.options;
 	g_from_pause = paused;
 	snprintf(g_view.game, sizeof(g_view.game), "%s", title);
@@ -1229,7 +1298,7 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 				break;
 			}
 			case OACT_COVER: {
-				const int pick = run_choice("COVER", "A PNG image from the SD card or a USB drive", cover_names, 2,
+				const int pick = run_choice("COVER", "A PNG image from the SD card or a USB drive", cover_names, 3,
 				                            o->cover == COVER_CUSTOM);
 				if (pick == -2) {
 					result = 1;
@@ -1242,6 +1311,9 @@ int game_options_run(const char *file, const char *title, int glyphs, int paused
 						result = 1;
 					else if (r == 1)
 						cover_use(o, file, picked);
+				} else if (pick == 2) {
+					if (cover_original(o, file))
+						result = 1;
 				}
 				i = f.n;
 				break;
@@ -1377,7 +1449,7 @@ static void toggle_auto_resume(games_ui *g, int on)
 static int run_games(void)
 {
 	games_ui *g = &g_view.games;
-	games_open(g, library_folder_label(), g_settings.auto_resume, g_settings.start_on); /* no game read here: Fetch covers reads them */
+	games_open(g, library_folder_label(), g_settings.auto_resume, g_settings.start_on, g_settings.cover_match); /* no game read here: Fetch covers reads them */
 	g_view.screen = SETUP_GAMES;
 	g_view.line[0] = 0;
 	frame_input f;
@@ -1413,6 +1485,17 @@ static int run_games(void)
 			case GACT_RESUME_ON:
 				toggle_auto_resume(g, !g->auto_resume);
 				i = f.n; /* presses after A were the question's */
+				break;
+			case GACT_MATCH:
+				g_settings.cover_match = !g->match;
+				if (setup_save_settings()) {
+					g_settings.cover_match = g->match;
+					write_failed();
+					break;
+				}
+				g->match = g_settings.cover_match;
+				report_line("COVERS: Match changed ROMs %s", g->match ? "on" : "off");
+				line(g->match ? "Match changed ROMs on." : "Match changed ROMs off.");
 				break;
 			case GACT_START: {
 				const int home = run_start(g);

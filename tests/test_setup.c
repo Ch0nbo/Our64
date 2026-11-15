@@ -817,7 +817,7 @@ static void taps_select_a_row_then_change_it_and_switch_tabs_at_once(void)
 static void games_rows_and_fetch_progress(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	CHECK(!strcmp(games_row_name(GAMES_FOLDER), "ROM folder") && !strcmp(games_row_name(GAMES_COVERS), "Fetch covers"));
 	char v[64];
 	games_value(&g, GAMES_FOLDER, v, sizeof(v));
@@ -849,7 +849,7 @@ static void games_rows_and_fetch_progress(void)
 static void fetch_covers_is_always_available(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	g.row = GAMES_COVERS;
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_FETCH);
 	pause_key k[6];
@@ -863,7 +863,7 @@ static void fetch_covers_is_always_available(void)
 static void games_legend_and_lines_while_fetching(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	CHECK(!strcmp(games_row_about(&g), "Where we find your games"));
 	g.row = GAMES_COVERS;
 	CHECK(!strcmp(games_row_about(&g), "Fetches box art from the internet. Requires Wi-Fi"));
@@ -890,15 +890,15 @@ static int tap_games(games_ui *g, int target)
 static void games_taps_select_then_act(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	int r[4];
-	settings_row_rect(GAMES_COVERS, r);
+	settings_main_rect(GAMES_COVERS, r);
 	const int t = games_hit(r[0] + 5, r[1] + 5);
 	CHECK(t == GAMES_COVERS && games_hit(5, 5) == -1);
 	CHECK(tap_games(&g, t) == GACT_NONE && g.row == GAMES_COVERS); /* a tap selects */
 	CHECK(tap_games(&g, t) == GACT_FETCH);                          /* a tap on the selected acts */
 	games_fetching(&g, 1, 3);
-	settings_row_rect(GAMES_FOLDER, r);
+	settings_main_rect(GAMES_FOLDER, r);
 	CHECK(tap_games(&g, games_hit(r[0] + 5, r[1] + 5)) == GACT_NONE && g.row == GAMES_COVERS); /* not while it runs */
 }
 
@@ -906,15 +906,15 @@ static void games_taps_select_then_act(void)
 static void auto_resume_and_start_on_rows(void)
 {
 	games_ui g;
-	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	CHECK(!strcmp(games_row_name(GAMES_RESUME), "Auto-Resume") && !strcmp(games_row_name(GAMES_START), "Start-up ROM Category"));
-	CHECK(GAMES_RESUME == GAMES_COVERS + 1 && GAMES_START == GAMES_RESUME + 1 && GAMES_ROWS == 4);
+	CHECK(GAMES_MATCH == GAMES_COVERS + 1 && GAMES_RESUME == GAMES_MATCH + 1 && GAMES_START == GAMES_RESUME + 1 && GAMES_ROWS == 5);
 	char v[64];
 	games_value(&g, GAMES_RESUME, v, sizeof(v));
 	CHECK(!strcmp(v, "On"));
 	games_value(&g, GAMES_START, v, sizeof(v));
 	CHECK(!strcmp(v, "Recent"));
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < 5; i++)
 		games_event(&g, PEV_DOWN, -1);
 	CHECK(g.row == GAMES_START); /* stops at the last row */
 	CHECK(!strcmp(games_row_about(&g), "The category shown when Our64 starts"));
@@ -928,15 +928,33 @@ static void auto_resume_and_start_on_rows(void)
 	CHECK(games_event(&g, PEV_OK, -1) == GACT_RESUME_ON);  /* Off: on at once, nothing asked */
 	pause_key k[6];
 	CHECK(games_legend(&g, INPUT_PRO, k, 6) == 4 && !k[3].dim);
-	games_open(&g, "SD card: /wiiu/our64/roms", 0, START_FAVORITES);
+	games_open(&g, "SD card: /wiiu/our64/roms", 0, START_FAVORITES, 0);
 	games_value(&g, GAMES_RESUME, v, sizeof(v));
 	CHECK(!strcmp(v, "Off"));
 	games_value(&g, GAMES_START, v, sizeof(v));
 	CHECK(!strcmp(v, "Favorites"));
 	int r[4];
-	settings_row_rect(GAMES_START, r);
+	settings_main_rect(GAMES_START, r);
 	const int t = games_hit(r[0] + 5, r[1] + 5);
 	CHECK(t == GAMES_START && tap_games(&g, t) == GACT_NONE && tap_games(&g, t) == GACT_START);
+}
+
+/* Match changed ROMs (2026-11-15): under Fetch covers, off unless turned on, A switches it. */
+static void match_changed_roms_row(void)
+{
+	games_ui g;
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
+	CHECK(!strcmp(games_row_name(GAMES_MATCH), "Match changed ROMs"));
+	char v[64];
+	games_value(&g, GAMES_MATCH, v, sizeof(v));
+	CHECK(!strcmp(v, "Off"));
+	games_event(&g, PEV_DOWN, -1);
+	games_event(&g, PEV_DOWN, -1);
+	CHECK(g.row == GAMES_MATCH && games_event(&g, PEV_OK, -1) == GACT_MATCH);
+	CHECK(!strcmp(games_row_about(&g), "Hacks and translations get the original game's cover"));
+	games_open(&g, "SD card: /wiiu/our64/roms", 1, START_RECENT, 1);
+	games_value(&g, GAMES_MATCH, v, sizeof(v));
+	CHECK(!strcmp(v, "On"));
 }
 
 static void start_on_picks_all_recent_or_favorites(void)
@@ -1156,6 +1174,7 @@ int main(void)
 	RUN(games_legend_and_lines_while_fetching);
 	RUN(games_taps_select_then_act);
 	RUN(auto_resume_and_start_on_rows);
+	RUN(match_changed_roms_row);
 	RUN(start_on_picks_all_recent_or_favorites);
 	RUN(browser_opens_drives_then_folders_and_uses_one);
 	RUN(browser_scrolls_long_lists);

@@ -228,22 +228,6 @@ static void test_server_gone(void)
 	CHECK(covers_server_gone(&streak, COVERS_NOT_PNG));
 }
 
-static void test_second_title(void)
-{
-	char out[64];
-	/* the table's name 404'd: the file's name, when it differs */
-	CHECK(covers_second_title("Banjo-Kazooie (USA) (Rev 1)", "Banjo-Kazooie (USA).z64", out, sizeof out));
-	CHECK(!strcmp(out, "Banjo-Kazooie (USA)"));
-	CHECK(!covers_second_title("Banjo-Kazooie (USA)", "Banjo-Kazooie (USA).z64", out, sizeof out));
-	CHECK(out[0] == 0);
-	/* no table name: the first try was the file's, so none */
-	CHECK(!covers_second_title(NULL, "My Hack (USA).z64", out, sizeof out));
-	CHECK(out[0] == 0);
-	/* a file name too long for out */
-	CHECK(!covers_second_title("A", "A very long file name.z64", out, 8));
-	CHECK(out[0] == 0);
-}
-
 static covers_game game(uint32_t crc1, uint32_t crc2, char country, const char *code, const char *file)
 {
 	covers_game g;
@@ -253,6 +237,7 @@ static covers_game game(uint32_t crc1, uint32_t crc2, char country, const char *
 	g.country = country;
 	snprintf(g.code, sizeof g.code, "%s", code);
 	snprintf(g.file, sizeof g.file, "%s", file);
+	g.wide = 1;
 	return g;
 }
 
@@ -292,6 +277,15 @@ static void test_titles(void)
 	CHECK(!strcmp(covertitles_by_title("Legend of Zelda, The - Ocarina of Time", 'P'), "Legend of Zelda, The - Ocarina of Time (Europe) (En,Fr,De)"));
 	CHECK(!strcmp(covertitles_by_title("the legend of zelda ocarina of time (U) [!]", 'E'), "Legend of Zelda, The - Ocarina of Time (USA)"));
 	CHECK(covertitles_by_title("Nothing Like It 64", 'E') == NULL && covertitles_by_title("(USA)", 'E') == NULL);
+	/* Match changed ROMs off (the default): the CRCs' name and the file's only */
+	g = game(0x72B277B8, 0xF771F9A1, 'E', "NZSE", "The Legend of Zelda - Majora's Mask.z64");
+	g.wide = 0;
+	n = covers_titles(&g, t);
+	CHECK(n == 1 && !strcmp(t[0], "The Legend of Zelda - Majora's Mask"));
+	g = game(0x635A2BFF, 0x8B022326, 'E', "NSME", "Super Mario 64.z64");
+	g.wide = 0;
+	n = covers_titles(&g, t);
+	CHECK(n == 2 && !strcmp(t[0], "Super Mario 64 (USA)") && !strcmp(t[1], "Super Mario 64"));
 	/* nothing known: the file's own name */
 	g = game(1, 2, 'E', "", "My Hack.z64");
 	n = covers_titles(&g, t);
@@ -350,7 +344,6 @@ int main(void)
 	test_small_buffers();
 	test_outcomes();
 	test_server_gone();
-	test_second_title();
 	test_titles();
 	test_summary();
 	if (!g_failed)

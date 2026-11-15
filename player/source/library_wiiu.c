@@ -79,8 +79,8 @@ int library_cover_state(const char *file)
 	return -1;
 }
 
-/* After Game options put a cover of the game's own in place or took it away:
- * the flags again, and its picture read again when next in view. */
+/* After Game options put a cover of the game's own in place or took it away,
+ * or fetched the original game's: the flags again, and its picture read again when next in view. */
 void library_cover_changed(const char *file)
 {
 	char path[600];
@@ -91,6 +91,10 @@ void library_cover_changed(const char *file)
 			continue;
 		library_custom_cover_path(file, path, sizeof(path));
 		g->art_custom = !stat(path, &st);
+		if (g_info[i] && g->readable) { /* Original game's cover may have fetched one */
+			snprintf(path, sizeof(path), "%s/art/%s.png", g_root, g->rom.id);
+			g->art_fetched = !stat(path, &st);
+		}
 		g->art = g->art_custom || g->art_fetched;
 		for (int s = 0; s < ROMS_ART; s++)
 			if (g_view.art[s].game == i)
@@ -451,6 +455,29 @@ int library_missing_list(covers_game *out, int max, int (*reading)(int read, int
 }
 
 int library_missing_covers(int (*reading)(int read, int total)) { return library_missing_list(NULL, 0, reading); }
+
+int library_cover_game(const char *file, covers_game *out)
+{
+	loader_wait(0);
+	for (int i = 0; i < g_count; i++) {
+		if (g_games[i].deleted || strcmp(g_games[i].file, file))
+			continue;
+		if (!g_info[i])
+			need_info(i);
+		const library_game *g = &g_games[i];
+		if (!g->readable)
+			return -1;
+		memset(out, 0, sizeof(*out));
+		snprintf(out->id, sizeof(out->id), "%s", g->rom.id);
+		out->crc1 = g->rom.crc1;
+		out->crc2 = g->rom.crc2;
+		out->country = g->rom.country;
+		snprintf(out->code, sizeof(out->code), "%s", g->rom.code);
+		snprintf(out->file, sizeof(out->file), "%s", g->file);
+		return 0;
+	}
+	return -1;
+}
 
 /* A cover Fetch covers saved: every game with that id has one now, and the
  * loader draws it when it comes into view. The loader's result not taken yet

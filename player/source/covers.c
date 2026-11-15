@@ -205,20 +205,6 @@ int covers_server_gone(int *streak, int outcome)
 	return ++*streak >= COVERS_NET_TRIES;
 }
 
-int covers_second_title(const char *table_title, const char *file, char *out, unsigned size)
-{
-	if (size == 0)
-		return 0;
-	out[0] = 0;
-	if (!table_title)
-		return 0; /* the first try was the file's title already */
-	covers_file_title(file, out, size);
-	if (out[0] && strcmp(out, table_title))
-		return 1;
-	out[0] = 0;
-	return 0;
-}
-
 int covers_final(int result, int saved, int failed)
 {
 	return result == COVERS_OK && failed > 0 && saved == 0 ? COVERS_NO_SERVER : result;
@@ -280,8 +266,10 @@ int covers_titles(const covers_game *g, char out[COVERS_TITLES][256])
 	int n = 0;
 	covers_file_title(g->file, file, sizeof(file));
 	n = add_title(out, n, covertitles_find(g->crc1, g->crc2, g->country));
-	n = add_title(out, n, g->code[0] ? covertitles_by_code(g->code) : NULL);
-	n = add_title(out, n, covertitles_by_title(file, g->country));
+	if (g->wide) {
+		n = add_title(out, n, g->code[0] ? covertitles_by_code(g->code) : NULL);
+		n = add_title(out, n, covertitles_by_title(file, g->country));
+	}
 	n = add_title(out, n, file);
 	return n;
 }

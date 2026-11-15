@@ -109,6 +109,8 @@ const char *library_folder_label(void); /* the ROM folder in settings.cfg as a f
 int  library_missing_covers(int (*reading)(int read, int total));
 int  library_missing_list(covers_game *out, int max, int (*reading)(int read, int total)); /* those games, for covers_start; the count */
 void library_cover_saved(const char *id); /* Fetch covers saved this game id's cover: the list shows it */
+/* The ROM file's game for covers_start (its header read now if it wasn't): 0, or -1 when it is not listed or unreadable. */
+int  library_cover_game(const char *file, covers_game *out);
 int  library_on_usb(void);              /* the folder listed is on a USB drive */
 int  library_missing(void);             /* ROMS_NO_DRIVE, ROMS_NO_FOLDER (ui.h): the folder listed can't be read; 0 */
 

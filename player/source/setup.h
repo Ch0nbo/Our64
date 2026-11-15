@@ -80,20 +80,24 @@ int  picture_legend(const picture_ui *p, int type, pause_key *keys, int max);
  * Auto-Resume (2026-11-06) switches resume points on or off with A: turning
  * it off asks first, since every game's resume points are deleted
  * (GACT_RESUME_OFF: the caller asks); on asks nothing. Start on opens its own
- * page: All, Recent or Favorites, A picks one and goes back. ---- */
-enum { GAMES_FOLDER, GAMES_COVERS, GAMES_RESUME, GAMES_START, GAMES_ROWS };
+ * page: All, Recent or Favorites, A picks one and goes back. Match changed
+ * ROMs (2026-11-15, off by default) switches with A: Fetch covers also looks
+ * covers up by game code and title, so hacks and translations get the
+ * original game's (Zach: a setting, not always on). ---- */
+enum { GAMES_FOLDER, GAMES_COVERS, GAMES_MATCH, GAMES_RESUME, GAMES_START, GAMES_ROWS };
 typedef struct {
 	int row;
 	char folder[400];     /* "SD card: /wiiu/our64/roms", "USB drive OUR64 EXFAT: /ROMs/N64" (usbfs_folder_label) */
 	int auto_resume;      /* on: resume points written and loaded */
 	int start_on;         /* START_ (prompt.h) */
+	int match;            /* Match changed ROMs on */
 	int running, done, total; /* a fetch in progress: SETUP_FETCH */
 	int reading;          /* running, and done of total are headers read, not covers */
 	int touched;
 } games_ui;
 /* GACT_RESUME_OFF: ask, then turn it off; GACT_RESUME_ON: turn it on; GACT_START: the Start on page */
-enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP, GACT_RESUME_OFF, GACT_RESUME_ON, GACT_START };
-void games_open(games_ui *g, const char *folder, int auto_resume, int start_on);
+enum { GACT_NONE, GACT_BACK, GACT_HOME, GACT_FOLDER, GACT_FETCH, GACT_STOP, GACT_RESUME_OFF, GACT_RESUME_ON, GACT_START, GACT_MATCH };
+void games_open(games_ui *g, const char *folder, int auto_resume, int start_on, int match);
 int  games_event(games_ui *g, int event, int target);
 void games_reading(games_ui *g, int read, int total); /* the headers being read for the fetch */
 void games_fetching(games_ui *g, int done, int total);

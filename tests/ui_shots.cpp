@@ -880,14 +880,16 @@ void shots_setup()
 	sv.look.pick[LOOK_LAYOUT] = LAYOUT_LIST;
 	shot("theme-layout", v);
 	sv.screen = SETUP_GAMES; // Settings > Games: no game read as it opens
-	games_open(&sv.games, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&sv.games, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	shot("games", v);
 	// one line: a long path loses its middle, the drive and the last folder stay
-	games_open(&sv.games, "USB drive OUR64 EXFAT: /Emulation/Nintendo64/No-Intro_2026-10/Every_cartridge_we_own_by_year/USA", 1, START_RECENT);
+	games_open(&sv.games, "USB drive OUR64 EXFAT: /Emulation/Nintendo64/No-Intro_2026-10/Every_cartridge_we_own_by_year/USA", 1, START_RECENT, 0);
 	shot("games-usb-long", v);
-	games_open(&sv.games, "SD card: /wiiu/our64/roms", 1, START_RECENT);
+	games_open(&sv.games, "SD card: /wiiu/our64/roms", 1, START_RECENT, 0);
 	sv.games.row = GAMES_COVERS;
 	shot("games-covers", v);
+	sv.games.row = GAMES_MATCH; // Match changed ROMs: Off by default, A switches it
+	shot("games-match", v);
 	sv.games.row = GAMES_RESUME; // Auto-Resume: On or Off, A switches it (off asks first)
 	shot("games-auto-resume", v);
 	v.exit_ask = 1; // A on it while On: the question first, Cancel focused

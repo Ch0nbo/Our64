@@ -191,7 +191,10 @@ static int one_game(const covers_game *gm, const struct sockaddr_in *addr)
 	struct stat st;
 	const int n_titles = covers_titles(gm, titles);
 	snprintf(title, sizeof(title), "%s", n_titles ? titles[0] : gm->file);
-	if (!stat(path, &st)) { /* a cover already on the card is never replaced, unless it can't be drawn */
+	/* A cover already on the card is never replaced, unless it can't be drawn;
+	 * Game options > Cover > Original game's cover (replace) writes over it,
+	 * and the old one stays until the new one is written. */
+	if (!gm->replace && !stat(path, &st)) {
 		if (png_whole(path, NULL, 0)) {
 			report_line("COVERS: %s: already on the card", title);
 			return GAME_THERE;

@@ -67,6 +67,8 @@ typedef struct {
 	int auto_resume;      /* "Auto-resume = on|off": resume points written and loaded (the default), or neither */
 	int start_on;         /* START_ */
 	int speed;            /* "Speed display = on|off": the game's speed as a percentage, over the game (off by default) */
+	int cover_match;      /* "Match changed ROMs = on|off": Fetch covers also looks a cover up by the header's game code
+	                       * and by title, so hacks and translations get the original game's (off by default) */
 	int update_check;     /* "Update check = on|off": looks for a new version as Our64 starts (the default) */
 	char update_seen[24]; /* "Update seen = 1.3.0": the version Our ROMs already told the player about, "" none */
 } our_settings;

@@ -55,10 +55,6 @@ int covers_is_png(const unsigned char *body, unsigned n);
  * (COVERS_NET_FAILED or COVERS_NOT_PNG; a cover or a 404 ends the run); 1
  * when this one was the COVERS_NET_TRIES'th and the fetch stops. */
 int covers_server_gone(int *streak, int outcome);
-/* The second title, after a 404 on table_title (covertitles_find's): the ROM
- * file's own (covers_file_title), when there was a table title and the file's
- * differs. 1 with out filled, else 0 and out "". */
-int covers_second_title(const char *table_title, const char *file, char *out, unsigned size);
 
 /* How a fetch ended. COVERS_NO_START: it never began (no memory or thread). */
 enum { COVERS_OK, COVERS_NO_NETWORK, COVERS_NO_SERVER, COVERS_CARD_FULL, COVERS_NO_START };
@@ -81,12 +77,16 @@ typedef struct {
 	char country;
 	char code[5];     /* the header's game code ("NZSE"), "" when unknown */
 	char file[128];   /* the ROM's file name: the second title */
+	int wide;         /* Match changed ROMs (2026-11-15): also by game code and by title */
+	int replace;      /* a cover on the card is replaced when another is found (Game options > Cover) */
 } covers_game;
 
 /* The titles to try for a game, in order, each once (2026-11-13): the name
  * its header CRCs have (covertitles_find), the name its game code has (a
  * translated or patched ROM keeps the code), a name whose title is its file
- * name's (covertitles_by_title), and last the file name itself. The first
+ * name's (covertitles_by_title), and last the file name itself. The code and
+ * title steps only when g->wide: a hack keeps its game's code, so it gets
+ * the original game's cover (Zach, 2026-11-15: a setting, off by default). The first
  * that is not a 404 is the cover. The count (at least 1 with a file name). */
 #define COVERS_TITLES 4
 int covers_titles(const covers_game *g, char out[COVERS_TITLES][256]);

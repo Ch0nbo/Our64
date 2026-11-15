@@ -182,6 +182,18 @@ static void update_settings_round_trip(void)
 	CHECK(settings_parse("Update check = maybe\n", &s) == SETTINGS_DAMAGED);
 }
 
+/* Match changed ROMs (2026-11-15): off unless the file says on, and written back. */
+static void match_changed_roms_round_trip(void)
+{
+	our_settings s, back;
+	char text[2048];
+	CHECK(settings_parse("Theme = Comrade\n", &s) == 0 && s.cover_match == 0);
+	CHECK(settings_parse("Match changed ROMs = on\n", &s) == 0 && s.cover_match == 1);
+	settings_format_all(text, sizeof(text), &s);
+	CHECK(strstr(text, "Match changed ROMs = on\n") && settings_parse(text, &back) == 0 && back.cover_match == 1);
+	CHECK(settings_parse("Match changed ROMs = yes\n", &s) == SETTINGS_DAMAGED);
+}
+
 /* Smooth (GLideN64's FXAA) was dropped 2026-11-04: an older build's settings.cfg
  * may say it. It reads as Off, the file is not damaged, and is written back as Off. */
 static void an_older_builds_smooth_reads_as_off(void)
@@ -429,6 +441,8 @@ int main(void)
 	an_older_builds_smooth_reads_as_off();
 	a_long_recent_list_and_folder_still_fit();
 	auto_resume_and_start_on_round_trip();
+	update_settings_round_trip(); /* written with the updater, never run until 2026-11-15 */
+	match_changed_roms_round_trip();
 	test_when();
 	test_title();
 	test_line();
