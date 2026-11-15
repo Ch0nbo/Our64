@@ -285,7 +285,7 @@ struct Config
 #define hack_WCWNitro				(1<<22) //Hack for WCW Nitro backgrounds.
 #define hack_fbTextureOffset		(1<<23) //Hack to offset Conker's shadow in CBFD and Bob-ombs in Mario Tennis.
 #define hack_refreshRdramCopy		(1<<24) //Our64: a buffer drawn into again takes a new RDRAM copy for its validity check. Mario Tennis.
-#define hack_sampledRdramCopy		(1<<25) //Our64: big buffers keep one RDRAM word in 32 for the validity check. Mario Tennis.
+#define hack_fullRdramCopy			(1<<25) //Our64: every buffer keeps every RDRAM word for the validity check. Dr. Mario 64.
 
 extern Config config;
 
