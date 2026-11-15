@@ -2013,8 +2013,9 @@ void draw_games(const setup_view & sv)
 }
 
 // Settings > Update: the action (what it does now, and its size or state at
-// the right), then the two switches with On or Off, as Settings > Games'
-// rows. The action is greyed while a game is loaded.
+// the right), Release notes, then the two switches with On or Off, as
+// Settings > Games' rows. A row that does nothing now is greyed: the action
+// while a game is loaded, the notes before a check, shaders when none are new.
 void draw_update(const setup_view & sv)
 {
 	const update_ui & u = sv.update;
@@ -2031,12 +2032,40 @@ void draw_update(const setup_view & sv)
 		const PixelColor ink = upd_row_off(&u, row) ? rgb(theme_off(&surface_of(sel, false))) : card_ink(sel, false);
 		text(r[0] + 20, r[1] + 12, name, 26, ink);
 		if (value[0])
-			text(r[0] + r[2] - 24, r[1] + 15, value, 22, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+			text(r[0] + r[2] - 24, r[1] + 15, value, 22, upd_row_off(&u, row) ? ink : card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
 	}
 	row_about(UPD_ROWS, upd_row_about(&u));
 	pause_key keys[6];
 	int n = upd_legend(&u, sv.glyphs, keys, 6);
 	draw_keys(keys, n, nullptr);
+}
+
+// Settings > Update > Release notes: the newest release's notes as lines
+// (already cut to the page's width), ten at a time, with arrows in the margin
+// when lines are out of view, as the folder list has.
+void draw_notes(const setup_view & sv)
+{
+	const notes_ui & nt = sv.notes;
+	char sub[48];
+	snprintf(sub, sizeof(sub), "Our64 %s", nt.version);
+	setup_header("RELEASE NOTES", sub);
+	const int x = 40, y0 = 128, step = 26, px = 19, room = UI_W - 80 - 24;
+	for (int i = 0; i < NOTES_SHOWN; i++) {
+		const char * start;
+		int len;
+		if (!notes_line(&nt, i, &start, &len))
+			break;
+		if (len == 0)
+			continue;
+		const std::string line(start, size_t(len));
+		text(x, y0 + i * step, line.c_str(), fit(line.c_str(), px, 14, room), rgb(T.screen.ink));
+	}
+	if (notes_more(&nt, 0))
+		text(UI_W - 20, y0, "▲", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+	if (notes_more(&nt, 1))
+		text(UI_W - 20, y0 + (NOTES_SHOWN - 1) * step, "▼", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+	pause_key keys[4];
+	draw_keys(keys, notes_legend(&nt, sv.glyphs, keys, 4), nullptr);
 }
 
 // An update in progress: Fetch covers' layout, with what is being done, one
@@ -2298,6 +2327,7 @@ void draw_setup(const ui_view & v)
 	case SETUP_DELETING: draw_deleting(sv); break;
 	case SETUP_UPDATE: draw_update(sv); break;
 	case SETUP_UPDATING: draw_updating(sv); break;
+	case SETUP_NOTES: draw_notes(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;

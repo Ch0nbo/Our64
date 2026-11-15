@@ -496,22 +496,47 @@ int games_legend(const games_ui *g, int type, pause_key *keys, int max)
 
 /* ---- Settings > Update ---- */
 
-void upd_open(update_ui *u, int shaders, int auto_check, int paused)
+void upd_open(update_ui *u, int auto_check, int paused)
 {
 	memset(u, 0, sizeof(*u));
-	u->shaders = shaders;
 	u->auto_check = auto_check;
 	u->paused = paused;
 	u->touched = -1;
 }
 
-void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes)
+void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes, int notes)
 {
 	u->state = latest && latest[0] ? UPS_AVAILABLE : UPS_CURRENT;
 	snprintf(u->version, sizeof(u->version), "%s", latest ? latest : "");
 	u->app_bytes = app_bytes;
 	u->shaders_new = shaders_new;
 	u->shaders_bytes = shaders_bytes;
+	u->notes = notes;
+	if (!shaders_new)
+		u->shaders = 0; /* nothing to include: off, and greyed */
+}
+
+void upd_shaders_on(update_ui *u)
+{
+	if (u->shaders_new)
+		u->shaders = 1;
+}
+
+/* About how long the shaders add, in minutes: the download at the speed the
+ * console showed (about 1.5 MB a second), then the card, by far the most of
+ * it: a release holds about one file per 27 KB of zip, and a file that has
+ * to be written takes the card around half a second. */
+static unsigned upd_shaders_minutes(unsigned bytes)
+{
+	const unsigned seconds = bytes / (1500 * 1024) + bytes / 27000 / 2;
+	const unsigned minutes = (seconds + 59) / 60;
+	return minutes ? minutes : 1;
+}
+
+void upd_shaders_warning(const update_ui *u, char *out, unsigned size)
+{
+	const unsigned m = upd_shaders_minutes(u->shaders_bytes);
+	snprintf(out, size, "About %u minute%s more.", m, m == 1 ? "" : "s");
 }
 
 void upd_progress(update_ui *u, int step, unsigned done, unsigned total)
@@ -533,16 +558,27 @@ static int upd_action(const update_ui *u)
 	return UACT_CHECK;
 }
 
+int upd_row_off(const update_ui *u, int row)
+{
+	switch (row) {
+	case UPD_ACTION: return u->paused;
+	case UPD_NOTES: return !u->notes;
+	case UPD_SHADERS: return !u->shaders_new;
+	default: return 0;
+	}
+}
+
 static int upd_act(const update_ui *u)
 {
+	if (upd_row_off(u, u->row))
+		return UACT_NONE;
 	switch (u->row) {
+	case UPD_NOTES: return UACT_NOTES;
 	case UPD_SHADERS: return UACT_SHADERS;
 	case UPD_AUTO: return UACT_AUTO;
 	default: return upd_action(u);
 	}
 }
-
-int upd_row_off(const update_ui *u, int row) { return row == UPD_ACTION && u->paused; }
 
 int upd_can_stop(const update_ui *u) { return u->step != USTEP_INSTALL; }
 
@@ -571,7 +607,14 @@ int upd_event(update_ui *u, int event, int target)
 			u->row = row;
 		break;
 	}
-	case PEV_OK: return upd_act(u);
+	case PEV_OK: {
+		const int act = upd_act(u);
+		if (act == UACT_SHADERS && u->shaders) { /* on: off at once; off: the caller asks first */
+			u->shaders = 0;
+			return UACT_NONE;
+		}
+		return act;
+	}
 	case PEV_BACK: return UACT_BACK;
 	case PEV_HOME: return UACT_HOME;
 	}
@@ -582,6 +625,8 @@ void upd_row_name(const update_ui *u, int row, char *out, unsigned size)
 {
 	if (row == UPD_SHADERS)
 		snprintf(out, size, "Include shaders");
+	else if (row == UPD_NOTES)
+		snprintf(out, size, "Release notes");
 	else if (row == UPD_AUTO)
 		snprintf(out, size, "Check automatically");
 	else if (u->state == UPS_AVAILABLE)
@@ -608,6 +653,8 @@ void upd_value(const update_ui *u, int row, char *out, unsigned size)
 	out[0] = 0;
 	if (row == UPD_SHADERS) {
 		snprintf(out, size, "%s", u->shaders ? "On" : "Off");
+	} else if (row == UPD_NOTES) {
+		snprintf(out, size, "%s", u->notes ? ">" : "");
 	} else if (row == UPD_AUTO) {
 		snprintf(out, size, "%s", u->auto_check ? "On" : "Off");
 	} else if (u->state == UPS_CHECKING) {
@@ -626,9 +673,12 @@ void upd_value(const update_ui *u, int row, char *out, unsigned size)
 const char *upd_row_about(const update_ui *u)
 {
 	switch (u->row) {
+	case UPD_NOTES: return u->notes ? "What the newest version changes" : "Check for updates first";
 	case UPD_SHADERS:
-		return u->shaders_new ? "New pre-built shaders are ready: games start smoother"
-		                      : "Also takes a release's pre-built shaders: games start smoother";
+		if (u->shaders_new)
+			return "Pre-built shaders: games start smoother";
+		return u->state == UPS_UNKNOWN || u->state == UPS_CHECKING ? "Pre-built shaders: games start smoother"
+		                                                            : "No new shaders in this version";
 	case UPD_AUTO: return "Looks for a new version when Our64 starts";
 	default:
 		if (u->paused)
@@ -709,6 +759,70 @@ int upd_legend(const update_ui *u, int type, pause_key *keys, int max)
 void upd_offer_title(const char *version, char *out, unsigned size)
 {
 	snprintf(out, size, "Our64 %s is available", version);
+}
+
+/* ---- Settings > Update > Release notes ---- */
+
+void notes_open(notes_ui *n, const char *version, const char *text)
+{
+	memset(n, 0, sizeof(*n));
+	n->text = text ? text : "";
+	snprintf(n->version, sizeof(n->version), "%s", version ? version : "");
+	for (const char *p = n->text; *p; p++)
+		n->lines += *p == '\n';
+	if (n->text[0] && n->text[strlen(n->text) - 1] != '\n')
+		n->lines++;
+}
+
+static void notes_move(notes_ui *n, int by)
+{
+	const int last = n->lines > NOTES_SHOWN ? n->lines - NOTES_SHOWN : 0;
+	n->top += by;
+	if (n->top > last)
+		n->top = last;
+	if (n->top < 0)
+		n->top = 0;
+}
+
+int notes_event(notes_ui *n, int event, int target)
+{
+	(void)target;
+	switch (event) {
+	case PEV_UP: notes_move(n, -3); break;
+	case PEV_DOWN: notes_move(n, 3); break;
+	case PEV_LEFT: notes_move(n, -(NOTES_SHOWN - 1)); break;
+	case PEV_RIGHT: notes_move(n, NOTES_SHOWN - 1); break;
+	case PEV_BACK: return NACT_BACK;
+	case PEV_HOME: return NACT_HOME;
+	}
+	return NACT_NONE;
+}
+
+int notes_line(const notes_ui *n, int i, const char **start, int *len)
+{
+	const char *p = n->text;
+	for (int k = 0; k < n->top + i; k++) {
+		p = strchr(p, '\n');
+		if (!p)
+			return 0;
+		p++;
+	}
+	if (!*p || i < 0 || i >= NOTES_SHOWN)
+		return 0;
+	*start = p;
+	*len = (int)strcspn(p, "\n");
+	return 1;
+}
+
+int notes_more(const notes_ui *n, int below) { return below ? n->top + NOTES_SHOWN < n->lines : n->top > 0; }
+
+int notes_legend(const notes_ui *n, int type, pause_key *keys, int max)
+{
+	int k = 0;
+	keys_add(keys, &k, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &k, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &k, max, GLYPH_DPAD, "Scroll", n->lines <= NOTES_SHOWN);
+	return k;
 }
 
 /* ---- Settings > Games > Start on ---- */

@@ -40,6 +40,15 @@ int update_version_cmp(const char *a, const char *b);
  * or not JSON). A release without our64.wuhb parses: app.url is "". */
 int update_parse_release(const char *json, update_release *out);
 
+/* The release's notes (its "body", GitHub's Markdown) as plain lines for the
+ * Release notes page: each at most width bytes, cut at spaces; headings
+ * without their marks and with an empty line before them, "**" and "`"
+ * gone, links as their words, list items under a bullet with the lines that
+ * continue them indented, a table's rows with " | " between the cells. The
+ * count of bytes written, 0 when the release has no notes; notes that do not
+ * fit end at the last whole line with "...". */
+unsigned update_release_notes(const char *json, char *out, unsigned size, unsigned width);
+
 /* ---- shaders.zip ---- */
 
 typedef struct {

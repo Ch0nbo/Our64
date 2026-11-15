@@ -707,36 +707,69 @@ void shots_setup()
 	shot("settings-update-available-elsewhere", v);
 	sv.settings.update[0] = 0;
 	sv.screen = SETUP_UPDATE; // Settings > Update
-	upd_open(&sv.update, 0, 1, 0);
-	shot("update", v);
+	upd_open(&sv.update, 1, 0);
+	shot("update", v); // before a check: notes and shaders greyed
 	sv.update.state = UPS_CHECKING;
 	shot("update-checking", v);
-	upd_found(&sv.update, "", 0, 0, 0);
+	upd_found(&sv.update, "", 0, 0, 0, 1);
 	shot("update-current", v);
-	upd_found(&sv.update, "1.3.0", 5035712 + 80000, 1, 12000000);
+	upd_found(&sv.update, "1.3.0", 5035712 + 80000, 1, 12000000, 1);
 	shot("update-available", v);
+	sv.update.row = UPD_NOTES;
+	shot("update-notes-row", v);
 	sv.update.row = UPD_SHADERS;
 	shot("update-shaders-off", v);
-	sv.update.shaders = 1;
+	{ // A on it: the warning first, with about how long (Zach, 2026-11-15)
+		v.exit_ask = 1;
+		v.exit_glyphs = INPUT_PRO;
+		snprintf(v.ask_title, sizeof(v.ask_title), "Include shaders?");
+		upd_shaders_warning(&sv.update, v.ask_body, sizeof(v.ask_body));
+		snprintf(v.ask_action, sizeof(v.ask_action), "Include");
+		shot("update-shaders-ask", v);
+		v.exit_ask = 0;
+		v.ask_title[0] = 0;
+	}
+	upd_shaders_on(&sv.update);
 	shot("update-shaders-on", v);
 	sv.update.row = UPD_AUTO;
 	shot("update-auto", v);
+	sv.update.row = UPD_SHADERS;
+	upd_found(&sv.update, "1.3.0", 5035712 + 80000, 0, 0, 1); // no new shaders: greyed and off
+	shot("update-shaders-none", v);
 	sv.update.row = UPD_ACTION;
-	upd_found(&sv.update, "", 0, 1, 12000000); // the app is the newest, its shaders are not on the card
+	upd_found(&sv.update, "", 0, 1, 12000000, 1); // the app is the newest, its shaders are not on the card
+	upd_shaders_on(&sv.update);
 	shot("update-shaders-alone", v);
 	snprintf(sv.line, sizeof(sv.line), "Check the console's date and time. OUR-0413");
-	sv.update.state = UPS_UNKNOWN;
+	upd_open(&sv.update, 1, 0);
 	shot("update-failed", v);
 	snprintf(sv.line, sizeof(sv.line), "Couldn't save to the SD card: check its lock switch or free space. OUR-0206");
 	shot("update-failed-card", v);
 	sv.line[0] = 0;
-	upd_open(&sv.update, 0, 1, 1); // from a paused game: the action is off
-	upd_found(&sv.update, "1.3.0", 5035712, 0, 0);
+	upd_open(&sv.update, 1, 1); // from a paused game: the action is off
+	upd_found(&sv.update, "1.3.0", 5035712, 0, 0, 1);
 	snprintf(sv.game, sizeof(sv.game), "Super Mario 64");
 	shot("update-paused", v);
 	sv.game[0] = 0;
-	upd_open(&sv.update, 1, 1, 0);
-	upd_found(&sv.update, "1.3.0", 5035712, 1, 12000000);
+	{ // Release notes: 1.2.0's own, as update_release_notes makes them
+		static const char notes[] =
+			"New\n\nGame options. Every game has its own options: press X on it in Our\nROMs, or pause the game and choose Game options.\n\n"
+			"\xE2\x80\xA2 Resolution: 480p or 720p for that game (#22, #35). See \"720p\"\n  below before you turn it on.\n"
+			"\xE2\x80\xA2 Picture: the game's own Screen mode, Shape, Speed display and\n  Filter. Default follows Settings > Picture.\n"
+			"\xE2\x80\xA2 Cover: pick any PNG on the SD card as the game's cover (#29). A\n  PNG named like the ROM file in sd:/wiiu/our64/art/custom/ works too:\n  My Game.z64 takes My Game.png.\n"
+			"\nThese five held up:\n\nGame | Mistimed frames | TV refreshes skipped | Frames drawn | GPU\n  time a frame (ms) | Delay to the TV (ms)\n"
+			"Super Mario 64 | 2 \xE2\x86\x92 6 | 0 \xE2\x86\x92 0 | same | 2.4 \xE2\x86\x92 8.4 | 28 \xE2\x86\x92 32\n";
+		sv.screen = SETUP_NOTES;
+		notes_open(&sv.notes, "1.3.0", notes);
+		shot("notes", v);
+		notes_event(&sv.notes, PEV_RIGHT, -1);
+		shot("notes-scrolled", v);
+		notes_event(&sv.notes, PEV_RIGHT, -1);
+		shot("notes-end", v);
+	}
+	upd_open(&sv.update, 1, 0);
+	upd_found(&sv.update, "1.3.0", 5035712, 1, 12000000, 1);
+	upd_shaders_on(&sv.update);
 	sv.update.running = 1;
 	sv.screen = SETUP_UPDATING; // A on Update to 1.3.0: its own screen, like Fetch covers
 	upd_progress(&sv.update, USTEP_APP, 0, 0);

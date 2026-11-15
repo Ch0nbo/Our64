@@ -58,6 +58,37 @@ static void release_refuses_what_is_not_one(void)
 	CHECK(update_parse_release("{\"tag_name\":\"v2.0.0\",\"assets\":[]}", &r) == 0 && r.app.url[0] == 0);
 }
 
+/* The notes: GitHub's Markdown as plain lines no wider than asked. */
+static void notes_become_plain_lines(void)
+{
+	char out[2048];
+	const char *json = "{\"tag_name\":\"v1.3.0\",\"body\":\"New\\r\\n-------------------\\r\\n\\r\\n"
+	                   "**Updater.** Our64 updates itself: [Settings](https://x.y/z) > `Update`.\\r\\n\\r\\n"
+	                   "- **One:** first item that is long enough to need a second line here\\r\\n- Two\\r\\n\\r\\n"
+	                   "## Fixed\\r\\n| Game | Before |\\r\\n| --- | --- |\\r\\n| Mario | 2 |\\r\\nLast line\"}";
+	const unsigned n = update_release_notes(json, out, sizeof(out), 40);
+	CHECK(n == strlen(out));
+	CHECK(!strcmp(out, "New\n\n"
+	                   "Updater. Our64 updates itself: Settings\n> Update.\n\n"
+	                   "\xE2\x80\xA2 One: first item that is long enough\n  to need a second line here\n\xE2\x80\xA2 Two\n\n"
+	                   "Fixed\nGame | Before\nMario | 2\nLast line\n"));
+	for (const char *p = out; *p;) { /* no line over the width */
+		const size_t len = strcspn(p, "\n");
+		CHECK(len <= 40);
+		p += len + (p[len] == '\n');
+	}
+	/* no notes, or not JSON: empty */
+	CHECK(update_release_notes("{\"tag_name\":\"v1.3.0\"}", out, sizeof(out), 40) == 0 && out[0] == 0);
+	CHECK(update_release_notes("<html>", out, sizeof(out), 40) == 0);
+	/* more than fits: ends at a whole line, with "..." */
+	char big[4000] = "{\"body\":\"";
+	for (int i = 0; i < 100; i++)
+		strcat(big, "a line of words here\\n");
+	strcat(big, "\"}");
+	const unsigned k = update_release_notes(big, out, 200, 40);
+	CHECK(k < 200 && k > 100 && !strcmp(out + k - 4, "...\n"));
+}
+
 /* ---- a zip made here: one file stored, one deflated ---- */
 
 static void w16(FILE *f, unsigned v) { fputc(v & 255, f), fputc(v >> 8 & 255, f); }
@@ -220,6 +251,7 @@ int main(void)
 	RUN(versions_order_by_number);
 	RUN(release_gives_the_tag_and_our_files);
 	RUN(release_refuses_what_is_not_one);
+	RUN(notes_become_plain_lines);
 	RUN(zip_lists_and_unpacks);
 	RUN(zip_refuses_other_files);
 	RUN(packs_merge_keeps_the_cards_own_pairs);

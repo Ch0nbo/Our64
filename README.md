@@ -43,8 +43,10 @@ Update row in Settings says so.
 
 - **Update to x.y.z:** downloads the new version (about 5 MB), checks it, and restarts Our64. Your games,
   saves and settings stay as they are. Not available while a game is loaded: exit the game first.
-- **Include shaders:** Off by default. On, an update also takes the release's pre-built shaders, which make
-  games start smoother. They are merged with the shaders already on the card.
+- **Release notes:** what the newest version changes.
+- **Include shaders:** this update also takes the release's pre-built shaders, which make games start
+  smoother. They take minutes, so Our64 asks first and says about how long. They are merged with the shaders
+  already on the card. Greyed when the release has no shaders your card lacks.
 - **Check automatically:** On by default: Our64 looks for a new version when it starts. Off, it only looks
   when you choose Check for updates.
 

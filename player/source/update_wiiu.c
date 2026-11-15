@@ -53,6 +53,8 @@ static int g_loader;              /* Aroma's loader module was found */
 
 static update_release g_release;  /* the last good check's */
 static int g_shaders_new;
+static char g_notes[16 * 1024];   /* its notes, as lines for the Release notes page */
+#define NOTES_WIDTH 70            /* bytes a line: the page's width at its text size */
 static update_release g_want;     /* a download's */
 static int g_want_app, g_want_shaders;
 
@@ -369,6 +371,7 @@ static int shaders_unpack(const update_asset *a)
 	mkdir(path, 0777);
 	const OSTime t0 = OSGetSystemTime();
 	int r = UPDATE_OK, written = 0, merged = 0, kept = 0;
+	OSTime t_write = 0; /* in the writes alone: the rest is reading the zip and the card's files */
 	update_zip_entry e;
 	while (r == UPDATE_OK && update_zip_next(&z, &e)) {
 		g_done = z.index;
@@ -406,10 +409,11 @@ static int shaders_unpack(const update_asset *a)
 			r = UPDATE_DAMAGED;
 		} else if (old && !added) {
 			kept++; /* the card's file has all of it: no write */
-		} else if (write_whole(path, out, n, pack)) {
+		} else if ((t_write -= OSGetSystemTime()), write_whole(path, out, n, pack)) {
 			report_line("UPDATE: %s not written (errno %d)", path, errno);
 			r = UPDATE_CARD;
 		} else {
+			t_write += OSGetSystemTime();
 			written++;
 			merged += old != NULL;
 		}
@@ -426,7 +430,8 @@ static int shaders_unpack(const update_asset *a)
 		if (write_whole(path, line, (unsigned)n, 0))
 			r = UPDATE_CARD;
 	}
-	report_line("UPDATE: shaders: %d files written (%d merged with the card's), %d already there, in %.1f s%s", written, merged, kept,
+	report_line("UPDATE: shaders: %d files written (%d merged with the card's) in %.1f s, %d already there, %.1f s in all%s",
+	            written, merged, r == UPDATE_CARD ? 0.0 : OSTicksToMilliseconds(t_write) / 1000.0, kept,
 	            OSTicksToMilliseconds(OSGetSystemTime() - t0) / 1000.0, r == UPDATE_OK ? "" : ", not finished");
 	path_in(path, sizeof(path), "update", UPDATE_SHADERS_NAME);
 	remove(path);
@@ -480,6 +485,7 @@ static int check(void)
 			char have[80];
 			shaders_have(have, sizeof(have));
 			g_release = rel;
+			update_release_notes(s.mem, g_notes, sizeof(g_notes), NOTES_WIDTH);
 			g_shaders_new = rel.shaders.url[0] && (!rel.shaders.sha256[0] || strcmp(have, rel.shaders.sha256));
 			report_line("UPDATE: newest is %s (this is " OUR64_VERSION "): app %u bytes%s, shaders %u bytes%s", rel.version,
 			            rel.app.size, rel.app.url[0] ? "" : " (not in the release)", rel.shaders.size,
@@ -594,6 +600,7 @@ int updater_finish(void)
 
 const update_release *updater_release(void) { return &g_release; }
 int updater_shaders_new(void) { return g_shaders_new; }
+const char *updater_notes(void) { return g_notes; }
 
 /* ---- the running app ----
  *

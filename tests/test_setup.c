@@ -69,29 +69,24 @@ static void update_page_checks_then_offers_the_version(void)
 {
 	update_ui u;
 	char t[64];
-	upd_open(&u, 0, 1, 0);
+	upd_open(&u, 1, 0);
 	upd_row_name(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "Check for updates") && upd_event(&u, PEV_OK, -1) == UACT_CHECK);
 	u.state = UPS_CHECKING;
 	upd_value(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "Checking...") && upd_event(&u, PEV_OK, -1) == UACT_NONE); /* one check at a time */
-	upd_found(&u, "", 0, 0, 0);
+	upd_found(&u, "", 0, 0, 0, 1);
 	upd_value(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "Up to date") && upd_event(&u, PEV_OK, -1) == UACT_CHECK); /* A looks again */
-	upd_found(&u, "1.3.0", 5035712, 1, 12000000);
+	upd_found(&u, "1.3.0", 5035712, 1, 12000000, 1);
 	upd_row_name(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "Update to 1.3.0") && upd_event(&u, PEV_OK, -1) == UACT_UPDATE);
 	upd_value(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "4.8 MB")); /* shaders off: the app alone */
-	/* the two switches */
 	upd_event(&u, PEV_DOWN, -1);
-	upd_row_name(&u, UPD_SHADERS, t, sizeof(t));
-	CHECK(!strcmp(t, "Include shaders") && upd_event(&u, PEV_OK, -1) == UACT_SHADERS);
-	upd_value(&u, UPD_SHADERS, t, sizeof(t));
-	CHECK(!strcmp(t, "Off"));
-	u.shaders = 1;
-	upd_value(&u, UPD_ACTION, t, sizeof(t));
-	CHECK(!strcmp(t, "16 MB")); /* with them */
+	upd_row_name(&u, UPD_NOTES, t, sizeof(t));
+	CHECK(!strcmp(t, "Release notes") && upd_event(&u, PEV_OK, -1) == UACT_NOTES);
+	upd_event(&u, PEV_DOWN, -1);
 	upd_event(&u, PEV_DOWN, -1);
 	upd_value(&u, UPD_AUTO, t, sizeof(t));
 	CHECK(!strcmp(t, "On") && upd_event(&u, PEV_OK, -1) == UACT_AUTO);
@@ -106,19 +101,53 @@ static void update_page_checks_then_offers_the_version(void)
 	CHECK(upd_event(&u, PEV_TOUCH_UP, upd_hit(r[0] + 5, r[1] + 5)) == UACT_UPDATE);
 }
 
-/* From a paused game the action is greyed: an update restarts Our64. The switches still work. */
+/* Include shaders (Zach, 2026-11-15): off each time, on only after a warning
+ * with about how long they take, greyed when the release has none the card lacks. */
+static void update_page_shaders_ask_first_and_grey_without_new_ones(void)
+{
+	update_ui u;
+	char t[64];
+	upd_open(&u, 1, 0);
+	u.row = UPD_SHADERS;
+	CHECK(upd_row_off(&u, UPD_SHADERS) && upd_event(&u, PEV_OK, -1) == UACT_NONE); /* before a check: nothing known to take */
+	upd_found(&u, "1.3.0", 5035712, 0, 12000000, 1);
+	CHECK(upd_row_off(&u, UPD_SHADERS) && upd_event(&u, PEV_OK, -1) == UACT_NONE && !u.shaders);
+	CHECK(!strcmp(upd_row_about(&u), "No new shaders in this version"));
+	upd_shaders_on(&u);
+	CHECK(!u.shaders); /* nothing to include */
+	upd_found(&u, "1.3.0", 5035712, 1, 12000000, 1);
+	upd_value(&u, UPD_SHADERS, t, sizeof(t));
+	CHECK(!upd_row_off(&u, UPD_SHADERS) && !strcmp(t, "Off"));
+	CHECK(upd_event(&u, PEV_OK, -1) == UACT_SHADERS && !u.shaders); /* the caller asks; still off */
+	upd_shaders_warning(&u, t, sizeof(t));
+	CHECK(!strcmp(t, "About 4 minutes more."));
+	upd_shaders_on(&u);
+	upd_value(&u, UPD_SHADERS, t, sizeof(t));
+	CHECK(u.shaders && !strcmp(t, "On"));
+	upd_value(&u, UPD_ACTION, t, sizeof(t));
+	CHECK(!strcmp(t, "16 MB")); /* the app and the shaders */
+	CHECK(upd_event(&u, PEV_OK, -1) == UACT_NONE && !u.shaders); /* off again at once, no question */
+	upd_shaders_on(&u);
+	upd_found(&u, "1.3.0", 5035712, 0, 0, 1); /* a later check: none new any more */
+	CHECK(!u.shaders);
+	u.shaders_bytes = 100000;
+	upd_shaders_warning(&u, t, sizeof(t));
+	CHECK(!strcmp(t, "About 1 minute more."));
+}
+
+/* From a paused game the action is greyed: an update restarts Our64. */
 static void update_page_is_off_while_a_game_is_loaded(void)
 {
 	update_ui u;
 	pause_key keys[6];
-	upd_open(&u, 0, 1, 1);
-	upd_found(&u, "1.3.0", 5035712, 0, 0);
+	upd_open(&u, 1, 1);
+	upd_found(&u, "1.3.0", 5035712, 0, 0, 1);
 	CHECK(upd_row_off(&u, UPD_ACTION) && upd_event(&u, PEV_OK, -1) == UACT_NONE);
 	CHECK(!strcmp(upd_row_about(&u), "Exit the game to update"));
 	int n = upd_legend(&u, INPUT_GAMEPAD, keys, 6);
 	CHECK(n == 4 && keys[3].dim);
 	upd_event(&u, PEV_DOWN, -1);
-	CHECK(!upd_row_off(&u, UPD_SHADERS) && upd_event(&u, PEV_OK, -1) == UACT_SHADERS);
+	CHECK(!upd_row_off(&u, UPD_NOTES) && upd_event(&u, PEV_OK, -1) == UACT_NOTES); /* reading is fine */
 }
 
 /* The app is the newest but the release's shaders are not on the card: with
@@ -127,15 +156,15 @@ static void update_page_shaders_alone(void)
 {
 	update_ui u;
 	char t[64];
-	upd_open(&u, 0, 1, 0);
-	upd_found(&u, "", 0, 1, 12000000);
+	upd_open(&u, 1, 0);
+	upd_found(&u, "", 0, 1, 12000000, 1);
 	CHECK(upd_event(&u, PEV_OK, -1) == UACT_CHECK); /* off: nothing to take */
-	u.shaders = 1;
+	upd_shaders_on(&u);
 	upd_row_name(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "Update shaders") && upd_event(&u, PEV_OK, -1) == UACT_GET_SHADERS);
 	upd_value(&u, UPD_ACTION, t, sizeof(t));
 	CHECK(!strcmp(t, "11 MB"));
-	u.shaders_new = 0;
+	upd_found(&u, "", 0, 0, 0, 1);
 	CHECK(upd_event(&u, PEV_OK, -1) == UACT_CHECK);
 }
 
@@ -145,8 +174,8 @@ static void update_screen_stops_until_the_app_is_put_in_place(void)
 	update_ui u;
 	char t[64];
 	pause_key keys[6];
-	upd_open(&u, 1, 1, 0);
-	upd_found(&u, "1.3.0", 5035712, 1, 12000000);
+	upd_open(&u, 1, 0);
+	upd_found(&u, "1.3.0", 5035712, 1, 12000000, 1);
 	u.running = 1;
 	upd_headline(&u, t, sizeof(t));
 	CHECK(!strcmp(t, "Updating to 1.3.0"));
@@ -171,11 +200,46 @@ static void update_screen_stops_until_the_app_is_put_in_place(void)
 	CHECK(!strcmp(t, "Restarting Our64") && upd_bar(&u) == 1.0f);
 	CHECK(upd_event(&u, PEV_BACK, -1) == UACT_NONE && upd_legend(&u, INPUT_GAMEPAD, keys, 6) == 0);
 	/* shaders alone: no version in the headline */
-	upd_found(&u, "", 0, 1, 12000000);
+	upd_found(&u, "", 0, 1, 12000000, 1);
 	upd_headline(&u, t, sizeof(t));
 	CHECK(!strcmp(t, "Updating shaders"));
 	upd_offer_title("1.3.0", t, sizeof(t));
 	CHECK(!strcmp(t, "Our64 1.3.0 is available"));
+}
+
+/* Release notes: greyed until a check has them; the page scrolls and stops at both ends. */
+static void release_notes_scroll_between_their_ends(void)
+{
+	update_ui u;
+	upd_open(&u, 1, 0);
+	u.row = UPD_NOTES;
+	CHECK(upd_row_off(&u, UPD_NOTES) && upd_event(&u, PEV_OK, -1) == UACT_NONE);
+	CHECK(!strcmp(upd_row_about(&u), "Check for updates first"));
+	char text[400] = "";
+	for (int i = 0; i < 25; i++)
+		sprintf(text + strlen(text), "line %d\n", i);
+	notes_ui n;
+	notes_open(&n, "1.3.0", text);
+	const char *s;
+	int len;
+	CHECK(n.lines == 25 && n.top == 0 && !notes_more(&n, 0) && notes_more(&n, 1));
+	CHECK(notes_line(&n, 0, &s, &len) && len == 6 && !strncmp(s, "line 0", 6));
+	CHECK(notes_line(&n, NOTES_SHOWN - 1, &s, &len) && !strncmp(s, "line 9", 6) && !notes_line(&n, NOTES_SHOWN, &s, &len));
+	notes_event(&n, PEV_UP, -1);
+	CHECK(n.top == 0);
+	notes_event(&n, PEV_DOWN, -1);
+	CHECK(n.top == 3 && notes_more(&n, 0) && notes_line(&n, 0, &s, &len) && !strncmp(s, "line 3", 6));
+	notes_event(&n, PEV_RIGHT, -1);
+	notes_event(&n, PEV_RIGHT, -1);
+	CHECK(n.top == 25 - NOTES_SHOWN && !notes_more(&n, 1)); /* the last line is the last row */
+	CHECK(notes_line(&n, NOTES_SHOWN - 1, &s, &len) && !strncmp(s, "line 24", 7));
+	notes_event(&n, PEV_LEFT, -1);
+	CHECK(n.top == 25 - NOTES_SHOWN - (NOTES_SHOWN - 1));
+	CHECK(notes_event(&n, PEV_BACK, -1) == NACT_BACK && notes_event(&n, PEV_HOME, -1) == NACT_HOME);
+	notes_open(&n, "1.3.0", "short\n\nnotes"); /* fewer lines than the page: nothing scrolls */
+	notes_event(&n, PEV_DOWN, -1);
+	CHECK(n.lines == 3 && n.top == 0 && notes_line(&n, 1, &s, &len) && len == 0 && notes_line(&n, 2, &s, &len) && len == 5);
+	CHECK(!notes_line(&n, 3, &s, &len));
 }
 
 /* Settings > Theme: the colors and Our ROMs' layout, each applied with A (2026-10-30). */
@@ -1044,7 +1108,9 @@ int main(void)
 	RUN(settings_update_row_says_a_version_was_found);
 	RUN(update_page_checks_then_offers_the_version);
 	RUN(update_page_is_off_while_a_game_is_loaded);
+	RUN(update_page_shaders_ask_first_and_grey_without_new_ones);
 	RUN(update_page_shaders_alone);
+	RUN(release_notes_scroll_between_their_ends);
 	RUN(update_screen_stops_until_the_app_is_put_in_place);
 	RUN(settings_leads_to_controllers_and_back);
 	RUN(settings_taps);

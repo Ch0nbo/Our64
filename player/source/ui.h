@@ -88,7 +88,7 @@ typedef struct {
 
 /* The setup screens (setup_wiiu.c fills it). */
 enum { SETUP_SETTINGS, SETUP_CONTROLLERS, SETUP_ORDER, SETUP_MAPPING, SETUP_THEME, SETUP_PICTURE, SETUP_GAMES, SETUP_BROWSE, SETUP_FETCH, SETUP_START, SETUP_DELETING, SETUP_OPTIONS, SETUP_CHOICE, SETUP_GAMEPIC,
-       SETUP_UPDATE, SETUP_UPDATING /* Settings > Update, and an update in progress */ };
+       SETUP_UPDATE, SETUP_UPDATING, SETUP_NOTES /* Settings > Update, an update in progress, the release notes */ };
 typedef struct {
 	int screen;              /* SETUP_ */
 	settings_ui settings;
@@ -97,6 +97,7 @@ typedef struct {
 	games_ui games;
 	start_ui start;          /* Settings > Games > Start on */
 	update_ui update;        /* Settings > Update */
+	notes_ui notes;          /* Settings > Update > Release notes */
 	options_ui options;      /* Game options: the game in `game` */
 	choice_ui choice;        /* a page of choices under it (Resolution, Cover) */
 	gamepic_ui gamepic;      /* Game options > Picture */

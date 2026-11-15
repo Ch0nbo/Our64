@@ -1436,7 +1436,8 @@ static void update_answer(update_ui *u)
 {
 	const update_release *r = updater_release();
 	const char *newer = update_newer();
-	upd_found(u, newer ? newer : "", r->app.size + r->ini.size, updater_shaders_new(), r->shaders.size);
+	upd_found(u, newer ? newer : "", r->app.size + r->ini.size, updater_shaders_new(), r->shaders.size,
+	          updater_notes()[0] != 0);
 }
 
 /* A check that ended while nobody watched (the start-up one): its thread
@@ -1539,32 +1540,50 @@ int update_now(int glyphs, char *out, unsigned size)
 	g_view.glyphs = glyphs;
 	g_view.game[0] = 0;
 	update_ui *u = &g_view.update;
-	upd_open(u, g_settings.update_shaders, g_settings.update_check, 0);
+	upd_open(u, g_settings.update_check, 0);
 	update_answer(u);
 	input_take_home();
-	const int leaving = u->state == UPS_AVAILABLE && update_run(u, 1, u->shaders && u->shaders_new);
+	/* the app alone: shaders are asked for on the Update page, with their warning */
+	const int leaving = u->state == UPS_AVAILABLE && update_run(u, 1, 0);
 	snprintf(out, size, "%s", g_view.line);
 	input_withhold();
 	return leaving;
 }
 
-/* A switch of the page: saved at once; a write that fails changes nothing. */
-static void update_switch(int *setting, int *shown)
+/* Settings > Update > Release notes: the newest release's notes, scrolled.
+ * 1: HOME, and leaving was confirmed (or the pause menu asks), or closing. */
+static int run_notes(void)
 {
-	*setting = !*setting;
-	if (setup_save_settings()) {
-		*setting = !*setting;
-		write_failed();
-		return;
+	notes_ui *n = &g_view.notes;
+	const update_release *r = updater_release();
+	char version[24];
+	snprintf(version, sizeof(version), "%.23s", r->version);
+	notes_open(n, version, updater_notes());
+	g_view.screen = SETUP_NOTES;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1;
+	for (;;) {
+		show();
+		read_frame(&f, NULL, &touching, &target);
+		if (player_closing())
+			return 1;
+		for (int i = 0; i < f.n; i++) {
+			switch (notes_event(n, f.events[i], f.targets[i])) {
+			case NACT_BACK: return 0;
+			case NACT_HOME:
+				if (home_ok())
+					return 1;
+				break;
+			}
+		}
 	}
-	*shown = *setting;
-	g_view.line[0] = 0;
 }
 
 static int run_update(void)
 {
 	update_ui *u = &g_view.update;
-	upd_open(u, g_settings.update_shaders, g_settings.update_check, g_from_pause);
+	upd_open(u, g_settings.update_check, g_from_pause);
 	update_poll();
 	if (g_update_checked)
 		update_answer(u);
@@ -1607,7 +1626,7 @@ static int run_update(void)
 					updater_summary(UPDATE_NO_START, g_view.line, sizeof(g_view.line));
 				break;
 			case UACT_UPDATE:
-				if (update_run(u, 1, u->shaders && u->shaders_new))
+				if (update_run(u, 1, u->shaders))
 					return 1;
 				i = f.n; /* presses after A were the update screen's */
 				break;
@@ -1616,8 +1635,32 @@ static int run_update(void)
 					return 1;
 				i = f.n;
 				break;
-			case UACT_SHADERS: update_switch(&g_settings.update_shaders, &u->shaders); break;
-			case UACT_AUTO: update_switch(&g_settings.update_check, &u->auto_check); break;
+			case UACT_NOTES: {
+				const int home = run_notes();
+				g_view.screen = SETUP_UPDATE;
+				if (home)
+					return 1;
+				i = f.n; /* presses after A were the notes' */
+				break;
+			}
+			case UACT_SHADERS: { /* off: on only after the warning (Zach, 2026-11-15) */
+				char body[64];
+				upd_shaders_warning(u, body, sizeof(body));
+				if (player_ask("Include shaders?", body, "Include"))
+					upd_shaders_on(u);
+				i = f.n; /* presses after A were the question's */
+				break;
+			}
+			case UACT_AUTO:
+				g_settings.update_check = !g_settings.update_check;
+				if (setup_save_settings()) { /* a write that fails changes nothing */
+					g_settings.update_check = !g_settings.update_check;
+					write_failed();
+				} else {
+					u->auto_check = g_settings.update_check;
+					g_view.line[0] = 0;
+				}
+				break;
 			}
 		}
 	}

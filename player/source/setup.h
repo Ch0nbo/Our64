@@ -107,19 +107,24 @@ int  games_hit(int x, int y);                   /* row, or -1 */
 int  games_legend(const games_ui *g, int type, pause_key *keys, int max); /* running: HOME, Stop */
 
 /* ---- Settings > Update (2026-11-15): Our64 updates itself from its
- * releases on GitHub. Three rows, each acting on A:
+ * releases on GitHub. Four rows, each acting on A:
  *   the action   "Check for updates" (its value: "Checking...", "Up to
  *                date"), "Update to 1.3.0" once a newer version was found,
  *                or "Update shaders" when only shaders are new and Include
  *                shaders is on. Greyed while a game is loaded: an update
  *                restarts Our64.
- *   Include shaders      On or Off: an update also takes the release's
- *                        pre-built shaders (Zach: its own switch, off until
- *                        the player wants them)
+ *   Release notes        what the newest release says, on its own page
+ *                        (notes_ui); greyed until a check has an answer
+ *   Include shaders      On or Off: this update also takes the release's
+ *                        pre-built shaders. Off each time the page opens,
+ *                        and greyed when the release has none the card
+ *                        lacks. Turning it on asks first, with about how
+ *                        long they take (Zach, 2026-11-15): UACT_SHADERS
+ *                        while off means ask, then upd_shaders_on.
  *   Check automatically  On or Off: looks for a new version as Our64 starts
  * An update runs on its own screen like Fetch covers (SETUP_UPDATING): what
  * is being done, a bar, and B to stop until the new app is put in place. ---- */
-enum { UPD_ACTION, UPD_SHADERS, UPD_AUTO, UPD_ROWS };
+enum { UPD_ACTION, UPD_NOTES, UPD_SHADERS, UPD_AUTO, UPD_ROWS };
 enum { UPS_UNKNOWN, UPS_CHECKING, UPS_CURRENT, UPS_AVAILABLE }; /* what the last check found */
 enum { USTEP_APP, USTEP_SHADERS, USTEP_UNPACK, USTEP_INSTALL }; /* an update's steps, in order */
 typedef struct {
@@ -129,8 +134,9 @@ typedef struct {
 	unsigned app_bytes;   /* its download */
 	int shaders_new;      /* the newest release's shaders are not the card's */
 	unsigned shaders_bytes;
-	int shaders;          /* Include shaders */
+	int shaders;          /* Include shaders: on for this update */
 	int auto_check;       /* Check automatically */
+	int notes;            /* the newest release's notes are there to read */
 	int paused;           /* opened from a paused game: the action is off */
 	int running;          /* an update in progress: SETUP_UPDATING */
 	int step;             /* USTEP_ */
@@ -138,13 +144,18 @@ typedef struct {
 	int touched;
 } update_ui;
 /* UACT_CHECK: look for a version; UACT_UPDATE: the app (and the shaders when
- * on and new); UACT_GET_SHADERS: the shaders alone; UACT_SHADERS / _AUTO:
- * switch the setting; UACT_STOP: B during an update. */
-enum { UACT_NONE, UACT_BACK, UACT_HOME, UACT_CHECK, UACT_UPDATE, UACT_GET_SHADERS, UACT_SHADERS, UACT_AUTO, UACT_STOP };
-void upd_open(update_ui *u, int shaders, int auto_check, int paused);
+ * on); UACT_GET_SHADERS: the shaders alone; UACT_NOTES: the notes' page;
+ * UACT_SHADERS: off, ask and then upd_shaders_on (on: it went off, nothing
+ * to do); UACT_AUTO: switch the setting; UACT_STOP: B during an update. */
+enum { UACT_NONE, UACT_BACK, UACT_HOME, UACT_CHECK, UACT_UPDATE, UACT_GET_SHADERS, UACT_NOTES, UACT_SHADERS, UACT_AUTO, UACT_STOP };
+void upd_open(update_ui *u, int auto_check, int paused);
 /* A check's answer. latest: the newer version, or "" when this one is the newest. */
-void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes);
+void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes, int notes);
 int  upd_event(update_ui *u, int event, int target);
+void upd_shaders_on(update_ui *u);                  /* the player said yes to the warning */
+/* That warning's body: "About 4 minutes more." (the download and the card's
+ * writes, from the shaders' size). */
+void upd_shaders_warning(const update_ui *u, char *out, unsigned size);
 void upd_progress(update_ui *u, int step, unsigned done, unsigned total);
 int  upd_row_off(const update_ui *u, int row);      /* greyed: shown, A does nothing */
 void upd_row_name(const update_ui *u, int row, char *out, unsigned size);
@@ -159,6 +170,23 @@ int  upd_legend(const update_ui *u, int type, pause_key *keys, int max);
 /* Our ROMs' question when a start-up check found a version (once a version):
  * its title, "Our64 1.3.0 is available". */
 void upd_offer_title(const char *version, char *out, unsigned size);
+
+/* Settings > Update > Release notes: the newest release's notes as lines
+ * (update_release_notes), NOTES_SHOWN at a time. Up and down move a few
+ * lines, left and right a page; B goes back. */
+#define NOTES_SHOWN 10
+typedef struct {
+	const char *text;    /* lines ending in \n; the caller's, kept while the page is open */
+	char version[24];    /* under the header: "Our64 1.3.0" */
+	int lines, top;
+} notes_ui;
+enum { NACT_NONE, NACT_BACK, NACT_HOME };
+void notes_open(notes_ui *n, const char *version, const char *text);
+int  notes_event(notes_ui *n, int event, int target);
+/* The i-th line in view: where it starts and its length; 0 past the end. */
+int  notes_line(const notes_ui *n, int i, const char **start, int *len);
+int  notes_more(const notes_ui *n, int below);      /* lines out of view above (0) or below (1) */
+int  notes_legend(const notes_ui *n, int type, pause_key *keys, int max);
 
 /* ---- Settings > Games > Start on (2026-11-06): the tab Our ROMs opens on,
  * rows All, Recent and Favorites (START_, in that order), the one in use

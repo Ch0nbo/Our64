@@ -45,6 +45,7 @@ void updater_stop(void);              /* ask it to stop; updater_finish still en
 int  updater_finish(void);            /* joins the thread: UPDATE_ */
 const update_release *updater_release(void); /* the last good check's; version "" before one */
 int  updater_shaders_new(void);       /* that release's shaders are not the ones on the card */
+const char *updater_notes(void);      /* that release's notes as lines (update_release_notes), "" none */
 /* After a download with the app: UPDATE_OK (then leave through
  * player_relaunch: Our64 closes and the new one starts), or UPDATE_NOT_PLACED
  * with the running app still in place. */

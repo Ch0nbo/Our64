@@ -198,6 +198,227 @@ int update_parse_release(const char *json, update_release *out)
 	return 0;
 }
 
+/* ---- the notes ---- */
+
+/* The string at p, its escapes read, as much as fits: for the notes, which
+ * may be longer than their room. */
+static unsigned string_some(const char *p, char *out, unsigned size)
+{
+	unsigned n = 0;
+	if (!p || *p != '"' || !size)
+		return 0;
+	for (p++; *p && *p != '"' && n + 1 < size; p++) {
+		char c = *p;
+		if (c == '\\') {
+			c = *++p;
+			if (!c)
+				break;
+			if (c == 'n') c = '\n';
+			else if (c == 't') c = ' ';
+			else if (c == 'r') continue;
+			else if (c == 'u') {
+				char hex[5] = "";
+				for (int i = 0; i < 4 && isxdigit((unsigned char)p[1]); i++)
+					hex[i] = *++p;
+				const unsigned long u = strtoul(hex, NULL, 16);
+				c = u < 128 ? (char)u : '?';
+			}
+		}
+		if (c != '\r')
+			out[n++] = c;
+	}
+	out[n] = 0;
+	return n;
+}
+
+typedef struct {
+	char *out;
+	unsigned size, n, width;
+	int full;
+} notes_out;
+
+static void notes_line(notes_out *o, const char *s, unsigned len)
+{
+	if (o->full)
+		return;
+	if (o->n + len + 1 + 4 >= o->size) { /* room kept for "...\n" */
+		o->n += (unsigned)sprintf(o->out + o->n, "...\n");
+		o->full = 1;
+		return;
+	}
+	memcpy(o->out + o->n, s, len);
+	o->n += len;
+	o->out[o->n++] = '\n';
+}
+
+/* text as lines of at most width bytes, the first after `first`, the rest after `rest`. */
+static void notes_wrap(notes_out *o, const char *text, const char *first, const char *rest)
+{
+	char line[256];
+	const unsigned width = o->width < sizeof(line) - 1 ? o->width : sizeof(line) - 1;
+	const char *lead = first;
+	while (*text == ' ')
+		text++;
+	do {
+		unsigned n = (unsigned)snprintf(line, sizeof(line), "%s", lead);
+		size_t take = strlen(text);
+		if (n + take > width) {
+			take = width - n;
+			size_t cut = take;
+			while (cut > 0 && text[cut] != ' ')
+				cut--;
+			if (cut > 0) {
+				take = cut;
+			} else { /* one long word: cut between characters, never inside one */
+				while (take > 1 && ((unsigned char)text[take] & 0xC0) == 0x80)
+					take--;
+			}
+		}
+		memcpy(line + n, text, take);
+		n += (unsigned)take;
+		while (n > 0 && line[n - 1] == ' ')
+			n--;
+		notes_line(o, line, n);
+		text += take;
+		while (*text == ' ')
+			text++;
+		lead = rest;
+	} while (*text);
+}
+
+/* One Markdown line's marks taken out, in place: ** and `, [words](link), images. */
+static void notes_plain(char *s)
+{
+	char *w = s;
+	for (const char *r = s; *r;) {
+		if (r[0] == '*' && r[1] == '*') {
+			r += 2;
+		} else if (*r == '`') {
+			r++;
+		} else if (*r == '!' && r[1] == '[') {
+			const char *end = strchr(r, ')');
+			r = end ? end + 1 : r + 1;
+		} else if (*r == '[') {
+			const char *close = strchr(r, ']');
+			if (close && close[1] == '(' && strchr(close, ')')) {
+				for (r++; r < close; r++)
+					*w++ = *r;
+				r = strchr(close, ')') + 1;
+			} else {
+				*w++ = *r++;
+			}
+		} else {
+			*w++ = *r++;
+		}
+	}
+	*w = 0;
+}
+
+static int only_of(const char *s, const char *set)
+{
+	if (!*s)
+		return 0;
+	return strspn(s, set) == strlen(s);
+}
+
+unsigned update_release_notes(const char *json, char *out, unsigned size, unsigned width)
+{
+	notes_out o = { out, size, 0, width, 0 };
+	if (size)
+		out[0] = 0;
+	if (size < 64 || !skip_value(json, 0))
+		return 0;
+	char *body = malloc(size);
+	if (!body)
+		return 0;
+	body[0] = 0;
+	string_some(member(json, "body"), body, size);
+	char prev[512] = "", line[512];
+	int have_prev = 0, blank = 1; /* blank: the last line out was empty (or nothing is out yet) */
+	for (const char *p = body;; ) {
+		const size_t len = strcspn(p, "\n");
+		const int last = !p[len];
+		snprintf(line, sizeof(line), "%.*s", (int)(len < sizeof(line) - 1 ? len : sizeof(line) - 1), p);
+		char *t = line + strlen(line);
+		while (t > line && (t[-1] == ' ' || t[-1] == '\r'))
+			*--t = 0;
+		const char *s = line + strspn(line, " ");
+		/* a line of dashes or equals under words makes those words a heading */
+		const int underline = have_prev && prev[0] && (only_of(s, "-") || only_of(s, "=")) && strlen(s) >= 3;
+		if (have_prev) {
+			char *q = prev + strspn(prev, " ");
+			int heading = underline;
+			if (*q == '#') {
+				q += strspn(q, "#");
+				heading = 1;
+			}
+			if (!*q) {
+				if (!blank)
+					notes_line(&o, "", 0);
+				blank = 1;
+			} else if (*q == '|') { /* a table's row; its ruler line is dropped */
+				if (!only_of(q, "|-: ")) {
+					char row[512] = "";
+					for (char *cell = strtok(q, "|"); cell; cell = strtok(NULL, "|")) {
+						cell += strspn(cell, " ");
+						char *e = cell + strlen(cell);
+						while (e > cell && e[-1] == ' ')
+							*--e = 0;
+						if (!*cell)
+							continue;
+						notes_plain(cell);
+						const size_t at = strlen(row);
+						snprintf(row + at, sizeof(row) - at, "%s%s", at ? " | " : "", cell);
+					}
+					notes_wrap(&o, row, "", "  ");
+					blank = 0;
+				}
+			} else if ((q[0] == '-' || q[0] == '*') && q[1] == ' ') {
+				notes_plain(q + 2);
+				notes_wrap(&o, q + 2, "\xE2\x80\xA2 ", "  ");
+				blank = 0;
+			} else {
+				notes_plain(q);
+				if (heading && !blank)
+					notes_line(&o, "", 0);
+				notes_wrap(&o, q, "", "");
+				blank = 0;
+			}
+		}
+		if (underline) {
+			have_prev = 0;
+		} else {
+			snprintf(prev, sizeof(prev), "%s", line);
+			have_prev = 1;
+		}
+		if (last) {
+			if (have_prev && prev[0]) { /* the last line, with nothing under it */
+				have_prev = 0;
+				snprintf(line, sizeof(line), "%s", "");
+				p += len;
+				/* run it through once more as prev */
+				char *q = prev + strspn(prev, " ");
+				if (*q == '#')
+					q += strspn(q, "#");
+				if ((q[0] == '-' || q[0] == '*') && q[1] == ' ') {
+					notes_plain(q + 2);
+					notes_wrap(&o, q + 2, "\xE2\x80\xA2 ", "  ");
+				} else if (*q && *q != '|') {
+					notes_plain(q);
+					notes_wrap(&o, q, "", "");
+				}
+			}
+			break;
+		}
+		p += len + 1;
+	}
+	free(body);
+	while (o.n > 0 && out[o.n - 1] == '\n' && (o.n < 2 || out[o.n - 2] == '\n'))
+		o.n--; /* no empty lines at the end */
+	out[o.n] = 0;
+	return o.n;
+}
+
 /* ---- zip: the central directory, then each file stored or deflated ---- */
 
 static unsigned le16(const unsigned char *p) { return p[0] | p[1] << 8; }
