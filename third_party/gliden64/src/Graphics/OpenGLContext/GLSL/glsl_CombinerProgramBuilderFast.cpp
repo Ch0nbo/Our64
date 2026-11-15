@@ -1084,7 +1084,38 @@ public:
 		// (magnify) taps that sample with plain texture().
 		if (!_glinfo.isGLES2 && config.texture.anisotropy > 1)
 			replaceGradientSampling(m_part);
+
+		// Our64, hack_fastLodSharpen (Fighting Force, issue #42): in magnify with
+		// sharpen on, the RDP's LOD fraction is lod - 1, a negative number that
+		// pushes TEXEL0 away from the next, smaller mip (angrylion tcoord.c:
+		// lf = lod << 3; lf |= 0x100, read as a signed 9-bit value by the
+		// combiner; the exact shaders' "lod_frac - 1.0"). These shaders gave
+		// 1 - lod, which blends towards that smaller mip instead: the car park
+		// floor, (TEXEL1 - TEXEL0) * LOD_FRACTION + TEXEL0 over a 32x32 texture
+		// with four mips, came out blurred. Their LOD also left out the
+		// screen-y step, which a floor seen at a slant is mostly made of.
+		// Costs one dFdy and two max more in the LOD shaders, only in the
+		// games with the hack: every other game's shader text stays the same.
+		m_partSharpen = m_part;
+		replaceAll(m_partSharpen, "lod_frac = 1.0 - lod_frac;", "lod_frac = lod_frac - 1.0;");
+		replaceAll(m_partSharpen, "mediump float lod = max(dx.x, dx.y);",
+			"mediump vec2 dy = abs(dFdy(vLodTexCoord)) * uScreenScale; "
+			"mediump float lod = max(max(dx.x, dx.y), max(dy.x, dy.y));");
 	}
+
+	void write(std::stringstream & shader) const override
+	{
+		shader << ((config.generalEmulation.hacks & hack_fastLodSharpen) != 0 ? m_partSharpen : m_part);
+	}
+
+private:
+	static void replaceAll(std::string & _text, const std::string & _from, const std::string & _to)
+	{
+		for (size_t pos = _text.find(_from); pos != std::string::npos; pos = _text.find(_from, pos + _to.size()))
+			_text.replace(pos, _from.size(), _to);
+	}
+
+	std::string m_partSharpen;
 };
 
 class ShaderReadtexFast : public ShaderPart

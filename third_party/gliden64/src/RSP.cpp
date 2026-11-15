@@ -387,6 +387,8 @@ void RSP_Init()
 		config.generalEmulation.hacks |= hack_WCWNitro;
 	else if (strstr(RSP.fixname, (const char *)"DR.MARIO 64") != nullptr)
 		config.generalEmulation.hacks |= hack_fullRdramCopy;
+	else if (strstr(RSP.fixname, (const char *)"Fighting Force") != nullptr)
+		config.generalEmulation.hacks |= hack_fastLodSharpen;
 	else if (strstr(RSP.fixname, (const char *)"MarioTennis") != nullptr)
 		config.generalEmulation.hacks |= hack_fbTextureOffset | hack_refreshRdramCopy;
 	else if (strstr(RSP.fixname, (const char *)"Extreme G 2") != nullptr ||

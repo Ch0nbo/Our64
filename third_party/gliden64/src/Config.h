@@ -286,6 +286,7 @@ struct Config
 #define hack_fbTextureOffset		(1<<23) //Hack to offset Conker's shadow in CBFD and Bob-ombs in Mario Tennis.
 #define hack_refreshRdramCopy		(1<<24) //Our64: a buffer drawn into again takes a new RDRAM copy for its validity check. Mario Tennis.
 #define hack_fullRdramCopy			(1<<25) //Our64: every buffer keeps every RDRAM word for the validity check. Dr. Mario 64.
+#define hack_fastLodSharpen			(1<<26) //Our64: the simple shaders' LOD fraction for sharpen in magnify as on the RDP. Fighting Force.
 
 extern Config config;
 
