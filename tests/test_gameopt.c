@@ -42,5 +42,13 @@ int main(void){
 	n=gameopt_text(t,sizeof t); assert(!strstr(t,"Hack.z64") && !strstr(t,"Never.z64"));
 	gameopt_renamed("New.z64","Moved.z64");
 	assert(!strcmp(gameopt_fixes("Moved.z64"),"NKTE") && !gameopt_fixes("New.z64"));
+	/* native (2026-11-13): written, read back, and 480p again clears it */
+	gameopt_parse("Lambo.z64\tnative\n");
+	assert(gameopt_lines("Lambo.z64")==GAMEOPT_NATIVE);
+	assert(gameopt_set_lines("F1.z64",GAMEOPT_NATIVE)==0 && gameopt_lines("F1.z64")==GAMEOPT_NATIVE);
+	n=gameopt_text(t,sizeof t); assert(!strcmp(t,"Lambo.z64\tnative\nF1.z64\tnative\n"));
+	assert(gameopt_set_lines("F1.z64",480)==0 && gameopt_lines("F1.z64")==480);
+	n=gameopt_text(t,sizeof t); assert(!strcmp(t,"Lambo.z64\tnative\n"));
+	assert(gameopt_set_lines("Lambo.z64",999)==0 && gameopt_lines("Lambo.z64")==480); /* anything else is 480p */
 	(void)n;
 	puts("gameopt ok"); return 0; }

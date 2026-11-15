@@ -22,6 +22,7 @@
 #include "m64p_types.h"
 #include "m64p_common.h"
 #include "m64p_plugin.h"
+#include "gameopt.h"
 
 #include <Graphics/GX2Context/gx2_ContextImpl.h>
 #include <coreinit/alarm.h>
@@ -876,7 +877,9 @@ extern "C" void video_hold_counts(unsigned * frames, unsigned * wrong, unsigned 
 
 extern "C" unsigned video_game_frames(void) { return g_game_frames; }
 
-extern "C" void video_set_lines(int lines) { g_res_wanted = lines == 720 ? 720 : 480; }
+// GAMEOPT_NATIVE: the window stays 640x480 and GLideN64 draws at the
+// game's own resolution (UseNativeResolutionFactor=1), enlarged after.
+extern "C" void video_set_lines(int lines) { g_res_wanted = lines == 720 || lines == GAMEOPT_NATIVE ? lines : 480; }
 
 static int res_height_from_card()
 {
@@ -1372,8 +1375,8 @@ void start_on_graphics_core(void * result)
 	static char settings[512];
 	int used = snprintf(settings, sizeof(settings),
 	         "EnableCopyColorToRDRAM=%d,AsyncShaderCompilation=%d,EnableInaccurateTextureCoordinates=%d,AspectRatio=%d,"
-	         "ScreenWidth=%d,ScreenHeight=%d",
-	         copy, async, inexact, g_aspect, g_res_h * 4 / 3, g_res_h);
+	         "ScreenWidth=%d,ScreenHeight=%d,UseNativeResolutionFactor=%d",
+	         copy, async, inexact, g_aspect, g_res_h * 4 / 3, g_res_h, g_res_wanted == GAMEOPT_NATIVE ? 1 : 0);
 #ifndef OUR64_RELEASE
 	// Dev test switch sd:/wiiu/our64/gfx-override: its first line, "Name=value,Name=value",
 	// is added to GLideN64's settings (2026-11-11: what the GPU's per-pixel cost is made of).
@@ -1393,9 +1396,9 @@ void start_on_graphics_core(void * result)
 	}
 #endif
 	our64_config_override(settings);
-	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s. Drawn at %dx%d%s.", copy,
-	            async ? "in the background" : "before drawing", g_res_h * 4 / 3, g_res_h,
-	            g_res_h != 480 && g_res_wanted != 720 ? " (TEST: res-720)" : "");
+	report_line("Color copy to RDRAM: %d (per-game ini entries win). Shaders compile %s. Drawn at %s%dx%d%s.", copy,
+	            async ? "in the background" : "before drawing", g_res_wanted == GAMEOPT_NATIVE ? "the game's own resolution, window " : "",
+	            g_res_h * 4 / 3, g_res_h, g_res_h != 480 && g_res_wanted != 720 ? " (TEST: res-720)" : "");
 
 	GFX_INFO gi = {};
 	gi.HEADER = g_mem.header;

@@ -213,7 +213,7 @@ int  start_legend(const start_ui *s, int type, pause_key *keys, int max);
  * (Zach: reachable while the game is loaded, and found by reading, not
  * remembered). Each row opens a page of choices with the one in use marked,
  * as Start-up ROM Category does (Zach: what people are used to), or asks.
- * Resolution: 480p or 720p; 720p asks first with the warning and is never on
+ * Resolution: Native, 480p or 720p; 720p asks first with the warning and is never on
  * unless the player chose it. Fixes (2026-11-13): Auto, or a retail game
  * whose fixes a ROM hack of it gets (fixes.h), from a list A to Z. Cover: the
  * fetched one, or an image picked with the folder finder. Delete: from Our
@@ -223,7 +223,7 @@ enum { OPT_RES, OPT_PICTURE, OPT_FIXES, OPT_COVER, OPT_RENAME, OPT_DELETE, OPT_R
 enum { COVER_NONE, COVER_FETCHED, COVER_CUSTOM };
 typedef struct {
 	int row;
-	int lines;        /* 480 or 720 */
+	int lines;        /* 480 or 720, GAMEOPT_NATIVE (240) for the game's own */
 	int picture_set;  /* the game has picture settings of its own (Picture reads "Custom", else "Default") */
 	int cover;        /* COVER_ */
 	const char *fixes; /* the game picked in Fixes (its title), NULL: Auto */
