@@ -260,23 +260,27 @@ static unsigned char *read_whole(const char *path, unsigned *size)
 	return data;
 }
 
-/* data to path through path.tmp, so a cut-off write leaves the old file. No
- * .bak beside it (savefile_write keeps one): every file more in games/ slows
- * each open there. */
-static int write_whole(const char *path, const void *data, unsigned size)
+/* data to path. direct: written over what is there, for a shader pack: in a
+ * full folder each create, delete and rename takes the card about a second,
+ * and a pack cut off by a power loss is one the graphics core already treats
+ * as absent and builds again. Otherwise through path.tmp, renamed into
+ * place, so a cut-off write leaves the old file (a .keys cut mid-line would
+ * read as a key the game never used). No .bak either way: every file more in
+ * games/ slows each open there. */
+static int write_whole(const char *path, const void *data, unsigned size, int direct)
 {
 	char tmp[340];
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	snprintf(tmp, sizeof(tmp), "%s%s", path, direct ? "" : ".tmp");
 	FILE *f = fopen(tmp, "wb");
 	if (!f)
 		return -1;
 	int ok = fwrite(data, 1, size, f) == size;
 	ok = fclose(f) == 0 && ok;
-	if (ok) {
+	if (ok && !direct) {
 		remove(path);
 		ok = rename(tmp, path) == 0;
 	}
-	if (!ok)
+	if (!ok && !direct)
 		remove(tmp);
 	return ok ? 0 : -1;
 }
@@ -364,7 +368,7 @@ static int shaders_unpack(const update_asset *a)
 	path_in(path, sizeof(path), "shaders", "games");
 	mkdir(path, 0777);
 	const OSTime t0 = OSGetSystemTime();
-	int r = UPDATE_OK, written = 0, merged = 0;
+	int r = UPDATE_OK, written = 0, merged = 0, kept = 0;
 	update_zip_entry e;
 	while (r == UPDATE_OK && update_zip_next(&z, &e)) {
 		g_done = z.index;
@@ -383,24 +387,26 @@ static int shaders_unpack(const update_asset *a)
 			break;
 		}
 		path_in(path, sizeof(path), "shaders", e.name);
-		unsigned old_size = 0, n = 0;
+		unsigned old_size = 0, n = 0, added = 0;
 		unsigned char *old = read_whole(path, &old_size);
 		void *out = NULL;
 		if (pack) {
-			out = update_pack_merge(fresh, e.size, old, old_size, &n);
+			out = update_pack_merge(fresh, e.size, old, old_size, &n, &added);
 		} else {
 			char *text = malloc(e.size + 1);
 			if (text) {
 				memcpy(text, fresh, e.size);
 				text[e.size] = 0;
-				out = update_keys_merge(text, (const char *)old, &n);
+				out = update_keys_merge(text, (const char *)old, &n, &added);
 				free(text);
 			}
 		}
 		if (!out) {
 			report_line("UPDATE: %s in shaders.zip is not a shader file (or no memory)", e.name);
 			r = UPDATE_DAMAGED;
-		} else if (write_whole(path, out, n)) {
+		} else if (old && !added) {
+			kept++; /* the card's file has all of it: no write */
+		} else if (write_whole(path, out, n, pack)) {
 			report_line("UPDATE: %s not written (errno %d)", path, errno);
 			r = UPDATE_CARD;
 		} else {
@@ -417,10 +423,10 @@ static int shaders_unpack(const update_asset *a)
 		char line[80];
 		const int n = snprintf(line, sizeof(line), "%s\n", a->sha256[0] ? a->sha256 : "unknown");
 		path_in(path, sizeof(path), "shaders", "release.txt");
-		if (write_whole(path, line, (unsigned)n))
+		if (write_whole(path, line, (unsigned)n, 0))
 			r = UPDATE_CARD;
 	}
-	report_line("UPDATE: shaders: %d files written (%d merged with the card's) in %.1f s%s", written, merged,
+	report_line("UPDATE: shaders: %d files written (%d merged with the card's), %d already there, in %.1f s%s", written, merged, kept,
 	            OSTicksToMilliseconds(OSGetSystemTime() - t0) / 1000.0, r == UPDATE_OK ? "" : ", not finished");
 	path_in(path, sizeof(path), "update", UPDATE_SHADERS_NAME);
 	remove(path);

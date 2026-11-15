@@ -59,13 +59,17 @@ void  update_zip_close(update_zip *z);
  * every pair of the new one, then the card's pairs it does not have (pairs
  * the player's own play built; the graphics core drops those it no longer
  * uses). old may be NULL or damaged: the result is then the new pack. NULL:
- * new_pack is not a pack, or no memory. Free the result. */
+ * new_pack is not a pack, or no memory. Free the result. *added: the pairs
+ * the card's pack lacked; 0 means the card's file can stay as it is (each
+ * write into a full folder takes the card seconds: 4 files took 12 s on the
+ * console, 2026-11-15). */
 unsigned char *update_pack_merge(const unsigned char *new_pack, unsigned new_size, const unsigned char *old_pack,
-                                 unsigned old_size, unsigned *out_size);
+                                 unsigned old_size, unsigned *out_size, unsigned *added);
 /* The same for a game's .keys (combiner keys, one hex number a line, "#"
  * lines are comments): every key of both, sorted, under the new file's first
- * comment line. old may be NULL. Free the result. */
-char *update_keys_merge(const char *new_keys, const char *old_keys, unsigned *out_size);
+ * comment line. old may be NULL. Free the result. *added: the keys the
+ * card's file lacked. */
+char *update_keys_merge(const char *new_keys, const char *old_keys, unsigned *out_size, unsigned *added);
 
 #ifdef __cplusplus
 }

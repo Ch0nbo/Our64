@@ -331,8 +331,20 @@ static int pack_pairs(const unsigned char *p, unsigned size)
 	return (int)count;
 }
 
+/* 1 when the pack's n pairs include key. */
+static int pack_has(const unsigned char *pack, int n, const unsigned char *key)
+{
+	unsigned at = 12;
+	for (int k = 0; k < n; k++) {
+		if (!memcmp(pack + at + 4 + 8, key, 8))
+			return 1;
+		at += 4 + be32(pack + at);
+	}
+	return 0;
+}
+
 unsigned char *update_pack_merge(const unsigned char *new_pack, unsigned new_size, const unsigned char *old_pack,
-                                 unsigned old_size, unsigned *out_size)
+                                 unsigned old_size, unsigned *out_size, unsigned *added)
 {
 	const int nn = pack_pairs(new_pack, new_size);
 	if (nn < 0)
@@ -345,20 +357,16 @@ unsigned char *update_pack_merge(const unsigned char *new_pack, unsigned new_siz
 		return NULL;
 	/* the new pack's pairs end where the last whole one does */
 	unsigned end = 12;
-	for (int i = 0; i < nn; i++)
+	*added = 0;
+	for (int i = 0; i < nn; i++) {
+		*added += !pack_has(old_pack, on, new_pack + end + 4 + 8);
 		end += 4 + be32(new_pack + end);
+	}
 	memcpy(out, new_pack, end);
 	unsigned count = (unsigned)nn, pos = 12;
 	for (int i = 0; i < on; i++) {
 		const unsigned n = be32(old_pack + pos);
-		const unsigned char *key = old_pack + pos + 4 + 8;
-		int have = 0;
-		unsigned at = 12;
-		for (int k = 0; k < nn && !have; k++) {
-			have = !memcmp(new_pack + at + 4 + 8, key, 8);
-			at += 4 + be32(new_pack + at);
-		}
-		if (!have) {
+		if (!pack_has(new_pack, nn, old_pack + pos + 4 + 8)) {
 			memcpy(out + end, old_pack + pos, 4 + n);
 			end += 4 + n;
 			count++;
@@ -395,7 +403,7 @@ static unsigned keys_read(const char *text, unsigned long long *keys, unsigned n
 	return n;
 }
 
-char *update_keys_merge(const char *new_keys, const char *old_keys, unsigned *out_size)
+char *update_keys_merge(const char *new_keys, const char *old_keys, unsigned *out_size, unsigned *added)
 {
 	const unsigned total = keys_read(old_keys, NULL, keys_read(new_keys, NULL, 0));
 	unsigned long long *keys = malloc(sizeof(*keys) * (total ? total : 1));
@@ -406,8 +414,17 @@ char *update_keys_merge(const char *new_keys, const char *old_keys, unsigned *ou
 		free(out);
 		return NULL;
 	}
-	keys_read(old_keys, keys, keys_read(new_keys, keys, 0));
+	/* the card's keys first, counted without repeats: what the merge adds to them */
+	const unsigned had = keys_read(old_keys, keys, 0);
+	qsort(keys, had, sizeof(*keys), key_cmp);
+	unsigned had_once = 0, all_once = 0;
+	for (unsigned i = 0; i < had; i++)
+		had_once += i == 0 || keys[i] != keys[i - 1];
+	keys_read(new_keys, keys, had);
 	qsort(keys, total, sizeof(*keys), key_cmp);
+	for (unsigned i = 0; i < total; i++)
+		all_once += i == 0 || keys[i] != keys[i - 1];
+	*added = all_once - had_once;
 	unsigned at = 0;
 	if (comment) {
 		memcpy(out, new_keys, comment);

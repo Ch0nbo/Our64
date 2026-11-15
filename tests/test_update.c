@@ -164,9 +164,9 @@ static void packs_merge_keeps_the_cards_own_pairs(void)
 	unsigned char a[256], b[256];
 	const unsigned long long nk[2] = { 0x1111, 0x2222 }, ok[3] = { 0x2222, 0x3333, 0x4444 };
 	const unsigned an = pack_make(a, nk, 2, 'N'), bn = pack_make(b, ok, 3, 'O');
-	unsigned n = 0;
-	unsigned char *m = update_pack_merge(a, an, b, bn, &n);
-	CHECK(m && n == 12 + 4 * 24 && m[11] == 4);
+	unsigned n = 0, added = 9;
+	unsigned char *m = update_pack_merge(a, an, b, bn, &n, &added);
+	CHECK(m && n == 12 + 4 * 24 && m[11] == 4 && added == 1); /* the card lacked 1111 */
 	CHECK(!memcmp(m + 12, a + 12, an - 12)); /* the release's pairs first, as they were */
 	CHECK(m[an + 4 + 15] == 0x33 && m[an + 20] == 'O'); /* then the card's 3333 */
 	CHECK(m[an + 24 + 4 + 15] == 0x44);
@@ -174,28 +174,42 @@ static void packs_merge_keeps_the_cards_own_pairs(void)
 	CHECK(m[12 + 24 + 4 + 15] == 0x22 && m[12 + 24 + 20] == 'N');
 	free(m);
 	/* no pack on the card, or a damaged one: the release's */
-	m = update_pack_merge(a, an, NULL, 0, &n);
-	CHECK(m && n == an && !memcmp(m, a, an));
+	m = update_pack_merge(a, an, NULL, 0, &n, &added);
+	CHECK(m && n == an && !memcmp(m, a, an) && added == 2);
 	free(m);
-	m = update_pack_merge(a, an, b, bn - 3, &n);
-	CHECK(m && n == an);
+	m = update_pack_merge(a, an, b, bn - 3, &n, &added);
+	CHECK(m && n == an && added == 2);
+	free(m);
+	/* the card already has every pair of the release's: nothing to add, its file can stay */
+	m = update_pack_merge(b, bn, b, bn, &n, &added);
+	CHECK(m && added == 0);
+	free(m);
+	const unsigned long long one[1] = { 0x3333 };
+	unsigned char c[64];
+	const unsigned cn = pack_make(c, one, 1, 'N');
+	m = update_pack_merge(c, cn, b, bn, &n, &added);
+	CHECK(m && added == 0 && m[11] == 3);
 	free(m);
 	/* what the release sent is not a pack: nothing written */
-	CHECK(update_pack_merge((const unsigned char *)"<html>", 6, b, bn, &n) == NULL);
+	CHECK(update_pack_merge((const unsigned char *)"<html>", 6, b, bn, &n, &added) == NULL);
 	a[11] = 9; /* says 9 pairs, holds 2 */
-	CHECK(update_pack_merge(a, an, b, bn, &n) == NULL);
+	CHECK(update_pack_merge(a, an, b, bn, &n, &added) == NULL);
 }
 
 static void keys_merge_is_every_key_once(void)
 {
-	unsigned n = 0;
+	unsigned n = 0, added = 9;
 	char *m = update_keys_merge("# Our64: combiner keys of X\n0x0000000000000002\n0x0000000000000005\n",
-	                            "# old\n0x0000000000000005\n0x0000000000000001\n", &n);
+	                            "# old\n0x0000000000000005\n0x0000000000000001\n", &n, &added);
+	CHECK(added == 1); /* the card lacked 2 */
 	CHECK(m && !strcmp(m, "# Our64: combiner keys of X\n0x0000000000000001\n0x0000000000000002\n0x0000000000000005\n"));
 	CHECK(n == strlen(m));
 	free(m);
-	m = update_keys_merge("0x000000000000000a\n", NULL, &n);
-	CHECK(m && !strcmp(m, "0x000000000000000a\n"));
+	m = update_keys_merge("0x000000000000000a\n", NULL, &n, &added);
+	CHECK(m && !strcmp(m, "0x000000000000000a\n") && added == 1);
+	free(m);
+	m = update_keys_merge("0x05\n0x01\n", "0x0000000000000001\n0x0000000000000005\n0x0000000000000007\n", &n, &added);
+	CHECK(m && added == 0); /* the card has them all */
 	free(m);
 }
 
