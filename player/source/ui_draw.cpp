@@ -1591,15 +1591,27 @@ void row_about(int rows, const char * about)
 	text(40, under[1] + 4, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
 }
 
+// Our Settings: five rows, each opening a page (">"), closer than a page's own
+// four (settings_main_rect). Update says at its right when a version was
+// found ("1.3.0 available"), in the lit color: news, not a setting.
 void draw_settings(const setup_view & sv)
 {
 	const settings_ui & s = sv.settings;
 	setup_header("OUR SETTINGS", sv.line[0] ? sv.line : nullptr);
 	text(UI_W - 40, 52, "Version " OUR64_VERSION, 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_RIGHT);
-	bool page[SET_ROWS];
-	for (int row = 0; row < SET_ROWS; row++)
-		page[row] = true; // every row opens a page: no values to draw
-	value_rows(SET_ROWS, s.row, settings_row_name, nullptr, nullptr, nullptr, nullptr, page, nullptr, nullptr);
+	for (int row = 0; row < SET_ROWS; row++) {
+		int r[4];
+		settings_main_rect(row, r);
+		const bool sel = s.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+		const int ty = r[1] + (r[3] - 26) / 2 - 2;
+		text(r[0] + 20, ty, settings_row_name(row), 26, card_ink(sel, false));
+		text(r[0] + r[2] - 24, ty - 1, ">", 28, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+		char value[48];
+		settings_value(&s, row, value, sizeof(value));
+		if (value[0])
+			text(r[0] + r[2] - 56, ty + 3, value, 22, card_ink(sel, false), GUI_TEXT_JUSTIFY_RIGHT);
+	}
 	const char * about = settings_row_about(&s);
 	text(40, 384, about, fit(about, 19, 14, UI_W - 80), rgb(T.screen.muted));
 	pause_key keys[6];
@@ -2000,6 +2012,48 @@ void draw_games(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
+// Settings > Update: the action (what it does now, and its size or state at
+// the right), then the two switches with On or Off, as Settings > Games'
+// rows. The action is greyed while a game is loaded.
+void draw_update(const setup_view & sv)
+{
+	const update_ui & u = sv.update;
+	setup_header("UPDATE", sv.line[0] ? sv.line : nullptr);
+	text(UI_W - 40, 52, "Version " OUR64_VERSION, 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_RIGHT);
+	for (int row = 0; row < UPD_ROWS; row++) {
+		int r[4];
+		settings_row_rect(row, r);
+		const bool sel = u.row == row;
+		selectable(r[0], r[1], r[2], r[3], sel, false, 5, 10);
+		char name[64], value[32];
+		upd_row_name(&u, row, name, sizeof(name));
+		upd_value(&u, row, value, sizeof(value));
+		const PixelColor ink = upd_row_off(&u, row) ? rgb(theme_off(&surface_of(sel, false))) : card_ink(sel, false);
+		text(r[0] + 20, r[1] + 12, name, 26, ink);
+		if (value[0])
+			text(r[0] + r[2] - 24, r[1] + 15, value, 22, card_muted(sel), GUI_TEXT_JUSTIFY_RIGHT);
+	}
+	row_about(UPD_ROWS, upd_row_about(&u));
+	pause_key keys[6];
+	int n = upd_legend(&u, sv.glyphs, keys, 6);
+	draw_keys(keys, n, nullptr);
+}
+
+// An update in progress: Fetch covers' layout, with what is being done, one
+// bar, how far under it, and B to stop until the new app is put in place.
+void draw_updating(const setup_view & sv)
+{
+	const update_ui & u = sv.update;
+	box(0, 0, UI_W, UI_H, rgb(T.screen.fill));
+	char words[64];
+	upd_headline(&u, words, sizeof(words));
+	text(UI_W / 2, 218, words, 32, rgb(T.screen.ink), GUI_TEXT_JUSTIFY_CENTER);
+	upd_step(&u, words, sizeof(words));
+	progress_bar(upd_bar(&u), words);
+	pause_key keys[4];
+	draw_keys(keys, upd_legend(&u, sv.glyphs, keys, 4), nullptr);
+}
+
 // Settings > Games > Start on: All, Recent and Favorites as rows, each with a
 // round mark at the right, filled on the one in use (one choice of three, as
 // a radio button shows it); A picks the selected one.
@@ -2242,6 +2296,8 @@ void draw_setup(const ui_view & v)
 	case SETUP_CHOICE: draw_choice(sv); break;
 	case SETUP_GAMEPIC: draw_gamepic(sv); break;
 	case SETUP_DELETING: draw_deleting(sv); break;
+	case SETUP_UPDATE: draw_update(sv); break;
+	case SETUP_UPDATING: draw_updating(sv); break;
 	case SETUP_THEME: draw_look(sv); break;
 	case SETUP_PICTURE: draw_picture(sv); break;
 	case SETUP_CONTROLLERS: draw_controllers(sv); break;

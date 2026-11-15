@@ -55,6 +55,17 @@ int  setup_save_settings(void);    /* 0 when written */
 /* Our Settings, from the pause menu or Our ROMs. HOME there: settings_take_home is 1 after. */
 void settings_run(int from_pause);
 int  settings_take_home(void);
+/* The updater (Settings > Update, update_wiiu.h). update_startup: once, after
+ * setup_start: looks for a new version when check is set and Check
+ * automatically is on.
+ * update_news: each frame of Our ROMs; 1 once a version, when that check
+ * found one the player was not asked about yet (version: "1.3.0").
+ * update_now: the player said Update there: the update on its own screen;
+ * 1 when Our64 closes to restart (or the system closes it), 0 when it did
+ * not happen, why in line. */
+void update_startup(int check);
+int  update_news(char *version, unsigned size);
+int  update_now(int glyphs, char *line, unsigned size);
 /* Our ROMs' A on a ROM folder not found: Settings > Games' ROM folder picker on
  * its own. glyphs: the controller's (INPUT_). 1: HOME, and leaving was confirmed. */
 int  settings_pick_rom_folder(int glyphs);

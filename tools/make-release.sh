@@ -5,6 +5,15 @@
 #   wiiu/our64/GLideN64.custom.ini   per-game graphics settings
 #   wiiu/our64/shaders/              pre-built shaders for every game
 #   wiiu/our64/roms/                 empty: the games go here
+# and beside it, in release/Our64-<version>/, the files an installed Our64
+# takes by itself (Settings > Update); they go on the GitHub release with the
+# zip, under these names:
+#   our64.wuhb            the same app
+#   GLideN64.custom.ini   the same settings
+#   shaders.zip           games/<game>.pack and .keys of the same shaders
+#                         (taken only with Include shaders on)
+# The zip's wiiu/our64/shaders/release.txt holds shaders.zip's SHA-256: a card
+# set up from the zip already has those shaders, and the updater says so.
 # Usage: tools/make-release.sh [shaders-dir]
 #   shaders-dir: a copy of a card's sd:/wiiu/our64/shaders after the shader
 #   build (default results/release-shaders).
@@ -53,6 +62,15 @@ sort -u "$STAGE/out.txt" | comm -23 - "$STAGE/kept.txt" | while read -r k; do rm
 find "$G" -mindepth 2 -name '*.bin' -printf '%f\n' | sed 's/\.bin$//' | sort > "$G/index.txt"
 rm -f "$STAGE/out.txt" "$STAGE/kept.txt"
 echo "$left games' shaders left out; $(ls "$G"/games/*.pack | wc -l) packs, $(wc -l < "$G/index.txt") single files"
+
+# The updater's files. shaders.zip first: its SHA-256 goes into the full zip.
+PARTS="$ROOT/release/Our64-$VERSION"
+rm -rf "$PARTS"
+mkdir -p "$PARTS"
+cp "$STAGE/wiiu/apps/our64.wuhb" "$STAGE/wiiu/our64/GLideN64.custom.ini" "$PARTS/"
+(cd "$G" && zip -q -X "$PARTS/shaders.zip" games/*.pack games/*.keys)
+sha256sum "$PARTS/shaders.zip" | cut -d' ' -f1 > "$G/release.txt"
+echo "$PARTS: our64.wuhb, GLideN64.custom.ini, shaders.zip ($(du -h "$PARTS/shaders.zip" | cut -f1))"
 
 OUT="$ROOT/release/Our64-$VERSION.zip"
 mkdir -p "$ROOT/release"

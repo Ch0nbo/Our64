@@ -2,7 +2,7 @@
 CC	?=	cc
 CFLAGS	:=	-std=gnu11 -O1 -g -Wall -Wextra -I../player/source
 BUILD	:=	build
-TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers test_lwp_heap test_gameopt test_fixes test_speed
+TESTS	:=	test_saves test_states test_input test_prompt test_notices test_pause test_library test_setup test_tpak test_rsp_lle test_gb_tower test_usbfs test_covers test_lwp_heap test_gameopt test_fixes test_speed test_update
 
 .PHONY: all clean shots
 all: $(addprefix $(BUILD)/,$(TESTS))
@@ -56,6 +56,10 @@ $(BUILD)/test_covers: test_covers.c ../player/source/covers.c ../player/source/c
 $(BUILD)/test_gameopt: test_gameopt.c ../player/source/gameopt.c ../player/source/gameopt.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_gameopt.c ../player/source/gameopt.c
+
+$(BUILD)/test_update: test_update.c ../player/source/update.c ../player/source/update.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_update.c ../player/source/update.c -lz
 
 $(BUILD)/test_fixes: test_fixes.c ../player/source/fixes.c ../player/source/fixes.h
 	@mkdir -p $(BUILD)

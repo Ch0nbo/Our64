@@ -36,6 +36,21 @@ Used as they are:
    SD card or on a FAT32 or exFAT USB drive, choose it in Settings > Games > ROM folder.
 4. Start Our64 from the Wii U Menu.
 
+## Updating
+
+Our64 updates itself over Wi-Fi: **Settings > Update**. When a new version is out, Our ROMs asks once and the
+Update row in Settings says so.
+
+- **Update to x.y.z:** downloads the new version (about 5 MB), checks it, and restarts Our64. Your games,
+  saves and settings stay as they are. Not available while a game is loaded: exit the game first.
+- **Include shaders:** Off by default. On, an update also takes the release's pre-built shaders, which make
+  games start smoother. They are merged with the shaders already on the card.
+- **Check automatically:** On by default: Our64 looks for a new version when it starts. Off, it only looks
+  when you choose Check for updates.
+
+Our64 asks GitHub for its latest release and downloads from there, nothing else. You can always update by
+hand instead: copy the `wiiu` folder of a new zip over the old one.
+
 ## USB drives
 
 - ROMs can be on a USB drive, but Our64 never writes to an external USB. Saves, save states and covers always stay on the SD card.
@@ -132,7 +147,7 @@ Open an [issue](../../issues/new/choose) and attach `sd:/wiiu/our64/player-log.t
    wget https://apt.devkitpro.org/install-devkitpro-pacman
    chmod +x install-devkitpro-pacman
    sudo ./install-devkitpro-pacman
-   sudo dkp-pacman -S --needed wiiu-dev ppc-freetype ppc-libpng ppc-libjpeg-turbo ppc-bzip2 ppc-zlib
+   sudo dkp-pacman -S --needed wiiu-dev ppc-freetype ppc-libpng ppc-libjpeg-turbo ppc-bzip2 ppc-zlib wiiu-curl wiiu-mbedtls
    ```
    
    Then log out and back in, so the build can find devkitPro. On Windows, macOS or another Linux, follow [devkitPro's guide](https://devkitpro.org/wiki/Getting_Started) and install the same packages.
@@ -165,7 +180,7 @@ The other scripts in `tools/` say what they do in their first lines.
 
 ## License
 
-Our64's own code is GPL-2.0-or-later ([LICENSE](LICENSE)). The code in `third_party/` keeps its own license: Not64 and GLideN64 are GPL-2.0, CafeGLSL is MIT, FatFs R0.16 has its own BSD-style license.
+Our64's own code is GPL-2.0-or-later ([LICENSE](LICENSE)). The code in `third_party/` keeps its own license: Not64 and GLideN64 are GPL-2.0, CafeGLSL is MIT, FatFs R0.16 has its own BSD-style license. The updater links devkitPro's builds of curl (the curl license) and Mbed TLS (Apache-2.0 or GPL-2.0-or-later), and includes Mozilla's root certificates as extracted by the curl project (MPL-2.0).
 
 ## History
 

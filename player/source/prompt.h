@@ -67,6 +67,9 @@ typedef struct {
 	int auto_resume;      /* "Auto-resume = on|off": resume points written and loaded (the default), or neither */
 	int start_on;         /* START_ */
 	int speed;            /* "Speed display = on|off": the game's speed as a percentage, over the game (off by default) */
+	int update_check;     /* "Update check = on|off": looks for a new version as Our64 starts (the default) */
+	int update_shaders;   /* "Update shaders = on|off": an update also takes the release's pre-built shaders (off by default) */
+	char update_seen[24]; /* "Update seen = 1.3.0": the version Our ROMs already told the player about, "" none */
 } our_settings;
 int settings_parse(const char *text, our_settings *s);
 /* A game started: it becomes the last game and the newest recent one. */

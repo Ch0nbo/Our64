@@ -15,6 +15,8 @@
 #include "report.h"
 #include "saves.h"
 #include "usbfs_wiiu.h"
+#include "update_wiiu.h"
+#include "version.h"
 
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
@@ -1418,6 +1420,209 @@ static int run_games(void)
 	}
 }
 
+/* ---- Settings > Update (update_wiiu.c does the work on its thread) ---- */
+
+static int g_update_checked; /* a check finished well this session: updater_release is its answer */
+
+/* The newer version that check found, or NULL: this is the newest, or its
+ * release has no app Our64 can take by itself. */
+static const char *update_newer(void)
+{
+	const update_release *r = updater_release();
+	return g_update_checked && r->app.url[0] && update_version_cmp(r->version, OUR64_VERSION) > 0 ? r->version : NULL;
+}
+
+static void update_answer(update_ui *u)
+{
+	const update_release *r = updater_release();
+	const char *newer = update_newer();
+	upd_found(u, newer ? newer : "", r->app.size + r->ini.size, updater_shaders_new(), r->shaders.size);
+}
+
+/* A check that ended while nobody watched (the start-up one): its thread
+ * joined, its answer kept. */
+static void update_poll(void)
+{
+	if (updater_job() == 1 && !updater_running() && updater_finish() == UPDATE_OK)
+		g_update_checked = 1;
+}
+
+void update_startup(int check)
+{
+	updater_boot(report_sd_root());
+	if (check && g_settings.update_check && updater_check_start())
+		report_line("UPDATE: the start-up check did not start");
+}
+
+/* The version is remembered as told about: Our ROMs asks once a version. */
+static void update_seen(const char *version)
+{
+	if (!strcmp(g_settings.update_seen, version))
+		return;
+	snprintf(g_settings.update_seen, sizeof(g_settings.update_seen), "%s", version);
+	setup_save_settings(); /* not written: it asks once more next time, no harm */
+}
+
+int update_news(char *version, unsigned size)
+{
+	update_poll();
+	const char *newer = update_newer();
+	if (!newer || !strcmp(g_settings.update_seen, newer))
+		return 0;
+	snprintf(version, size, "%s", newer);
+	update_seen(newer);
+	return 1;
+}
+
+/* An update on its own screen, like Fetch covers: the app (and the ini), the
+ * shaders, or both; B stops it until the new app is being put in place. 1:
+ * Our64 closes, to restart as the new version or because the system said so.
+ * 0: it stayed; g_view.line says what happened. */
+static int update_run(update_ui *u, int app, int shaders)
+{
+	const int screen = g_view.screen;
+	g_view.line[0] = 0;
+	if (updater_job()) { /* a check still in flight: its answer is not needed now */
+		updater_stop();
+		updater_finish();
+	}
+	if (updater_download_start(updater_release(), app, shaders)) {
+		updater_summary(UPDATE_NO_START, g_view.line, sizeof(g_view.line));
+		return 0;
+	}
+	u->running = 1;
+	upd_progress(u, shaders && !app ? USTEP_SHADERS : USTEP_APP, 0, 0);
+	g_view.screen = SETUP_UPDATING;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1;
+	while (updater_running()) {
+		int step;
+		unsigned done, total;
+		updater_progress(&step, &done, &total);
+		upd_progress(u, step, done, total);
+		show();
+		read_frame(&f, NULL, &touching, &target);
+		if (player_closing()) { /* the system waits: the download stops first */
+			updater_stop();
+			updater_finish();
+			u->running = 0;
+			g_view.screen = screen;
+			return 1;
+		}
+		for (int i = 0; i < f.n; i++)
+			if (upd_event(u, f.events[i], f.targets[i]) == UACT_STOP)
+				updater_stop();
+	}
+	int result = updater_finish();
+	if (result == UPDATE_OK && app) {
+		upd_progress(u, USTEP_INSTALL, 0, 0);
+		show();
+		result = updater_install();
+		if (result == UPDATE_OK) {
+			player_relaunch();
+			return 1; /* the screen stays on "Restarting Our64" while it closes */
+		}
+	}
+	u->running = 0;
+	g_view.screen = screen;
+	updater_summary(result, g_view.line, sizeof(g_view.line));
+	if (result == UPDATE_OK)
+		line("Shaders updated.");
+	update_answer(u);
+	return 0;
+}
+
+int update_now(int glyphs, char *out, unsigned size)
+{
+	g_from_pause = 0;
+	g_view.glyphs = glyphs;
+	g_view.game[0] = 0;
+	update_ui *u = &g_view.update;
+	upd_open(u, g_settings.update_shaders, g_settings.update_check, 0);
+	update_answer(u);
+	input_take_home();
+	const int leaving = u->state == UPS_AVAILABLE && update_run(u, 1, u->shaders && u->shaders_new);
+	snprintf(out, size, "%s", g_view.line);
+	input_withhold();
+	return leaving;
+}
+
+/* A switch of the page: saved at once; a write that fails changes nothing. */
+static void update_switch(int *setting, int *shown)
+{
+	*setting = !*setting;
+	if (setup_save_settings()) {
+		*setting = !*setting;
+		write_failed();
+		return;
+	}
+	*shown = *setting;
+	g_view.line[0] = 0;
+}
+
+static int run_update(void)
+{
+	update_ui *u = &g_view.update;
+	upd_open(u, g_settings.update_shaders, g_settings.update_check, g_from_pause);
+	update_poll();
+	if (g_update_checked)
+		update_answer(u);
+	if (updater_job() == 1)
+		u->state = UPS_CHECKING; /* the start-up check, still looking */
+	g_view.screen = SETUP_UPDATE;
+	g_view.line[0] = 0;
+	frame_input f;
+	memset(&f, 0, sizeof(f));
+	int touching = 0, target = -1;
+	for (;;) {
+		if (u->state == UPS_CHECKING && !updater_running()) {
+			const int r = updater_finish();
+			if (r == UPDATE_OK) {
+				g_update_checked = 1;
+				update_answer(u);
+			} else {
+				u->state = UPS_UNKNOWN;
+				updater_summary(r, g_view.line, sizeof(g_view.line));
+			}
+		}
+		if (u->state == UPS_AVAILABLE)
+			update_seen(u->version); /* seen here: Our ROMs need not ask */
+		show();
+		read_frame(&f, upd_hit, &touching, &target);
+		if (player_closing())
+			return 1;
+		for (int i = 0; i < f.n; i++) {
+			switch (upd_event(u, f.events[i], f.targets[i])) {
+			case UACT_BACK: return 0; /* a check still looking goes on: update_poll takes its answer */
+			case UACT_HOME:
+				if (home_ok())
+					return 1;
+				break;
+			case UACT_CHECK:
+				g_view.line[0] = 0;
+				if (!updater_check_start())
+					u->state = UPS_CHECKING;
+				else
+					updater_summary(UPDATE_NO_START, g_view.line, sizeof(g_view.line));
+				break;
+			case UACT_UPDATE:
+				if (update_run(u, 1, u->shaders && u->shaders_new))
+					return 1;
+				i = f.n; /* presses after A were the update screen's */
+				break;
+			case UACT_GET_SHADERS:
+				if (update_run(u, 0, 1))
+					return 1;
+				i = f.n;
+				break;
+			case UACT_SHADERS: update_switch(&g_settings.update_shaders, &u->shaders); break;
+			case UACT_AUTO: update_switch(&g_settings.update_check, &u->auto_check); break;
+			}
+		}
+	}
+}
+
 /* ---- Our Settings: every row opens a page ---- */
 
 void settings_run(int from_pause)
@@ -1437,6 +1642,8 @@ void settings_run(int from_pause)
 	int touching = 0, target = -1, home = 0;
 	input_take_home();
 	while (!home) {
+		update_poll();
+		snprintf(s->update, sizeof(s->update), "%s", update_newer() ? update_newer() : "");
 		show();
 		read_frame(&f, settings_hit, &touching, &target);
 		if (player_closing())
@@ -1454,6 +1661,7 @@ void settings_run(int from_pause)
 			case SACT_PICTURE: page = run_picture(); break;
 			case SACT_GAMES: page = run_games(); break;
 			case SACT_THEME: page = run_look(); break;
+			case SACT_UPDATE: page = run_update(); break;
 			default: page = -1; break;
 			}
 			if (page >= 0) { /* back from a page */

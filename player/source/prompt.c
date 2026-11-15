@@ -52,6 +52,9 @@ int settings_parse(const char *text, our_settings *s)
 	s->rom_drive[0] = 0;
 	s->auto_resume = 1;
 	s->start_on = START_RECENT;
+	s->update_check = 1;
+	s->update_shaders = 0;
+	s->update_seen[0] = 0;
 	int recent_line = 0;
 	int result = SETTINGS_MISSING;
 	char line[1024]; /* a full Recent games line is up to 5 x 131 bytes */
@@ -124,6 +127,15 @@ int settings_parse(const char *text, our_settings *s)
 		} else if (!strcasecmp(k, "Speed display")) {
 			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
 				found = s->speed = !strcasecmp(v, "on");
+		} else if (!strcasecmp(k, "Update check")) {
+			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
+				found = s->update_check = !strcasecmp(v, "on");
+		} else if (!strcasecmp(k, "Update shaders")) {
+			if (!strcasecmp(v, "on") || !strcasecmp(v, "off"))
+				found = s->update_shaders = !strcasecmp(v, "on");
+		} else if (!strcasecmp(k, "Update seen")) {
+			snprintf(s->update_seen, sizeof(s->update_seen), "%s", v);
+			found = 1;
 		} else if (!strcasecmp(k, "Start on")) {
 			for (int i = 0; i < STARTS; i++)
 				if (!strcasecmp(v, g_start_key[i]))
@@ -192,14 +204,14 @@ int settings_format_all(char *out, unsigned size, const our_settings *s)
 	return snprintf(out, size, "# Our64 settings. Screen mode: TV only, TV + GamePad or GamePad only. "
 	                           "Picture: 4:3 or 16:9 stretched. Theme: Standard or Comrade. Our ROMs: Covers or List. "
 	                           "Filter: Off, Scanlines, CRT or CRT Curved. Auto-resume: on or off. "
-	                           "Start on: all, recent or favorites. Speed display: on or off.\n"
+	                           "Start on: all, recent or favorites. Speed display, Update check, Update shaders: on or off.\n"
 	                           "Screen mode = %s\nPicture = %s\nTheme = %s\nOur ROMs = %s\nShader = %s\nROM folder = %s\nROM drive = %s\nLast game = %s\nRecent games = %s\n"
-	                           "Rumble = %s, %s, %s, %s\nAuto-resume = %s\nStart on = %s\nSpeed display = %s\n",
+	                           "Rumble = %s, %s, %s, %s\nAuto-resume = %s\nStart on = %s\nSpeed display = %s\nUpdate check = %s\nUpdate shaders = %s\nUpdate seen = %s\n",
 	                s->mode >= 0 ? mode_name(s->mode) : mode_name(MODE_BOTH), picture_name(s->picture), theme_name(s->theme), layout_name(s->layout), shader_name(s->shader), s->rom_folder, s->rom_drive, s->last_game,
 	                recent, s->rumble[0] ? "on" : "off", s->rumble[1] ? "on" : "off", s->rumble[2] ? "on" : "off",
 	                s->rumble[3] ? "on" : "off", s->auto_resume ? "on" : "off",
 	                g_start_key[s->start_on >= 0 && s->start_on < STARTS ? s->start_on : START_RECENT],
-	                s->speed ? "on" : "off");
+	                s->speed ? "on" : "off", s->update_check ? "on" : "off", s->update_shaders ? "on" : "off", s->update_seen);
 }
 
 int settings_parse_mode(const char *text)

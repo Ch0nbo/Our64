@@ -20,18 +20,22 @@ extern "C" {
 /* ---- Our Settings ---- */
 
 /* Every row opens a page (2026-11-04): Controllers at the top (2026-10-17),
- * Theme at the bottom (2026-10-30). */
-enum { SET_CONTROLLERS, SET_PICTURE, SET_GAMES, SET_THEME, SET_ROWS };
+ * Theme (2026-10-30), then Update at the bottom (2026-11-15), which says at
+ * its right when a new version was found ("1.3.0 available"). */
+enum { SET_CONTROLLERS, SET_PICTURE, SET_GAMES, SET_THEME, SET_UPDATE, SET_ROWS };
 typedef struct {
 	int row;
 	int touched;
+	char update[24];  /* a newer version found: "1.3.0"; "" none */
 } settings_ui;
-enum { SACT_NONE, SACT_BACK, SACT_HOME, SACT_CONTROLLERS, SACT_PICTURE, SACT_GAMES, SACT_THEME };
+enum { SACT_NONE, SACT_BACK, SACT_HOME, SACT_CONTROLLERS, SACT_PICTURE, SACT_GAMES, SACT_THEME, SACT_UPDATE };
 void settings_open(settings_ui *s);
 int  settings_event(settings_ui *s, int event, int target);
 const char *settings_row_name(int row);
 const char *settings_row_about(const settings_ui *s); /* the line under the rows */
-void settings_row_rect(int row, int r[4]);
+void settings_value(const settings_ui *s, int row, char *out, unsigned size); /* "1.3.0 available", "" */
+void settings_row_rect(int row, int r[4]);     /* a page's rows: four, and the line under them */
+void settings_main_rect(int row, int r[4]);    /* Our Settings' own five, closer */
 void settings_value_rect(int row, int i, int r[4]); /* kept: the value pages' boxes */
 int  settings_hit(int x, int y);               /* the row, or -1 */
 int  settings_legend(const settings_ui *s, int type, pause_key *keys, int max);
@@ -101,6 +105,60 @@ void games_fetch_step(const games_ui *g, char *out, unsigned size); /* under the
 float games_fetch_progress(const games_ui *g);                    /* 0..1 */
 int  games_hit(int x, int y);                   /* row, or -1 */
 int  games_legend(const games_ui *g, int type, pause_key *keys, int max); /* running: HOME, Stop */
+
+/* ---- Settings > Update (2026-11-15): Our64 updates itself from its
+ * releases on GitHub. Three rows, each acting on A:
+ *   the action   "Check for updates" (its value: "Checking...", "Up to
+ *                date"), "Update to 1.3.0" once a newer version was found,
+ *                or "Update shaders" when only shaders are new and Include
+ *                shaders is on. Greyed while a game is loaded: an update
+ *                restarts Our64.
+ *   Include shaders      On or Off: an update also takes the release's
+ *                        pre-built shaders (Zach: its own switch, off until
+ *                        the player wants them)
+ *   Check automatically  On or Off: looks for a new version as Our64 starts
+ * An update runs on its own screen like Fetch covers (SETUP_UPDATING): what
+ * is being done, a bar, and B to stop until the new app is put in place. ---- */
+enum { UPD_ACTION, UPD_SHADERS, UPD_AUTO, UPD_ROWS };
+enum { UPS_UNKNOWN, UPS_CHECKING, UPS_CURRENT, UPS_AVAILABLE }; /* what the last check found */
+enum { USTEP_APP, USTEP_SHADERS, USTEP_UNPACK, USTEP_INSTALL }; /* an update's steps, in order */
+typedef struct {
+	int row;
+	int state;            /* UPS_ */
+	char version[24];     /* UPS_AVAILABLE: "1.3.0" */
+	unsigned app_bytes;   /* its download */
+	int shaders_new;      /* the newest release's shaders are not the card's */
+	unsigned shaders_bytes;
+	int shaders;          /* Include shaders */
+	int auto_check;       /* Check automatically */
+	int paused;           /* opened from a paused game: the action is off */
+	int running;          /* an update in progress: SETUP_UPDATING */
+	int step;             /* USTEP_ */
+	unsigned done, total; /* bytes, or files while unpacking */
+	int touched;
+} update_ui;
+/* UACT_CHECK: look for a version; UACT_UPDATE: the app (and the shaders when
+ * on and new); UACT_GET_SHADERS: the shaders alone; UACT_SHADERS / _AUTO:
+ * switch the setting; UACT_STOP: B during an update. */
+enum { UACT_NONE, UACT_BACK, UACT_HOME, UACT_CHECK, UACT_UPDATE, UACT_GET_SHADERS, UACT_SHADERS, UACT_AUTO, UACT_STOP };
+void upd_open(update_ui *u, int shaders, int auto_check, int paused);
+/* A check's answer. latest: the newer version, or "" when this one is the newest. */
+void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes);
+int  upd_event(update_ui *u, int event, int target);
+void upd_progress(update_ui *u, int step, unsigned done, unsigned total);
+int  upd_row_off(const update_ui *u, int row);      /* greyed: shown, A does nothing */
+void upd_row_name(const update_ui *u, int row, char *out, unsigned size);
+void upd_value(const update_ui *u, int row, char *out, unsigned size);
+const char *upd_row_about(const update_ui *u);
+void upd_headline(const update_ui *u, char *out, unsigned size); /* SETUP_UPDATING: "Updating to 1.3.0" */
+void upd_step(const update_ui *u, char *out, unsigned size);     /* under the bar: "3.1 of 4.8 MB" */
+float upd_bar(const update_ui *u);                               /* 0..1 */
+int  upd_can_stop(const update_ui *u);                           /* not while the new app is put in place */
+int  upd_hit(int x, int y);                         /* row, or -1 */
+int  upd_legend(const update_ui *u, int type, pause_key *keys, int max);
+/* Our ROMs' question when a start-up check found a version (once a version):
+ * its title, "Our64 1.3.0 is available". */
+void upd_offer_title(const char *version, char *out, unsigned size);
 
 /* ---- Settings > Games > Start on (2026-11-06): the tab Our ROMs opens on,
  * rows All, Recent and Favorites (START_, in that order), the one in use

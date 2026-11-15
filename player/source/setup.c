@@ -34,7 +34,7 @@ static int back_glyph(int type) { return type == INPUT_WIIMOTE ? GLYPH_1 : GLYPH
 
 /* ---- Our Settings ---- */
 
-static const char *const g_set_row[SET_ROWS] = { "Controllers", "Picture", "Games", "Theme" };
+static const char *const g_set_row[SET_ROWS] = { "Controllers", "Picture", "Games", "Theme", "Update" };
 
 const char *settings_row_name(int row) { return row >= 0 && row < SET_ROWS ? g_set_row[row] : ""; }
 
@@ -50,8 +50,17 @@ static int settings_page(int row)
 	case SET_CONTROLLERS: return SACT_CONTROLLERS;
 	case SET_PICTURE: return SACT_PICTURE;
 	case SET_GAMES: return SACT_GAMES;
+	case SET_UPDATE: return SACT_UPDATE;
 	default: return SACT_THEME;
 	}
+}
+
+void settings_value(const settings_ui *s, int row, char *out, unsigned size)
+{
+	if (row == SET_UPDATE && s->update[0])
+		snprintf(out, size, "%s available", s->update);
+	else
+		snprintf(out, size, "%s", "");
 }
 
 int settings_event(settings_ui *s, int event, int target)
@@ -87,6 +96,7 @@ const char *settings_row_about(const settings_ui *s)
 	case SET_PICTURE: return "Screens, shape and filter";
 	case SET_GAMES: return "ROM Path, box art, and auto-save";
 	case SET_THEME: return "Colors and how Our ROMs shows the games";
+	case SET_UPDATE: return "New versions of Our64";
 	default: return "Players, rumble and buttons";
 	}
 }
@@ -108,6 +118,16 @@ void settings_row_rect(int row, int r[4])
 	r[3] = SROW_H;
 }
 
+/* Our Settings itself has five rows (Update, 2026-11-15) in the room of
+ * four: closer, so its line under them stays where it was. */
+void settings_main_rect(int row, int r[4])
+{
+	r[0] = SROW_X;
+	r[1] = 130 + row * 50;
+	r[2] = SROW_W;
+	r[3] = 44;
+}
+
 void settings_value_rect(int row, int i, int r[4])
 {
 	r[0] = 282 + i * 176;
@@ -120,7 +140,7 @@ int settings_hit(int x, int y)
 {
 	int r[4];
 	for (int row = 0; row < SET_ROWS; row++) {
-		settings_row_rect(row, r);
+		settings_main_rect(row, r);
 		if (inside(x, y, r))
 			return row;
 	}
@@ -472,6 +492,223 @@ int games_legend(const games_ui *g, int type, pause_key *keys, int max)
 	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
 	keys_add(keys, &n, max, ok_glyph(type), "OK", games_act(g) == GACT_NONE);
 	return n;
+}
+
+/* ---- Settings > Update ---- */
+
+void upd_open(update_ui *u, int shaders, int auto_check, int paused)
+{
+	memset(u, 0, sizeof(*u));
+	u->shaders = shaders;
+	u->auto_check = auto_check;
+	u->paused = paused;
+	u->touched = -1;
+}
+
+void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes)
+{
+	u->state = latest && latest[0] ? UPS_AVAILABLE : UPS_CURRENT;
+	snprintf(u->version, sizeof(u->version), "%s", latest ? latest : "");
+	u->app_bytes = app_bytes;
+	u->shaders_new = shaders_new;
+	u->shaders_bytes = shaders_bytes;
+}
+
+void upd_progress(update_ui *u, int step, unsigned done, unsigned total)
+{
+	u->step = step;
+	u->done = done;
+	u->total = total;
+}
+
+/* The action row: what A does on it now. */
+static int upd_action(const update_ui *u)
+{
+	if (u->paused || u->state == UPS_CHECKING)
+		return UACT_NONE;
+	if (u->state == UPS_AVAILABLE)
+		return UACT_UPDATE;
+	if (u->state == UPS_CURRENT && u->shaders && u->shaders_new)
+		return UACT_GET_SHADERS;
+	return UACT_CHECK;
+}
+
+static int upd_act(const update_ui *u)
+{
+	switch (u->row) {
+	case UPD_SHADERS: return UACT_SHADERS;
+	case UPD_AUTO: return UACT_AUTO;
+	default: return upd_action(u);
+	}
+}
+
+int upd_row_off(const update_ui *u, int row) { return row == UPD_ACTION && u->paused; }
+
+int upd_can_stop(const update_ui *u) { return u->step != USTEP_INSTALL; }
+
+int upd_event(update_ui *u, int event, int target)
+{
+	if (event == PEV_TOUCH_DOWN || event == PEV_TOUCH_UP) {
+		int e = tap(&u->touched, event, target, target == u->row);
+		if (u->running || e == -1)
+			return UACT_NONE; /* the update's screen has no rows: B stops it */
+		if (e == -2) {
+			u->row = target;
+			return UACT_NONE;
+		}
+		event = e;
+	}
+	if (u->running) {
+		if (event == PEV_BACK)
+			return upd_can_stop(u) ? UACT_STOP : UACT_NONE;
+		return UACT_NONE; /* HOME waits too: Our64 restarts when the update is done */
+	}
+	switch (event) {
+	case PEV_UP:
+	case PEV_DOWN: {
+		int row = u->row + (event == PEV_UP ? -1 : 1);
+		if (row >= 0 && row < UPD_ROWS)
+			u->row = row;
+		break;
+	}
+	case PEV_OK: return upd_act(u);
+	case PEV_BACK: return UACT_BACK;
+	case PEV_HOME: return UACT_HOME;
+	}
+	return UACT_NONE;
+}
+
+void upd_row_name(const update_ui *u, int row, char *out, unsigned size)
+{
+	if (row == UPD_SHADERS)
+		snprintf(out, size, "Include shaders");
+	else if (row == UPD_AUTO)
+		snprintf(out, size, "Check automatically");
+	else if (u->state == UPS_AVAILABLE)
+		snprintf(out, size, "Update to %s", u->version);
+	else if (upd_action(u) == UACT_GET_SHADERS)
+		snprintf(out, size, "Update shaders");
+	else
+		snprintf(out, size, "Check for updates");
+}
+
+static void size_words(unsigned bytes, char *out, unsigned size)
+{
+	if (bytes < 1000 * 1024)
+		snprintf(out, size, "%u KB", (bytes + 1023) / 1024);
+	else if (bytes < 10u * 1024 * 1024)
+		snprintf(out, size, "%.1f MB", bytes / (1024.0 * 1024.0));
+	else
+		snprintf(out, size, "%u MB", (bytes + 512 * 1024) / (1024 * 1024));
+}
+
+void upd_value(const update_ui *u, int row, char *out, unsigned size)
+{
+	char mb[16];
+	out[0] = 0;
+	if (row == UPD_SHADERS) {
+		snprintf(out, size, "%s", u->shaders ? "On" : "Off");
+	} else if (row == UPD_AUTO) {
+		snprintf(out, size, "%s", u->auto_check ? "On" : "Off");
+	} else if (u->state == UPS_CHECKING) {
+		snprintf(out, size, "Checking...");
+	} else if (u->state == UPS_AVAILABLE && u->app_bytes) {
+		size_words(u->app_bytes + (u->shaders && u->shaders_new ? u->shaders_bytes : 0), mb, sizeof(mb));
+		snprintf(out, size, "%s", mb);
+	} else if (upd_action(u) == UACT_GET_SHADERS && u->shaders_bytes) {
+		size_words(u->shaders_bytes, mb, sizeof(mb));
+		snprintf(out, size, "%s", mb);
+	} else if (u->state == UPS_CURRENT) {
+		snprintf(out, size, "Up to date");
+	}
+}
+
+const char *upd_row_about(const update_ui *u)
+{
+	switch (u->row) {
+	case UPD_SHADERS:
+		return u->shaders_new ? "New pre-built shaders are ready: games start smoother"
+		                      : "Also takes a release's pre-built shaders: games start smoother";
+	case UPD_AUTO: return "Looks for a new version when Our64 starts";
+	default:
+		if (u->paused)
+			return "Exit the game to update";
+		if (u->state == UPS_AVAILABLE)
+			return "Our64 restarts when it is done. Requires Wi-Fi";
+		return "Requires Wi-Fi";
+	}
+}
+
+void upd_headline(const update_ui *u, char *out, unsigned size)
+{
+	if (u->version[0])
+		snprintf(out, size, "Updating to %s", u->version);
+	else
+		snprintf(out, size, "Updating shaders");
+}
+
+void upd_step(const update_ui *u, char *out, unsigned size)
+{
+	char done[16], total[16];
+	switch (u->step) {
+	case USTEP_UNPACK:
+		snprintf(out, size, "Shaders: %u of %u", u->done, u->total);
+		return;
+	case USTEP_INSTALL:
+		snprintf(out, size, "Restarting Our64");
+		return;
+	}
+	if (!u->total) {
+		snprintf(out, size, "Connecting...");
+		return;
+	}
+	size_words(u->total, total, sizeof(total));
+	/* the same unit as the total: "3.1 of 4.8 MB" */
+	if (u->total < 1000 * 1024)
+		snprintf(done, sizeof(done), "%u", (u->done + 1023) / 1024);
+	else if (u->total < 10u * 1024 * 1024)
+		snprintf(done, sizeof(done), "%.1f", u->done / (1024.0 * 1024.0));
+	else
+		snprintf(done, sizeof(done), "%u", (u->done + 512 * 1024) / (1024 * 1024));
+	snprintf(out, size, "%s%s of %s", u->step == USTEP_SHADERS ? "Shaders: " : "", done, total);
+}
+
+float upd_bar(const update_ui *u)
+{
+	if (u->step == USTEP_INSTALL)
+		return 1.0f;
+	return u->total > 0 ? (float)u->done / (float)u->total : 0.0f;
+}
+
+int upd_hit(int x, int y)
+{
+	int r[4];
+	for (int row = 0; row < UPD_ROWS; row++) {
+		settings_row_rect(row, r);
+		if (inside(x, y, r))
+			return row;
+	}
+	return -1;
+}
+
+int upd_legend(const update_ui *u, int type, pause_key *keys, int max)
+{
+	int n = 0;
+	if (u->running) {
+		if (upd_can_stop(u))
+			keys_add(keys, &n, max, back_glyph(type), "Stop", 0);
+		return n;
+	}
+	keys_add(keys, &n, max, GLYPH_HOME, "Wii U Menu", 0);
+	keys_add(keys, &n, max, back_glyph(type), "Back", 0);
+	keys_add(keys, &n, max, GLYPH_DPAD, "Choose", 0);
+	keys_add(keys, &n, max, ok_glyph(type), "OK", upd_act(u) == UACT_NONE);
+	return n;
+}
+
+void upd_offer_title(const char *version, char *out, unsigned size)
+{
+	snprintf(out, size, "Our64 %s is available", version);
 }
 
 /* ---- Settings > Games > Start on ---- */

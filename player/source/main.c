@@ -45,6 +45,7 @@
 #include "fixes.h"
 #include "tpak_wiiu.h"
 #include "usbfs_wiiu.h"
+#include "update_wiiu.h"
 
 #include <malloc.h>
 #include <coreinit/codegen.h>
@@ -291,6 +292,9 @@ static int g_pause_wanted;         /* HOME was pressed: the pause menu opens at 
 static int g_exit_warned;          /* the menu showed failed writes and the player left anyway */
 
 int player_closing(void) { return g_closing; }
+
+static int g_relaunch; /* Settings > Update put a new app in place: start it as this one closes */
+void player_relaunch(void) { g_relaunch = 1; }
 static unsigned g_holds; /* menus and controller waits so far: a 10 s window with one is not the game's speed */
 void player_paused(int on) { g_paused = on; g_holds += on != 0; } /* for the watchdog: no VIs while a menu is up */
 
@@ -2600,6 +2604,8 @@ static int emu_thread(int argc, const char **argv)
 			report_line("AUTOSTART: %s%s", file, autostart < 0 ? " is not in Our ROMs" : "");
 		}
 	}
+	/* The updater: where Our64 runs from, and the start-up check (not on the test runs above). */
+	update_startup(autostart < 0 && !g_sweep_s);
 	int mode = autostart >= 0 || g_sweep_s ? (s.mode >= 0 ? s.mode : 0) : run_prompt(&s, damaged, line);
 	if (mode < 0) {
 		report_line("PROMPT: left without playing");
@@ -2769,6 +2775,10 @@ int main(int argc, char **argv)
 			WHBProcStopRunning();
 		}
 	}
+	if (updater_job()) { /* a check still looking as Our64 closes */
+		updater_stop();
+		updater_finish();
+	}
 	usbfs_stop(); /* every thread that read a USB file is done */
 	audio_stop();
 	report_save();
@@ -2798,7 +2808,8 @@ int main(int argc, char **argv)
 		if (told && !leaving && g_quit == QUIT_HOME) {
 			leaving = 1;
 			ui_restore_screens();
-			SYSLaunchMenu();
+			if (!g_relaunch || updater_launch()) /* an update is in place: the new app, not the menu */
+				SYSLaunchMenu();
 		}
 		if (!g_quit) {
 			pad_read();

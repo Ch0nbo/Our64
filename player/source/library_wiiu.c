@@ -888,6 +888,21 @@ int library_run(int *game, const char *notice)
 			result = LIB_WIIU;
 			break;
 		}
+		/* A start-up check found a new version: asked here once a version
+		 * (Zach, 2026-11-15); Settings > Update has it from then on. */
+		char newer[24];
+		if (update_news(newer, sizeof(newer))) {
+			char title[64];
+			upd_offer_title(newer, title, sizeof(title));
+			if (player_ask(title, "Our64 restarts when it is done.", "Update")) {
+				if (update_now(v->glyphs, v->notice, sizeof(v->notice))) {
+					result = LIB_WIIU;
+					break;
+				}
+				input_take_home();
+			}
+			continue;
+		}
 		int pressed_any = 0, dir = 0, repeat = 0, side = 0, ok = 0, plus = 0, star = 0, del = 0, up = 0, down = 0, back = 0;
 		const int list = theme_roms_list(); /* Settings > Theme > Our ROMs */
 		uint32_t held = 0;

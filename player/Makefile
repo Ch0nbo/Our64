@@ -45,6 +45,10 @@ CXD4_SRC	:=	su.c vu/vu.c vu/multiply.c vu/add.c vu/select.c vu/logical.c vu/divi
 # archive, so its objects link only once something calls them.
 FATFS		:=	$(CURDIR)/../third_party/fatfs
 FATFS_A		=	$(BUILD)/fatfs.a
+# The updater (Settings > Update): Mozilla's root certificates, built in. It
+# also needs devkitPro's wiiu-curl and wiiu-mbedtls packages
+# (dkp-pacman -S wiiu-curl wiiu-mbedtls).
+CACERT		:=	$(CURDIR)/../third_party/cacert/cacert.pem
 # make RELEASE=1: the public build, into release/our64.wuhb. It leaves out what
 # only the developer's own card uses: Delete in Our ROMs and the graphics
 # capture (minus with ZL and ZR, and the capture switches), and has its own
@@ -71,6 +75,7 @@ OFILES		:=	$(addprefix $(BUILD)/not64/,$(NOT64_SRC:.c=.o)) \
 			$(BUILD)/source/alloc_stats.o $(BUILD)/source/saves.o $(BUILD)/source/saves_wiiu.o $(BUILD)/source/states.o $(BUILD)/source/states_wiiu.o $(BUILD)/source/writer.o $(BUILD)/source/input.o $(BUILD)/source/input_wiiu.o \
 			$(BUILD)/source/prompt.o $(BUILD)/source/notices.o $(BUILD)/source/ui_wiiu.o $(BUILD)/source/tv_pass.o $(BUILD)/source/ui_draw.o $(BUILD)/source/theme.o $(BUILD)/source/pause.o $(BUILD)/source/pause_wiiu.o \
 			$(BUILD)/source/library.o $(BUILD)/source/library_wiiu.o $(BUILD)/source/setup.o $(BUILD)/source/setup_wiiu.o $(BUILD)/source/gamedb.o $(BUILD)/source/covertitles.o $(BUILD)/source/covertitles_find.o $(BUILD)/source/covers.o $(BUILD)/source/covers_wiiu.o $(BUILD)/source/gameopt.o $(BUILD)/source/fixes.o $(BUILD)/source/keyboard_wiiu.o \
+			$(BUILD)/source/update.o $(BUILD)/source/update_wiiu.o $(BUILD)/cacert_pem.o \
 			$(BUILD)/source/tpak.o $(BUILD)/source/tpak_wiiu.o $(BUILD)/source/mocha_wiiu.o $(BUILD)/source/usbfs.o $(BUILD)/source/usbfs_wiiu.o $(BUILD)/source/cpuprof.o $(BUILD)/minilzo.o $(BUILD)/cxd4.o $(BUILD)/source/gb_tower_hle.o \
 			$(BUILD)/replay/core_wiiu.o \
 			$(addprefix $(BUILD)/gliden64/,$(GLIDEN64_CORE:.cpp=.o) $(GLIDEN64_C:.c=.o))
@@ -101,7 +106,7 @@ CXXFLAGS	:=	$(GCOMMON) -std=gnu++17 -w
 
 LDFLAGS		:=	-g $(MACHDEP) $(RPXSPECS) -Wl,-Map,$(BUILD)/$(TARGET).map -Wl,--wrap=doRspCycles -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 LIBPATHS	:=	-L$(CAFEGLSL)/lib $(foreach dir,$(PORTLIBS) $(WUT_ROOT),-L$(dir)/lib)
-LIBS		:=	-lcafeglsl -lturbojpeg -lfreetype -lpng16 -lbz2 -lz -lwut -lm -lstdc++
+LIBS		:=	-lcafeglsl -lturbojpeg -lfreetype -lpng16 -lbz2 -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm -lstdc++
 LIBGUI_FLAGS	:=	-g -O2 -ffunction-sections $(MACHDEP) -D__WIIU__ -D__WUT__ -DOUR64 -std=gnu++17 -w \
 			-I$(LIBGUI) -I$(LIBGUI)/libgui -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
 			$(foreach dir,$(PORTLIBS) $(WUT_ROOT),-I$(dir)/include)
@@ -198,6 +203,15 @@ $(BUILD)/cxd4.o: $(BUILD)/cxd4/rsp_lle.o $(addprefix $(BUILD)/cxd4/,$(CXD4_SRC:.
 	@$(OBJCOPY) -w --keep-global-symbol='rsp_lle_*' $@.tmp $@
 	@rm -f $@.tmp
 
+# The updater's console side: curl, mbedTLS and the certificates.
+$(BUILD)/cacert_pem.o: $(CACERT)
+	@mkdir -p $(dir $@)
+	@echo cacert.pem
+	@bin2s -a 32 -H $(BUILD)/cacert_pem.h $< | $(CC) -x assembler-with-cpp $(MACHDEP) -c - -o $@
+$(BUILD)/source/update_wiiu.o: source/update_wiiu.c $(BUILD)/cacert_pem.o
+	@mkdir -p $(dir $@)
+	@echo update_wiiu.c
+	@$(CC) -MMD -MP $(CFLAGS) -std=gnu23 -I$(BUILD) -c $< -o $@
 $(BUILD)/source/%.o: source/%.c
 	@mkdir -p $(dir $@)
 	@echo $*.c

@@ -164,6 +164,24 @@ static void shader_and_rom_folder_round_trip(void)
 	CHECK(back.shader == SHADER_CURVED && !strcmp(back.rom_folder, s.rom_folder));
 }
 
+/* Settings > Update (2026-11-15): the start-up check is on and shaders off
+ * until the player says otherwise; the version Our ROMs asked about is kept. */
+static void update_settings_round_trip(void)
+{
+	our_settings s;
+	CHECK(settings_parse("Theme = Comrade\n", &s) == 0 && s.update_check == 1 && s.update_shaders == 0 && !s.update_seen[0]);
+	CHECK(settings_parse("Update check = off\nUpdate shaders = on\nUpdate seen = 1.3.0\n", &s) == 0);
+	CHECK(!s.update_check && s.update_shaders && !strcmp(s.update_seen, "1.3.0"));
+	char text[2048];
+	settings_format_all(text, sizeof(text), &s);
+	our_settings back;
+	CHECK(settings_parse(text, &back) == 0 && !back.update_check && back.update_shaders && !strcmp(back.update_seen, "1.3.0"));
+	s.update_seen[0] = 0; /* none: an empty value is not damage */
+	settings_format_all(text, sizeof(text), &s);
+	CHECK(settings_parse(text, &back) == 0 && !back.update_seen[0]);
+	CHECK(settings_parse("Update check = maybe\n", &s) == SETTINGS_DAMAGED);
+}
+
 /* Smooth (GLideN64's FXAA) was dropped 2026-11-04: an older build's settings.cfg
  * may say it. It reads as Off, the file is not damaged, and is written back as Off. */
 static void an_older_builds_smooth_reads_as_off(void)

@@ -1,0 +1,424 @@
+/* Our64 player: the updater's portable parts (see update.h). */
+#include "update.h"
+
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+#include <zlib.h>
+
+/* ---- versions ---- */
+
+int update_version_cmp(const char *a, const char *b)
+{
+	if (*a == 'v' || *a == 'V')
+		a++;
+	if (*b == 'v' || *b == 'V')
+		b++;
+	for (;;) {
+		char *ea, *eb;
+		const unsigned long na = strtoul(a, &ea, 10), nb = strtoul(b, &eb, 10);
+		if (na != nb)
+			return na < nb ? -1 : 1;
+		const int more_a = ea != a && *ea == '.', more_b = eb != b && *eb == '.';
+		if (!more_a && !more_b)
+			return 0;
+		a = more_a ? ea + 1 : "0";
+		b = more_b ? eb + 1 : "0";
+	}
+}
+
+/* ---- the release's JSON: just enough to walk objects and arrays ---- */
+
+static const char *ws(const char *p)
+{
+	while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+		p++;
+	return p;
+}
+
+/* p at a string's opening quote: past its closing one, or NULL. */
+static const char *skip_string(const char *p)
+{
+	if (*p != '"')
+		return NULL;
+	for (p++; *p && *p != '"'; p++)
+		if (*p == '\\' && p[1])
+			p++;
+	return *p == '"' ? p + 1 : NULL;
+}
+
+/* Past the value at p (after white space), or NULL when the text is not JSON. */
+static const char *skip_value(const char *p, int depth)
+{
+	p = ws(p);
+	if (depth > 32)
+		return NULL;
+	if (*p == '"')
+		return skip_string(p);
+	if (*p == '{' || *p == '[') {
+		const char close = *p == '{' ? '}' : ']';
+		const int object = *p == '{';
+		p = ws(p + 1);
+		if (*p == close)
+			return p + 1;
+		for (;;) {
+			if (object) {
+				p = skip_string(ws(p));
+				if (!p || *(p = ws(p)) != ':')
+					return NULL;
+				p++;
+			}
+			p = skip_value(p, depth + 1);
+			if (!p)
+				return NULL;
+			p = ws(p);
+			if (*p == close)
+				return p + 1;
+			if (*p != ',')
+				return NULL;
+			p++;
+		}
+	}
+	const char *start = p;
+	while (*p && !strchr(",}] \t\r\n", *p))
+		p++;
+	return p > start ? p : NULL;
+}
+
+/* The value of key in the object at p ("{"), or NULL. */
+static const char *member(const char *p, const char *key)
+{
+	p = ws(p);
+	if (*p != '{')
+		return NULL;
+	p = ws(p + 1);
+	const size_t n = strlen(key);
+	while (*p == '"') {
+		const char *end = skip_string(p);
+		if (!end)
+			return NULL;
+		const int found = (size_t)(end - p) == n + 2 && !memcmp(p + 1, key, n);
+		p = ws(end);
+		if (*p != ':')
+			return NULL;
+		p = ws(p + 1);
+		if (found)
+			return p;
+		p = skip_value(p, 0);
+		if (!p)
+			return NULL;
+		p = ws(p);
+		if (*p != ',')
+			return NULL;
+		p = ws(p + 1);
+	}
+	return NULL;
+}
+
+/* The string at p into out, its escapes read (\uXXXX kept only for ASCII). 0 or -1. */
+static int string_value(const char *p, char *out, unsigned size)
+{
+	if (!p || *p != '"')
+		return -1;
+	unsigned n = 0;
+	for (p++; *p && *p != '"'; p++) {
+		char c = *p;
+		if (c == '\\') {
+			c = *++p;
+			if (!c)
+				return -1;
+			if (c == 'n') c = '\n';
+			else if (c == 't') c = '\t';
+			else if (c == 'r') c = '\r';
+			else if (c == 'u') {
+				char hex[5] = "";
+				for (int i = 0; i < 4 && isxdigit((unsigned char)p[1]); i++)
+					hex[i] = *++p;
+				const unsigned long u = strtoul(hex, NULL, 16);
+				c = u < 128 ? (char)u : '?';
+			}
+		}
+		if (n + 1 >= size)
+			return -1; /* too long for a name, a tag or a link of ours */
+		out[n++] = c;
+	}
+	out[n] = 0;
+	return *p == '"' ? 0 : -1;
+}
+
+static void asset_read(const char *obj, update_asset *a)
+{
+	char digest[96] = "";
+	memset(a, 0, sizeof(*a));
+	if (string_value(member(obj, "browser_download_url"), a->url, sizeof(a->url)))
+		a->url[0] = 0;
+	const char *size = member(obj, "size");
+	if (size)
+		a->size = (unsigned)strtoul(size, NULL, 10);
+	if (!string_value(member(obj, "digest"), digest, sizeof(digest)) && !strncmp(digest, "sha256:", 7) &&
+	    strlen(digest + 7) == 64) {
+		for (int i = 0; i < 64; i++)
+			a->sha256[i] = (char)tolower((unsigned char)digest[7 + i]);
+		a->sha256[64] = 0;
+	}
+}
+
+int update_parse_release(const char *json, update_release *out)
+{
+	char tag[64];
+	memset(out, 0, sizeof(*out));
+	if (!skip_value(json, 0) || string_value(member(json, "tag_name"), tag, sizeof(tag)))
+		return -1;
+	const char *v = tag[0] == 'v' || tag[0] == 'V' ? tag + 1 : tag;
+	if (!isdigit((unsigned char)*v))
+		return -1;
+	snprintf(out->version, sizeof(out->version), "%.*s", (int)sizeof(out->version) - 1, v);
+	const char *p = member(json, "assets");
+	if (!p || *p != '[')
+		return 0;
+	p = ws(p + 1);
+	while (*p == '{') {
+		char name[96];
+		if (!string_value(member(p, "name"), name, sizeof(name))) {
+			if (!strcmp(name, UPDATE_APP_NAME))
+				asset_read(p, &out->app);
+			else if (!strcmp(name, UPDATE_INI_NAME))
+				asset_read(p, &out->ini);
+			else if (!strcmp(name, UPDATE_SHADERS_NAME))
+				asset_read(p, &out->shaders);
+		}
+		p = skip_value(p, 0);
+		if (!p)
+			break;
+		p = ws(p);
+		if (*p != ',')
+			break;
+		p = ws(p + 1);
+	}
+	return 0;
+}
+
+/* ---- zip: the central directory, then each file stored or deflated ---- */
+
+static unsigned le16(const unsigned char *p) { return p[0] | p[1] << 8; }
+static unsigned le32(const unsigned char *p) { return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24; }
+
+int update_zip_open(FILE *f, update_zip *z)
+{
+	memset(z, 0, sizeof(*z));
+	if (fseek(f, 0, SEEK_END))
+		return -1;
+	const long size = ftell(f);
+	if (size < 22)
+		return -1;
+	/* the end record is the last 22 bytes, or sits before a comment */
+	unsigned char tail[22 + 1024];
+	const long n = size < (long)sizeof(tail) ? size : (long)sizeof(tail);
+	if (fseek(f, size - n, SEEK_SET) || fread(tail, 1, (size_t)n, f) != (size_t)n)
+		return -1;
+	long at = -1;
+	for (long i = n - 22; i >= 0; i--)
+		if (le32(tail + i) == 0x06054b50) {
+			at = i;
+			break;
+		}
+	if (at < 0)
+		return -1;
+	z->count = le16(tail + at + 10);
+	z->dir_size = le32(tail + at + 12);
+	const unsigned dir_at = le32(tail + at + 16);
+	if (z->dir_size > 4u * 1024 * 1024 || (long)dir_at + (long)z->dir_size > size)
+		return -1;
+	z->dir = malloc(z->dir_size ? z->dir_size : 1);
+	if (!z->dir || fseek(f, (long)dir_at, SEEK_SET) || fread(z->dir, 1, z->dir_size, f) != z->dir_size) {
+		update_zip_close(z);
+		return -1;
+	}
+	return 0;
+}
+
+int update_zip_next(update_zip *z, update_zip_entry *e)
+{
+	if (!z->dir || z->index >= z->count || z->at + 46 > z->dir_size)
+		return 0;
+	const unsigned char *p = z->dir + z->at;
+	if (le32(p) != 0x02014b50)
+		return 0;
+	const unsigned name = le16(p + 28), extra = le16(p + 30), comment = le16(p + 32);
+	if (z->at + 46 + name > z->dir_size)
+		return 0;
+	e->method = le16(p + 10);
+	e->crc = le32(p + 16);
+	e->packed = le32(p + 20);
+	e->size = le32(p + 24);
+	e->offset = le32(p + 42);
+	snprintf(e->name, sizeof(e->name), "%.*s", (int)name, (const char *)p + 46);
+	if (name >= sizeof(e->name))
+		e->name[0] = 0; /* too long to be ours: skipped by its caller */
+	z->at += 46 + name + extra + comment;
+	z->index++;
+	return 1;
+}
+
+void *update_zip_read(FILE *f, const update_zip_entry *e)
+{
+	unsigned char head[30];
+	if ((e->method != 0 && e->method != 8) || e->size > 64u * 1024 * 1024 || e->packed > 64u * 1024 * 1024)
+		return NULL;
+	if (fseek(f, (long)e->offset, SEEK_SET) || fread(head, 1, 30, f) != 30 || le32(head) != 0x04034b50)
+		return NULL;
+	if (fseek(f, (long)(le16(head + 26) + le16(head + 28)), SEEK_CUR))
+		return NULL;
+	unsigned char *out = malloc(e->size ? e->size : 1);
+	if (!out)
+		return NULL;
+	int ok = 0;
+	if (e->method == 0) {
+		ok = e->packed == e->size && fread(out, 1, e->size, f) == e->size;
+	} else {
+		unsigned char *in = malloc(e->packed ? e->packed : 1);
+		if (in && fread(in, 1, e->packed, f) == e->packed) {
+			z_stream s;
+			memset(&s, 0, sizeof(s));
+			if (inflateInit2(&s, -15) == Z_OK) {
+				s.next_in = in;
+				s.avail_in = e->packed;
+				s.next_out = out;
+				s.avail_out = e->size;
+				ok = inflate(&s, Z_FINISH) == Z_STREAM_END && s.total_out == e->size;
+				inflateEnd(&s);
+			}
+		}
+		free(in);
+	}
+	if (ok && (unsigned)crc32(0, out, e->size) != e->crc)
+		ok = 0;
+	if (!ok) {
+		free(out);
+		return NULL;
+	}
+	return out;
+}
+
+void update_zip_close(update_zip *z)
+{
+	free(z->dir);
+	memset(z, 0, sizeof(*z));
+}
+
+/* ---- shader packs: "O64K", a version, the number of pairs, then each pair
+ * as its length and its .bin file's bytes, whose bytes 8-15 are its key
+ * (GLideN64's gx2_ShaderCache.cpp). Words are big-endian. ---- */
+
+static unsigned be32(const unsigned char *p) { return (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
+static void put32(unsigned char *p, unsigned v) { p[0] = v >> 24, p[1] = v >> 16, p[2] = v >> 8, p[3] = v; }
+
+/* The pack's pairs counted, each whole; -1 when it is not a pack. */
+static int pack_pairs(const unsigned char *p, unsigned size)
+{
+	if (!p || size < 12 || memcmp(p, "O64K", 4) || be32(p + 4) != 1)
+		return -1;
+	const unsigned count = be32(p + 8);
+	unsigned pos = 12;
+	for (unsigned i = 0; i < count; i++) {
+		if (pos + 4 > size)
+			return -1;
+		const unsigned n = be32(p + pos);
+		if (n < 16 || n > size - pos - 4)
+			return -1;
+		pos += 4 + n;
+	}
+	return (int)count;
+}
+
+unsigned char *update_pack_merge(const unsigned char *new_pack, unsigned new_size, const unsigned char *old_pack,
+                                 unsigned old_size, unsigned *out_size)
+{
+	const int nn = pack_pairs(new_pack, new_size);
+	if (nn < 0)
+		return NULL;
+	int on = pack_pairs(old_pack, old_size);
+	if (on < 0)
+		on = 0, old_size = 0;
+	unsigned char *out = malloc(new_size + old_size);
+	if (!out)
+		return NULL;
+	/* the new pack's pairs end where the last whole one does */
+	unsigned end = 12;
+	for (int i = 0; i < nn; i++)
+		end += 4 + be32(new_pack + end);
+	memcpy(out, new_pack, end);
+	unsigned count = (unsigned)nn, pos = 12;
+	for (int i = 0; i < on; i++) {
+		const unsigned n = be32(old_pack + pos);
+		const unsigned char *key = old_pack + pos + 4 + 8;
+		int have = 0;
+		unsigned at = 12;
+		for (int k = 0; k < nn && !have; k++) {
+			have = !memcmp(new_pack + at + 4 + 8, key, 8);
+			at += 4 + be32(new_pack + at);
+		}
+		if (!have) {
+			memcpy(out + end, old_pack + pos, 4 + n);
+			end += 4 + n;
+			count++;
+		}
+		pos += 4 + n;
+	}
+	put32(out + 8, count);
+	*out_size = end;
+	return out;
+}
+
+static int key_cmp(const void *a, const void *b)
+{
+	const unsigned long long x = *(const unsigned long long *)a, y = *(const unsigned long long *)b;
+	return x < y ? -1 : x > y;
+}
+
+/* The hex numbers of text's lines onto keys; the count. */
+static unsigned keys_read(const char *text, unsigned long long *keys, unsigned n)
+{
+	while (text && *text) {
+		const size_t len = strcspn(text, "\n");
+		if (*text != '#' && len) {
+			char *end;
+			const unsigned long long k = strtoull(text, &end, 16);
+			if (end != text) {
+				if (keys)
+					keys[n] = k;
+				n++;
+			}
+		}
+		text += len + (text[len] == '\n');
+	}
+	return n;
+}
+
+char *update_keys_merge(const char *new_keys, const char *old_keys, unsigned *out_size)
+{
+	const unsigned total = keys_read(old_keys, NULL, keys_read(new_keys, NULL, 0));
+	unsigned long long *keys = malloc(sizeof(*keys) * (total ? total : 1));
+	const size_t comment = new_keys && *new_keys == '#' ? strcspn(new_keys, "\n") : 0;
+	char *out = malloc(comment + 1 + (size_t)total * 19 + 1);
+	if (!keys || !out) {
+		free(keys);
+		free(out);
+		return NULL;
+	}
+	keys_read(old_keys, keys, keys_read(new_keys, keys, 0));
+	qsort(keys, total, sizeof(*keys), key_cmp);
+	unsigned at = 0;
+	if (comment) {
+		memcpy(out, new_keys, comment);
+		at = (unsigned)comment;
+		out[at++] = '\n';
+	}
+	for (unsigned i = 0; i < total; i++)
+		if (i == 0 || keys[i] != keys[i - 1])
+			at += (unsigned)sprintf(out + at, "0x%016llx\n", keys[i]);
+	out[at] = 0;
+	free(keys);
+	*out_size = at;
+	return out;
+}

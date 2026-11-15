@@ -700,6 +700,57 @@ void shots_setup()
 	shot("settings", v);
 	sv.settings.row = SET_GAMES;
 	shot("settings-games", v);
+	sv.settings.row = SET_UPDATE; // a start-up check found a version: the row says so
+	snprintf(sv.settings.update, sizeof(sv.settings.update), "1.3.0");
+	shot("settings-update-available", v);
+	sv.settings.row = SET_CONTROLLERS;
+	shot("settings-update-available-elsewhere", v);
+	sv.settings.update[0] = 0;
+	sv.screen = SETUP_UPDATE; // Settings > Update
+	upd_open(&sv.update, 0, 1, 0);
+	shot("update", v);
+	sv.update.state = UPS_CHECKING;
+	shot("update-checking", v);
+	upd_found(&sv.update, "", 0, 0, 0);
+	shot("update-current", v);
+	upd_found(&sv.update, "1.3.0", 5035712 + 80000, 1, 12000000);
+	shot("update-available", v);
+	sv.update.row = UPD_SHADERS;
+	shot("update-shaders-off", v);
+	sv.update.shaders = 1;
+	shot("update-shaders-on", v);
+	sv.update.row = UPD_AUTO;
+	shot("update-auto", v);
+	sv.update.row = UPD_ACTION;
+	upd_found(&sv.update, "", 0, 1, 12000000); // the app is the newest, its shaders are not on the card
+	shot("update-shaders-alone", v);
+	snprintf(sv.line, sizeof(sv.line), "Check the console's date and time. OUR-0413");
+	sv.update.state = UPS_UNKNOWN;
+	shot("update-failed", v);
+	snprintf(sv.line, sizeof(sv.line), "Couldn't save to the SD card: check its lock switch or free space. OUR-0206");
+	shot("update-failed-card", v);
+	sv.line[0] = 0;
+	upd_open(&sv.update, 0, 1, 1); // from a paused game: the action is off
+	upd_found(&sv.update, "1.3.0", 5035712, 0, 0);
+	snprintf(sv.game, sizeof(sv.game), "Super Mario 64");
+	shot("update-paused", v);
+	sv.game[0] = 0;
+	upd_open(&sv.update, 1, 1, 0);
+	upd_found(&sv.update, "1.3.0", 5035712, 1, 12000000);
+	sv.update.running = 1;
+	sv.screen = SETUP_UPDATING; // A on Update to 1.3.0: its own screen, like Fetch covers
+	upd_progress(&sv.update, USTEP_APP, 0, 0);
+	shot("updating-connecting", v);
+	upd_progress(&sv.update, USTEP_APP, 3250586, 5035712);
+	shot("updating-app", v);
+	upd_progress(&sv.update, USTEP_SHADERS, 6000000, 12000000);
+	shot("updating-shaders", v);
+	upd_progress(&sv.update, USTEP_UNPACK, 120, 440);
+	shot("updating-unpack", v);
+	upd_progress(&sv.update, USTEP_INSTALL, 0, 0);
+	shot("updating-install", v);
+	sv.update.running = 0;
+	sv.screen = SETUP_SETTINGS;
 	sv.screen = SETUP_PICTURE; // Settings > Picture
 	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
 	shot("picture", v);
