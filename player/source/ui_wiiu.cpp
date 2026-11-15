@@ -748,7 +748,7 @@ void ui_gfx_scan(GX2ColorBuffer * frame)
 extern "C" void ui_show(const ui_view * v) { video_call(show_on_graphics_core, const_cast<ui_view *>(v)); }
 
 namespace {
-struct exit_ask_args { int focus, glyphs; const char * title, * body, * action; };
+struct exit_ask_args { int focus, glyphs; const char * title, * body, * action, * other; };
 void exit_ask_on_graphics_core(void * arg)
 {
 	const exit_ask_args & a = *static_cast<const exit_ask_args *>(arg);
@@ -761,6 +761,7 @@ void exit_ask_on_graphics_core(void * arg)
 	snprintf(v.ask_title, sizeof(v.ask_title), "%s", a.title ? a.title : "");
 	snprintf(v.ask_body, sizeof(v.ask_body), "%s", a.body ? a.body : "");
 	snprintf(v.ask_action, sizeof(v.ask_action), "%s", a.action ? a.action : "");
+	snprintf(v.ask_other, sizeof(v.ask_other), "%s", a.other ? a.other : "");
 	frame(v);
 	if (video_game_started())
 		gx2::restoreState();
@@ -771,7 +772,13 @@ extern "C" void ui_show_exit_ask(int focus, int glyphs) { ui_show_ask(nullptr, n
 
 extern "C" void ui_show_ask(const char * title, const char * body, const char * action, int focus, int glyphs)
 {
-	exit_ask_args a = { focus, glyphs, title, body, action };
+	exit_ask_args a = { focus, glyphs, title, body, action, nullptr };
+	video_call(exit_ask_on_graphics_core, &a);
+}
+
+extern "C" void ui_show_ask3(const char * title, const char * body, const char * other, const char * action, int focus, int glyphs)
+{
+	exit_ask_args a = { focus, glyphs, title, body, action, other };
 	video_call(exit_ask_on_graphics_core, &a);
 }
 

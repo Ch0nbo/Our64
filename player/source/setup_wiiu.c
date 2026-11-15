@@ -1580,6 +1580,18 @@ static int run_notes(void)
 	}
 }
 
+int update_notes(int glyphs)
+{
+	g_from_pause = 0;
+	g_view.glyphs = glyphs;
+	g_view.game[0] = 0;
+	g_view.line[0] = 0;
+	input_take_home();
+	const int home = run_notes();
+	input_withhold();
+	return home;
+}
+
 static int run_update(void)
 {
 	update_ui *u = &g_view.update;

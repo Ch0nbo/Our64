@@ -364,13 +364,11 @@ unsigned update_release_notes(const char *json, char *out, unsigned size, unsign
 						char *e = cell + strlen(cell);
 						while (e > cell && e[-1] == ' ')
 							*--e = 0;
-						if (!*cell)
-							continue;
 						notes_plain(cell);
 						const size_t at = strlen(row);
-						snprintf(row + at, sizeof(row) - at, "%s%s", at ? " | " : "", cell);
+						snprintf(row + at, sizeof(row) - at, "\t%s", cell);
 					}
-					notes_wrap(&o, row, "", "  ");
+					notes_line(&o, row, (unsigned)strlen(row)); /* whole: the page lays its cells out in columns */
 					blank = 0;
 				}
 			} else if ((q[0] == '-' || q[0] == '*') && q[1] == ' ') {

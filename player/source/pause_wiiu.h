@@ -66,6 +66,9 @@ int  settings_take_home(void);
 void update_startup(int check);
 int  update_news(char *version, unsigned size);
 int  update_now(int glyphs, char *line, unsigned size);
+/* That question's Release notes button: the notes' page, then back to the
+ * question. 1: HOME there, and leaving was confirmed, or closing. */
+int  update_notes(int glyphs);
 /* Our ROMs' A on a ROM folder not found: Settings > Games' ROM folder picker on
  * its own. glyphs: the controller's (INPUT_). 1: HOME, and leaving was confirmed. */
 int  settings_pick_rom_folder(int glyphs);

@@ -375,3 +375,45 @@ int player_ask(const char *title, const char *body, const char *action)
 	report_line("UI: %s asked, %s", title ? title : "HOME", r > 0 ? (action ? action : "Exit") : "Cancel");
 	return r > 0;
 }
+
+/* The same with a third button between Cancel and the action (pause.h's
+ * ask3_): 0 Cancel (B, HOME, closing), 1 the other button, 2 the action. */
+int player_ask3(const char *title, const char *body, const char *other, const char *action)
+{
+	input_menu m;
+	input_menu_state(&m);
+	int glyphs = m.last_id >= 0 && m.type[m.last_id] >= 0 ? m.type[m.last_id] : INPUT_GAMEPAD;
+	int focus = 0, r = 0, touching = 0, target = -1;
+	input_take_home();
+	while (r == 0) {
+		ui_show_ask3(title, body, other, action, focus, glyphs);
+		player_menu_wait();
+		input_read();
+		input_menu_state(&m);
+		if (player_closing())
+			return 0;
+		if (input_take_home())
+			r = ask3_event(&focus, PEV_HOME, -1);
+		for (int id = 0; id < INPUT_CONTROLLERS && r == 0; id++) {
+			if (m.type[id] < 0 || !m.pressed[id])
+				continue;
+			glyphs = m.type[id];
+			int ev[8];
+			int n = pause_events(m.type[id], m.pressed[id], ev, 8);
+			for (int k = 0; k < n && r == 0; k++)
+				r = ask3_event(&focus, ev[k], -1);
+		}
+		if (r == 0 && m.touch) {
+			target = ask3_hit(m.touch_x, m.touch_y);
+			if (!touching)
+				r = ask3_event(&focus, PEV_TOUCH_DOWN, target);
+			touching = 1;
+		} else if (r == 0 && touching) {
+			touching = 0;
+			r = ask3_event(&focus, PEV_TOUCH_UP, target);
+		}
+	}
+	input_withhold(); /* the answering press does nothing on the screen below */
+	report_line("UI: %s asked, %s", title, r == 2 ? action : r == 1 ? other : "Cancel");
+	return r > 0 ? r : 0;
+}

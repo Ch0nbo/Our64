@@ -650,6 +650,16 @@ void shots_roms()
 		v.exit_ask = 1;
 		v.exit_glyphs = INPUT_PRO;
 		shot("roms-exit-ask", v);
+		// a start-up check found a version: three buttons, Cancel focused (Zach, 2026-11-15)
+		snprintf(v.ask_title, sizeof(v.ask_title), "Our64 1.3.0 is available");
+		snprintf(v.ask_body, sizeof(v.ask_body), "Our64 restarts when it is done.");
+		snprintf(v.ask_other, sizeof(v.ask_other), "Release notes");
+		snprintf(v.ask_action, sizeof(v.ask_action), "Update");
+		shot("roms-update-ask", v);
+		v.exit_focus = 1;
+		shot("roms-update-ask-notes", v);
+		v.exit_focus = 0;
+		v.ask_other[0] = 0;
 		// X on a game: the same question box asks before it goes to the trash (Zach, 2026-10-25)
 		snprintf(v.ask_title, sizeof(v.ask_title), "Delete Banjo-Kazooie?");
 		snprintf(v.ask_body, sizeof(v.ask_body), "Its saves and save states stay.");
@@ -757,8 +767,11 @@ void shots_setup()
 			"\xE2\x80\xA2 Resolution: 480p or 720p for that game (#22, #35). See \"720p\"\n  below before you turn it on.\n"
 			"\xE2\x80\xA2 Picture: the game's own Screen mode, Shape, Speed display and\n  Filter. Default follows Settings > Picture.\n"
 			"\xE2\x80\xA2 Cover: pick any PNG on the SD card as the game's cover (#29). A\n  PNG named like the ROM file in sd:/wiiu/our64/art/custom/ works too:\n  My Game.z64 takes My Game.png.\n"
-			"\nThese five held up:\n\nGame | Mistimed frames | TV refreshes skipped | Frames drawn | GPU\n  time a frame (ms) | Delay to the TV (ms)\n"
-			"Super Mario 64 | 2 \xE2\x86\x92 6 | 0 \xE2\x86\x92 0 | same | 2.4 \xE2\x86\x92 8.4 | 28 \xE2\x86\x92 32\n";
+			"\nThese five held up:\n\n\tGame\tMistimed frames\tTV refreshes skipped\tFrames drawn\tGPU time a frame (ms)\tDelay to the TV (ms)\n"
+			"\tSuper Mario 64\t2 \xE2\x86\x92 6\t0 \xE2\x86\x92 0\tsame\t2.4 \xE2\x86\x92 8.4\t28 \xE2\x86\x92 32\n"
+			"\tStar Fox 64\t4 \xE2\x86\x92 6\t0 \xE2\x86\x92 0\tsame\t3.6 \xE2\x86\x92 5.4\t36 \xE2\x86\x92 30\n"
+			"\tStar Wars: Rogue Squadron\t5 \xE2\x86\x92 8\t0 \xE2\x86\x92 2\tsame\t4.4 \xE2\x86\x92 8.5\t33 \xE2\x86\x92 41\n"
+			"\nA small one:\n\n\tGame\tBefore\tAfter\n\tSuper Mario 64\t2\t6\n\tStar Fox 64\t4\t6\n";
 		sv.screen = SETUP_NOTES;
 		notes_open(&sv.notes, "1.3.0", notes);
 		shot("notes", v);

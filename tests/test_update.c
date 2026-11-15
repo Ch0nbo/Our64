@@ -71,7 +71,7 @@ static void notes_become_plain_lines(void)
 	CHECK(!strcmp(out, "New\n\n"
 	                   "Updater. Our64 updates itself: Settings\n> Update.\n\n"
 	                   "\xE2\x80\xA2 One: first item that is long enough\n  to need a second line here\n\xE2\x80\xA2 Two\n\n"
-	                   "Fixed\nGame | Before\nMario | 2\nLast line\n"));
+	                   "Fixed\n\tGame\tBefore\n\tMario\t2\nLast line\n"));
 	for (const char *p = out; *p;) { /* no line over the width */
 		const size_t len = strcspn(p, "\n");
 		CHECK(len <= 40);

@@ -722,6 +722,54 @@ int exit_ask_hit(int x, int y)
 	return -1;
 }
 
+void ask3_button_rect(int button, int r[4])
+{
+	const int w = 224, gap = 16;
+	r[0] = (UI_W - 3 * w - 2 * gap) / 2 + button * (w + gap);
+	r[1] = BUTTON_Y;
+	r[2] = w;
+	r[3] = BUTTON_H;
+}
+
+int ask3_event(int *focus, int event, int target)
+{
+	switch (event) {
+	case PEV_HOME:
+	case PEV_BACK:
+		return -1;
+	case PEV_LEFT:
+		if (*focus > 0)
+			(*focus)--;
+		return 0;
+	case PEV_RIGHT:
+		if (*focus < 2)
+			(*focus)++;
+		return 0;
+	case PEV_OK: return *focus ? *focus : -1;
+	case PEV_TOUCH_DOWN:
+		if (target >= 0)
+			*focus = target;
+		return 0;
+	case PEV_TOUCH_UP:
+		if (target < 0)
+			return 0;
+		*focus = target;
+		return target ? target : -1;
+	}
+	return 0;
+}
+
+int ask3_hit(int x, int y)
+{
+	int r[4];
+	for (int b = 0; b < 3; b++) {
+		ask3_button_rect(b, r);
+		if (inside(x, y, r))
+			return b;
+	}
+	return -1;
+}
+
 int exit_ask_legend(int type, pause_key *keys, int max)
 {
 	if (max < 3)

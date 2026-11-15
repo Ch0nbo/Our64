@@ -708,6 +708,28 @@ static void a_failed_write_says_what_is_safe_and_what_to_do(void)
 	CHECK(strstr(l[1], "9:38 PM") == NULL);
 }
 
+/* Our ROMs' "Our64 1.3.0 is available" has three buttons: Cancel (where it
+ * opens), Release notes, Update (Zach, 2026-11-15). */
+static void the_update_question_has_three_buttons(void)
+{
+	int focus = 0, r[4], last[4];
+	CHECK(ask3_event(&focus, PEV_OK, -1) == -1);          /* A on Cancel */
+	CHECK(ask3_event(&focus, PEV_LEFT, -1) == 0 && focus == 0); /* stops at the ends */
+	CHECK(ask3_event(&focus, PEV_RIGHT, -1) == 0 && focus == 1 && ask3_event(&focus, PEV_OK, -1) == 1);
+	CHECK(ask3_event(&focus, PEV_RIGHT, -1) == 0 && focus == 2 && ask3_event(&focus, PEV_OK, -1) == 2);
+	CHECK(ask3_event(&focus, PEV_RIGHT, -1) == 0 && focus == 2);
+	CHECK(ask3_event(&focus, PEV_BACK, -1) == -1 && ask3_event(&focus, PEV_HOME, -1) == -1);
+	ask3_button_rect(0, r);
+	ask3_button_rect(2, last);
+	CHECK(r[0] >= 47 + 16 && last[0] + last[2] <= 854 - 47 - 16); /* inside the dialog */
+	CHECK(ask3_hit(r[0] + 5, r[1] + 5) == 0 && ask3_hit(last[0] + 5, last[1] + 5) == 2 && ask3_hit(5, 5) == -1);
+	ask3_button_rect(1, r);
+	CHECK(r[0] > 0 && r[0] + r[2] < last[0]);             /* the buttons do not touch */
+	focus = 0;
+	CHECK(ask3_event(&focus, PEV_TOUCH_DOWN, 1) == 0 && focus == 1 && ask3_event(&focus, PEV_TOUCH_UP, 1) == 1);
+	CHECK(ask3_event(&focus, PEV_TOUCH_UP, 0) == -1 && ask3_event(&focus, PEV_TOUCH_UP, -1) == 0);
+}
+
 #define RUN(fn) do { g_run++; int before = g_failed; fn(); if (g_failed == before) printf("  ok   %s\n", #fn); } while (0)
 
 /* Zach, 2026-10-19: HOME asks before the Wii U Menu on every screen. */
@@ -773,6 +795,7 @@ int main(void)
 	RUN(with_auto_resume_off_only_in_game_saves_are_named);
 	RUN(a_failed_write_says_what_is_safe_and_what_to_do);
 	RUN(home_outside_a_game_asks_with_cancel_first);
+	RUN(the_update_question_has_three_buttons);
 	printf("%d of %d failed\n", g_failed, g_run);
 	return g_failed != 0;
 }

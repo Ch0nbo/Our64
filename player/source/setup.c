@@ -814,6 +814,33 @@ int notes_line(const notes_ui *n, int i, const char **start, int *len)
 	return 1;
 }
 
+int notes_table(const notes_ui *n, int i, const char **first, int *rows)
+{
+	const char *start;
+	int len;
+	if (!notes_line(n, i, &start, &len) || *start != '\t')
+		return 0;
+	/* back to the table's first row: the line before it does not start with a tab */
+	const char *p = start;
+	while (p > n->text) {
+		const char *prev = p - 1; /* the newline ending the line before */
+		while (prev > n->text && prev[-1] != '\n')
+			prev--;
+		if (*prev != '\t')
+			break;
+		p = prev;
+	}
+	*first = p;
+	*rows = 0;
+	while (*p == '\t') {
+		(*rows)++;
+		p += strcspn(p, "\n");
+		if (*p == '\n')
+			p++;
+	}
+	return 1;
+}
+
 int notes_more(const notes_ui *n, int below) { return below ? n->top + NOTES_SHOWN < n->lines : n->top > 0; }
 
 int notes_legend(const notes_ui *n, int type, pause_key *keys, int max)

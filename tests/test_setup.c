@@ -236,6 +236,17 @@ static void release_notes_scroll_between_their_ends(void)
 	notes_event(&n, PEV_LEFT, -1);
 	CHECK(n.top == 25 - NOTES_SHOWN - (NOTES_SHOWN - 1));
 	CHECK(notes_event(&n, PEV_BACK, -1) == NACT_BACK && notes_event(&n, PEV_HOME, -1) == NACT_HOME);
+	/* a table's rows start with a tab: each knows where its table starts and how long it is */
+	notes_open(&n, "1.3.0", "words\n\tGame\tBefore\n\tMario\t2\n\tFox\t4\nmore\n\tOther\ttable\n");
+	const char *first;
+	int rows;
+	CHECK(!notes_table(&n, 0, &first, &rows) && !notes_table(&n, 4, &first, &rows));
+	CHECK(notes_table(&n, 1, &first, &rows) && rows == 3 && !strncmp(first, "\tGame", 5));
+	const char *again;
+	CHECK(notes_table(&n, 3, &again, &rows) && rows == 3 && again == first); /* the same table from its last row */
+	CHECK(notes_table(&n, 5, &again, &rows) && rows == 1 && !strncmp(again, "\tOther", 6));
+	notes_open(&n, "1.3.0", "\tA\tB\n\tC\tD\n"); /* a table at the very start */
+	CHECK(notes_table(&n, 1, &first, &rows) && rows == 2 && first == n.text);
 	notes_open(&n, "1.3.0", "short\n\nnotes"); /* fewer lines than the page: nothing scrolls */
 	notes_event(&n, PEV_DOWN, -1);
 	CHECK(n.lines == 3 && n.top == 0 && notes_line(&n, 1, &s, &len) && len == 0 && notes_line(&n, 2, &s, &len) && len == 5);

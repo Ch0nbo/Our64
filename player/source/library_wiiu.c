@@ -894,13 +894,23 @@ int library_run(int *game, const char *notice)
 		if (update_news(newer, sizeof(newer))) {
 			char title[64];
 			upd_offer_title(newer, title, sizeof(title));
-			if (player_ask(title, "Our64 restarts when it is done.", "Update")) {
-				if (update_now(v->glyphs, v->notice, sizeof(v->notice))) {
-					result = LIB_WIIU;
-					break;
+			for (;;) { /* Release notes comes back to the question (Zach, 2026-11-15) */
+				const int answer = player_ask3(title, "Our64 restarts when it is done.", "Release notes", "Update");
+				if (answer == 1) {
+					if (update_notes(v->glyphs)) {
+						result = LIB_WIIU;
+						break;
+					}
+					show(); /* Our ROMs again under the question */
+					continue;
 				}
-				input_take_home();
+				if (answer == 2 && update_now(v->glyphs, v->notice, sizeof(v->notice)))
+					result = LIB_WIIU;
+				break;
 			}
+			if (result >= 0)
+				break;
+			input_take_home();
 			continue;
 		}
 		int pressed_any = 0, dir = 0, repeat = 0, side = 0, ok = 0, plus = 0, star = 0, del = 0, up = 0, down = 0, back = 0;

@@ -135,6 +135,13 @@ int pause_legend(const pause_ui *p, int type, pause_key *keys, int max);
 int exit_ask_event(int *focus, int event, int target);
 int exit_ask_hit(int x, int y);
 int exit_ask_legend(int type, pause_key *keys, int max);
+/* A question with three buttons (Our ROMs' "Our64 1.3.0 is available":
+ * Cancel, Release notes, Update): focus 0 Cancel (where it opens), 1 the
+ * other button, 2 the action. ask3_event returns -1 for Cancel (B and HOME
+ * too), 1 or 2 for the button chosen, 0 for nothing yet. */
+void ask3_button_rect(int button, int r[4]);
+int  ask3_event(int *focus, int event, int target);
+int  ask3_hit(int x, int y);
 
 /* The autosave line: in the pause header when all is well (one line), or
  * what failed and what is safe, in red under the items. */

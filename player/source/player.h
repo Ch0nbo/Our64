@@ -142,6 +142,7 @@ void input_set_players(const int *ids, int n); /* only these, in order; the rest
 void player_relaunch(void);     /* main.c: an update is in place: as Our64 closes, the new app starts instead of the Wii U Menu */
 int  player_ask_exit(void);      /* pause_wiiu.c: HOME outside a game asks "Exit to the Wii U Menu?"; 1 to leave */
 int  player_ask(const char *title, const char *body, const char *action); /* pause_wiiu.c: another question there; 1 for action */
+int  player_ask3(const char *title, const char *body, const char *other, const char *action); /* pause_wiiu.c: with a third button; 0 Cancel, 1 other, 2 action */
 void input_set_notices(int on); /* player notices (joined, gone, back) only while a game runs */
 void input_game_start(void);     /* a game starting: controllers that are gone leave their ports; each port with one is present */
 void player_set_paks(const int *pak); /* plugins.c: PAK_ (gamedb.h) for ports 1-4 */

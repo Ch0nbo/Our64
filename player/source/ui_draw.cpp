@@ -4,7 +4,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include "ui_draw.h"
 #include "theme.h"
@@ -2040,9 +2042,86 @@ void draw_update(const setup_view & sv)
 	draw_keys(keys, n, nullptr);
 }
 
+// A table of the notes: its columns, from the widest cell of each over every
+// row, at the largest text size at which they fit the page. Worked out once
+// a table (the rows do not change while the page is open).
+struct notes_columns {
+	const char * first = nullptr; // the table it is for
+	int px = 0, count = 0;
+	int x[8] = {}, w[8] = {};
+};
+notes_columns g_notes_columns;
+
+std::vector<std::string> notes_cells(const char * row)
+{
+	std::vector<std::string> cells;
+	while (*row == '\t') {
+		const char * end = row + 1;
+		while (*end && *end != '\t' && *end != '\n')
+			end++;
+		cells.emplace_back(row + 1, size_t(end - row - 1));
+		row = end;
+	}
+	return cells;
+}
+
+const notes_columns & notes_layout(const char * first, int rows, int room)
+{
+	notes_columns & c = g_notes_columns;
+	if (c.first == first)
+		return c;
+	c = notes_columns();
+	c.first = first;
+	const int gap = 22;
+	for (int px = 19; px >= 12; px--) {
+		int w[8] = {}, body[8] = {}, count = 0; // body: without the first row, the headings
+		const char * row = first;
+		for (int r = 0; r < rows; r++) {
+			const std::vector<std::string> cells = notes_cells(row);
+			for (size_t k = 0; k < cells.size() && k < 8; k++) {
+				const int cw = int(text_width(cells[k].c_str(), px));
+				w[k] = std::max(w[k], cw);
+				if (r > 0)
+					body[k] = std::max(body[k], cw);
+				count = std::max(count, int(k) + 1);
+			}
+			row += strcspn(row, "\n");
+			row += *row == '\n';
+		}
+		int total = gap * (count - 1), spare = 0; // spare: what the headings add over the cells under them
+		for (int k = 0; k < count; k++) {
+			total += w[k];
+			spare += w[k] - body[k];
+		}
+		if (total <= room || px == 12) {
+			// Still too wide at the smallest size: the headings are cut first, each
+			// by its share of what is over; only then the cells under them.
+			int over = total > room ? total - room : 0;
+			const int from_headings = std::min(over, spare);
+			for (int k = 0; k < count && spare > 0; k++)
+				w[k] -= (w[k] - body[k]) * from_headings / spare;
+			over -= from_headings;
+			int left = 0;
+			for (int k = 0; k < count; k++)
+				left += w[k];
+			c.px = px;
+			c.count = count;
+			int x = 0;
+			for (int k = 0; k < count; k++) {
+				c.w[k] = over > 0 && left > 0 ? w[k] - w[k] * over / left : w[k];
+				c.x[k] = x;
+				x += c.w[k] + gap;
+			}
+			break;
+		}
+	}
+	return c;
+}
+
 // Settings > Update > Release notes: the newest release's notes as lines
 // (already cut to the page's width), ten at a time, with arrows in the margin
-// when lines are out of view, as the folder list has.
+// when lines are out of view, as the folder list has. A table's rows are
+// drawn in columns, its first row (the headings) in the muted ink.
 void draw_notes(const setup_view & sv)
 {
 	const notes_ui & nt = sv.notes;
@@ -2057,6 +2136,16 @@ void draw_notes(const setup_view & sv)
 			break;
 		if (len == 0)
 			continue;
+		const char * first;
+		int rows;
+		if (notes_table(&nt, i, &first, &rows)) {
+			const notes_columns & c = notes_layout(first, rows, room);
+			const std::vector<std::string> cells = notes_cells(start);
+			const PixelColor ink = start == first ? rgb(T.screen.muted) : rgb(T.screen.ink);
+			for (size_t k = 0; k < cells.size() && int(k) < c.count; k++)
+				text(x + c.x[k], y0 + i * step + (px - c.px) / 2, clipped(cells[k].c_str(), c.px, c.w[k]).c_str(), c.px, ink);
+			continue;
+		}
 		const std::string line(start, size_t(len));
 		text(x, y0 + i * step, line.c_str(), fit(line.c_str(), px, 14, room), rgb(T.screen.ink));
 	}
@@ -2349,7 +2438,23 @@ void draw_exit_ask(const ui_view & v)
 	pause_button_rect(0, button);
 	const char * body[1] = { v.ask_title[0] ? v.ask_body : theme_comrade() ? "Goodbye, Comrade." : "Goodbye." };
 	dialog_body(body, 1, DIALOG_SHORT + 64, button[1] - 14, rgb(T.screen.ink));
-	dialog_buttons(v.exit_focus, false, v.ask_title[0] ? v.ask_action : "Exit");
+	if (v.ask_title[0] && v.ask_other[0]) { // three buttons: Cancel, the other one, the action
+		const char * labels[3] = { "Cancel", v.ask_other, v.ask_action };
+		for (int b = 0; b < 3; b++) {
+			int r[4];
+			ask3_button_rect(b, r);
+			if (v.exit_focus == b) {
+				box(r[0] - 6, r[1] - 6, r[2] + 12, r[3] + 12, rgb(T.panel.fill), 14, 0, rgb(T.panel.fill), 12);
+				box(r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2, rgb(T.select.fill), 9);
+			} else {
+				box(r[0], r[1], r[2], r[3], rgb(T.bar.fill), 10);
+			}
+			text(r[0] + r[2] / 2, r[1] + 15, labels[b], fit(labels[b], 28, 18, r[2] - 24), card_ink(v.exit_focus == b, false),
+			     GUI_TEXT_JUSTIFY_CENTER);
+		}
+	} else {
+		dialog_buttons(v.exit_focus, false, v.ask_title[0] ? v.ask_action : "Exit");
+	}
 	pause_key keys[4];
 	draw_keys(keys, exit_ask_legend(v.exit_glyphs, keys, 4), "");
 }

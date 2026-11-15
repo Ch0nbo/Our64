@@ -185,6 +185,11 @@ void notes_open(notes_ui *n, const char *version, const char *text);
 int  notes_event(notes_ui *n, int event, int target);
 /* The i-th line in view: where it starts and its length; 0 past the end. */
 int  notes_line(const notes_ui *n, int i, const char **start, int *len);
+/* A line that starts with a tab is a table's row, a tab before each cell.
+ * For the i-th line in view: where its table starts and how many rows it
+ * has, so the page can give every row the same columns; 0 when the line is
+ * no row. */
+int  notes_table(const notes_ui *n, int i, const char **first, int *rows);
 int  notes_more(const notes_ui *n, int below);      /* lines out of view above (0) or below (1) */
 int  notes_legend(const notes_ui *n, int type, pause_key *keys, int max);
 

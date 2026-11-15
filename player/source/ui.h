@@ -155,6 +155,7 @@ typedef struct {
 	int exit_focus;    /* 0 Cancel, 1 Exit */
 	int exit_glyphs;   /* INPUT_ type for its legend */
 	char ask_title[96], ask_body[160], ask_action[24]; /* another question in its place ("Delete ...?"); empty: Exit */
+	char ask_other[24];  /* that question has a third button between Cancel and the action ("Release notes"); empty: two */
 	/* UI_CLOSING */
 	int nothing_to_save; /* the pause menu already wrote everything: CLOSING..., not SAVING... */
 } ui_view;
@@ -162,6 +163,7 @@ typedef struct {
 void ui_show(const ui_view *v); /* one frame on every active screen */
 void ui_show_exit_ask(int focus, int glyphs); /* the last screen again, with the Exit question over it */
 void ui_show_ask(const char *title, const char *body, const char *action, int focus, int glyphs); /* another question there */
+void ui_show_ask3(const char *title, const char *body, const char *other, const char *action, int focus, int glyphs); /* with a third button (pause.h's ask3_) */
 void ui_redraw(void);           /* the last view again */
 void ui_resume(void);           /* the game runs again: its frames show, and the next freeze takes a new one */
 /* From the prompt's choice on: which screens light up and play sound. Before
