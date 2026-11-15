@@ -247,15 +247,15 @@ void FrameBuffer::copyRdram()
 	}
 	// m_RdramCopy's resize does not zero the buffer (that zeroing was 11% of
 	// decoder time on the Wii U, 2026-10-13); the copy is the only write.
-	// Our64: a buffer bigger than 320x240 at 32 bits keeps one word in 32 (one
-	// per 128 bytes) for isValid's check, which allows 1% of words changed
-	// either way: the whole copy was 7-18% of the graphics core in Mario Tennis
-	// (640x480 color and depth buffers, 2026-10-21). Smaller ones keep every
-	// word: sampled, Dr. Mario 64's 320x240 buffer failed the check at each pill
-	// throw and drew black (its fixed columns of samples land on the bottle;
-	// GitHub issue 46, 2026-11-15).
+	// Our64: in Mario Tennis a buffer of 16 KB or more keeps one word in 32
+	// (one per 128 bytes) for isValid's check, which allows 1% of words changed
+	// either way: the whole copy was 7-18% of the graphics core there (2026-10-21).
+	// Every other game keeps every word, as upstream does: sampled, Dr. Mario
+	// 64's 320x240 buffer failed the check at each pill throw and drew black
+	// (GitHub issue 46, 2026-11-15). A size limit could not split them: Mario
+	// Tennis's match buffers (384 wide, 43008 words) are about Dr. Mario's size.
 	const u32 dwords = dataSize >> 2;
-	m_rdramStride = dwords > 76800 ? 32 : 1;
+	m_rdramStride = (config.generalEmulation.hacks & hack_sampledRdramCopy) != 0 && dwords >= 4096 ? 32 : 1;
 	if (m_rdramStride == 1) {
 		m_RdramCopy.resize(dataSize);
 		copyBytes(m_RdramCopy.data(), RDRAM + m_startAddress, dataSize);
