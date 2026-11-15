@@ -120,7 +120,7 @@ static void update_page_shaders_ask_first_and_grey_without_new_ones(void)
 	CHECK(!upd_row_off(&u, UPD_SHADERS) && !strcmp(t, "Off"));
 	CHECK(upd_event(&u, PEV_OK, -1) == UACT_SHADERS && !u.shaders); /* the caller asks; still off */
 	upd_shaders_warning(&u, t, sizeof(t));
-	CHECK(!strcmp(t, "About 4 minutes more."));
+	CHECK(!strcmp(t, "About 4 to 11 minutes more.")); /* 12 MB: 600 files */
 	upd_shaders_on(&u);
 	upd_value(&u, UPD_SHADERS, t, sizeof(t));
 	CHECK(u.shaders && !strcmp(t, "On"));

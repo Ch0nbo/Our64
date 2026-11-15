@@ -153,8 +153,9 @@ void upd_open(update_ui *u, int auto_check, int paused);
 void upd_found(update_ui *u, const char *latest, unsigned app_bytes, int shaders_new, unsigned shaders_bytes, int notes);
 int  upd_event(update_ui *u, int event, int target);
 void upd_shaders_on(update_ui *u);                  /* the player said yes to the warning */
-/* That warning's body: "About 4 minutes more." (the download and the card's
- * writes, from the shaders' size). */
+/* That warning's body: "About 3 to 10 minutes more." (the download and the
+ * card's work, from the shaders' size: the least when the card has them
+ * all, the most when it has none). */
 void upd_shaders_warning(const update_ui *u, char *out, unsigned size);
 void upd_progress(update_ui *u, int step, unsigned done, unsigned total);
 int  upd_row_off(const update_ui *u, int row);      /* greyed: shown, A does nothing */

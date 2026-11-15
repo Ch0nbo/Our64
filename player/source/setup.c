@@ -522,21 +522,32 @@ void upd_shaders_on(update_ui *u)
 		u->shaders = 1;
 }
 
-/* About how long the shaders add, in minutes: the download at the speed the
- * console showed (about 1.5 MB a second), then the card, by far the most of
- * it: a release holds about one file per 27 KB of zip, and a file that has
- * to be written takes the card around half a second. */
-static unsigned upd_shaders_minutes(unsigned bytes)
+/* About how long the shaders add, in minutes, from the least to the most:
+ * the download (about 1.5 MB a second on the console), then the card, by
+ * far the most of it. A release's zip holds about one file per 20 KB. Each
+ * costs the card 0.3 s to look at, and 0.7 s more when it has to be written:
+ * 439 files already there and 20 new ones took 139 s on the console
+ * (2026-11-15). The least is a card that has them all, the most one that
+ * has none. */
+static void upd_shaders_minutes(unsigned bytes, unsigned *least, unsigned *most)
 {
-	const unsigned seconds = bytes / (1500 * 1024) + bytes / 27000 / 2;
-	const unsigned minutes = (seconds + 59) / 60;
-	return minutes ? minutes : 1;
+	const unsigned download = bytes / (1500 * 1024), files = bytes / 20000;
+	*least = (download + files * 3 / 10 + 59) / 60;
+	*most = (download + files + 59) / 60;
+	if (!*least)
+		*least = 1;
+	if (*most < *least)
+		*most = *least;
 }
 
 void upd_shaders_warning(const update_ui *u, char *out, unsigned size)
 {
-	const unsigned m = upd_shaders_minutes(u->shaders_bytes);
-	snprintf(out, size, "About %u minute%s more.", m, m == 1 ? "" : "s");
+	unsigned least, most;
+	upd_shaders_minutes(u->shaders_bytes, &least, &most);
+	if (least == most)
+		snprintf(out, size, "About %u minute%s more.", most, most == 1 ? "" : "s");
+	else
+		snprintf(out, size, "About %u to %u minutes more.", least, most);
 }
 
 void upd_progress(update_ui *u, int step, unsigned done, unsigned total)
