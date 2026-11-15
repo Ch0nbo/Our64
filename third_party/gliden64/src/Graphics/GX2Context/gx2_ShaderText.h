@@ -307,9 +307,6 @@ inline bool keepDiscardsInPlace(const char * _romName)
 // screen were covered in orange and red speckles; "hplow" matches the PC
 // (console GX2 replay, 12 frames, 2026-11-08). "SMASH BROTHERS" is every
 // region's header name.
-// Fighting Force 64: the car park floor looked like the speckles above on the
-// console (Zach, 2026-11-15, GitHub issue 42); the PC is clean. Unconfirmed
-// on the console until it is tested with this on.
 inline bool allHighp(const char * _romName)
 {
 	return _romName != nullptr && (strstr(_romName, "Battle for Naboo") != nullptr ||
@@ -317,8 +314,7 @@ inline bool allHighp(const char * _romName)
 		strstr(_romName, "NASCAR 2000") != nullptr || strstr(_romName, "CASTLEVANIA") != nullptr ||
 		strstr(_romName, "DRACULA MOKUSHIROKU") != nullptr || // the Castlevanias in Japan
 		strstr(_romName, "Kirby64") != nullptr || strstr(_romName, "Lode Runner 3D") != nullptr ||
-		strstr(_romName, "CONKER BFD") != nullptr || strstr(_romName, "SMASH BROTHERS") != nullptr ||
-		strstr(_romName, "Fighting Force") != nullptr);
+		strstr(_romName, "CONKER BFD") != nullptr || strstr(_romName, "SMASH BROTHERS") != nullptr);
 }
 
 inline std::string highpEverywhere(std::string _ps)
