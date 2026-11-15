@@ -40,9 +40,15 @@ Used as they are:
 
 - ROMs can be on a USB drive, but Our64 never writes to an external USB. Saves, save states and covers always stay on the SD card.
 - Drives formatted for the Wii U can't hold ROMs.
-- With ISFShax and stroopwafel's `5usbpart.ipx` plugin, Our64 can't see the drive's FAT32 partition, because
-  the plugin shows homebrew only the Wii U partition. Use the plugin's SD build, `5upartsd.ipx`, instead: it
-  makes that partition the SD card, and Our64 reads it as the SD card.
+
+### ISFShax and stroopwafel: one drive split into FAT32 + Wii U partitions
+
+Not supported with `5usbpart.ipx`. That plugin shows homebrew only the drive's Wii U partition, so Our64 can't
+reach the FAT32 partition and says "USB drive 1: no FAT32 or exFAT partition".
+
+Use the plugin's SD build, `5upartsd.ipx`, instead. It makes the FAT32 partition the SD card, and Our64 reads it
+as the SD card. Stroopwafel then has to be installed to the SLC, not the SD card (see the
+[Wafel guide](https://wafel.xyz/guide/WafelInstaller.html)).
 
 ## Playing
 
