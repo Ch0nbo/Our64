@@ -807,9 +807,15 @@ void shots_setup()
 	sv.picture.row = PIC_SHADER;
 	sv.picture.pick[PIC_SHADER] = SHADER_SCANLINES; // greyed: TV only
 	shot("picture-shader-gamepad-only", v);
+	picture_open(&sv.picture, MODE_BOTH, PICTURE_43, SHADER_OFF, 0, 1);
+	sv.picture_own = 1; // from a game with picture settings of its own: the warning, over what A did
+	snprintf(sv.line, sizeof(sv.line), "Shape: 4:3");
+	shot("picture-own", v);
+	sv.picture_own = 0;
+	sv.line[0] = 0;
 	{ // Game options (X on a game, or the pause menu) and its pages of choices
 		static const char * const res[2] = { "480p", "720p" };
-		static const char * const cover[2] = { "Fetched cover", "Choose an image" };
+		static const char * const cover[3] = { "Fetched cover", "Choose an image", "Original game's cover" };
 		snprintf(sv.game, sizeof(sv.game), "Super Mario 64");
 		sv.screen = SETUP_OPTIONS;
 		options_open(&sv.options, 480, 0, COVER_FETCHED, 1, 0, 0);
@@ -852,7 +858,7 @@ void shots_setup()
 		choice_open(&sv.choice, "RESOLUTION", "720p is sharper on a TV. Many games slow down with it", res, 2, 0);
 		sv.choice.row = 1;
 		shot("options-resolution", v);
-		choice_open(&sv.choice, "COVER", "A PNG image from the SD card or a USB drive", cover, 2, 0);
+		choice_open(&sv.choice, "COVER", "A PNG image from the SD card or a USB drive", cover, 3, 0);
 		shot("options-cover", v);
 		{ // Game options > Fixes: Auto, then the games A to Z, a list that scrolls
 			static const char * names[CHOICES_MAX];

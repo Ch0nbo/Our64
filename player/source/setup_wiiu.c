@@ -365,9 +365,16 @@ static void apply_mode(int mode)
 	ui_set_mode(mode);
 }
 
+static int picture_set_any(const char *file);
+
+/* Settings > Picture. Opened from a game with picture settings of its own
+ * (Game options > Picture), the line under the header warns that the game
+ * keeps them, whatever is changed here (Zach, 2026-11-15: the defaults were
+ * changed for it without a word). */
 static int run_picture(void)
 {
 	picture_ui *p = &g_view.picture;
+	g_view.picture_own = g_from_pause && picture_set_any(player_rom_file());
 	frame_input f;
 	memset(&f, 0, sizeof(f));
 	input_menu_state(&f.m);

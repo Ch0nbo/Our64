@@ -111,6 +111,7 @@ typedef struct {
 	mapping_ui mapping;
 	char line[400];          /* what the last action did ("ROM folder: " and a full path) */
 	char game[64];           /* a paused game, "" from Our ROMs */
+	int picture_own;         /* Settings > Picture opened from a game with picture settings of its own (2026-11-15) */
 	int glyphs;
 	int deleting_done, deleting_total; /* SETUP_DELETING: Auto-Resume turned off, game folders done of all */
 } setup_view;
