@@ -1629,8 +1629,12 @@ void draw_picture(const setup_view & sv)
 {
 	const picture_ui & p = sv.picture;
 	setup_header("PICTURE", sv.picture_own ? nullptr : sv.line[0] ? sv.line : nullptr);
-	if (sv.picture_own) // the game keeps its own: said in the warning color, in place of what A did
-		text(header_x(), 92, "WARNING: This game has its own active settings", 22, rgb(T.screen.accent));
+	if (sv.picture_own) { // the game keeps its own: a badge in the warning color, in place of what A did
+		const char * warn = "WARNING: This game has its own active settings";
+		const float w = text_width(warn, 19) + 24;
+		box(header_x() - 12, 92, w, 28, rgb(T.warn.fill), 8);
+		text(header_x(), 95, warn, 19, rgb(T.warn.ink));
+	}
 	int in_use[PIC_ROWS];
 	bool page[PIC_ROWS] = {};
 	for (int row = 0; row < PIC_ROWS; row++)

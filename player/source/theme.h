@@ -26,6 +26,7 @@ typedef struct {
 	our_surface dim;     /* a cover still on its way from the SD card */
 	our_surface panel;   /* light panels and frames */
 	our_surface fail;    /* what failed */
+	our_surface warn;    /* a warning badge (Settings > Picture over a game's own, 2026-11-15) */
 	our_rgb lit;         /* lit screens, progress, the badge */
 	/* grad: the screen, bar and selection fade top to bottom to their _to
 	 * color; glow: raised things glow in glow_color instead of a shadow. */
