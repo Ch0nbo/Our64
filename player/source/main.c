@@ -1175,6 +1175,24 @@ static void heartbeat(void)
 		audio_backtrace(where, sizeof(where));
 		report_line("  %s", where);
 	}
+	/* A slow second's lines go to the card at once: the log is saved every
+	 * 10 s by the SD writer, and a game that stuttered to a stop left nothing
+	 * of its last seconds, nor a watchdog line in the 2 minutes after (Harvest
+	 * Moon 64, 2026-11-14). Saved before the heap is read (mallinfo takes
+	 * malloc's lock, which a stuck thread may hold) and again after. */
+	static unsigned slow_saves;
+	if (!g_paused && dv < 40 && slow_saves < 300) {
+		slow_saves++;
+		char state[256];
+		player_core_state(state, sizeof(state));
+		report_line("  SLOW: graphics core passed %s:%d last (command type %u); %s", (const char *)our64_at_file,
+		            our64_at_line, cmd, state);
+		report_save();
+		struct mallinfo mi = mallinfo();
+		report_line("  SLOW: heap %u KB in use of %u KB taken from the system, %u KB free in it",
+		            (unsigned)(mi.uordblks / 1024), (unsigned)(mi.arena / 1024), (unsigned)(mi.fordblks / 1024));
+		report_save();
+	}
 }
 #endif
 
