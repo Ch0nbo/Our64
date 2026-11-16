@@ -1284,6 +1284,19 @@ static int watchdog(int argc, const char **argv)
 				our64_dl_state(dl, sizeof(dl));
 				report_line("  %s", dl);
 				report_save();
+#ifndef OUR64_RELEASE
+				/* once a run: the memory the stuck list is read from (8 MB) */
+				static int dl_dumped;
+				if (!dl_dumped) {
+					dl_dumped = 1;
+					extern int our64_dl_dump(const char *path); /* GLideN64 RSP.cpp */
+					const OSTime t0 = OSGetSystemTime();
+					const int r = our64_dl_dump("/vol/external01/wiiu/our64/dl-dump.bin");
+					report_line("  memory written to sd:/wiiu/our64/dl-dump.bin: %d in %u ms", r,
+					            (unsigned)OSTicksToMilliseconds(OSGetSystemTime() - t0));
+					report_save();
+				}
+#endif
 			}
 			if (busy < 15) { /* then its stack, once: stopping it can hang this thread too */
 				report_line("  reading the graphics core's stack next (no more lines: that read hung)");

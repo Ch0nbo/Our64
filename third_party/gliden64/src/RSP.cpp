@@ -59,6 +59,26 @@ extern "C" void our64_dl_state(char * _out, unsigned _size)
 		         (unsigned)RSP.w0, (unsigned)RSP.w1, (int)RSP.count, (int)RSP.halt, (int)RSP.infloop);
 }
 
+// Our64: the stuck task's memory, for walking its display list on the PC
+// (issue 43). The file: "O64DL1", RDRAM as the game sees it, the segment
+// table, the PC stack and its depth, then DMEM. Returns 0 when written.
+extern "C" int our64_dl_dump(const char * _path)
+{
+	FILE * f = fopen(_path, "wb");
+	if (f == nullptr)
+		return -1;
+	const u32 rdram_bytes = RDRAMSize + 1, pci = RSP.PCi;
+	bool ok = fwrite("O64DL1\0\0", 1, 8, f) == 8 &&
+		fwrite(&rdram_bytes, 4, 1, f) == 1 &&
+		fwrite(RDRAM, 1, rdram_bytes, f) == rdram_bytes &&
+		fwrite(gSP.segment, 4, 16, f) == 16 &&
+		fwrite(RSP.PC, 4, 18, f) == 18 &&
+		fwrite(&pci, 4, 1, f) == 1 &&
+		fwrite(DMEM, 1, 0x1000, f) == 0x1000;
+	ok = fclose(f) == 0 && ok;
+	return ok ? 0 : -2;
+}
+
 static
 void _ProcessDList()
 {
