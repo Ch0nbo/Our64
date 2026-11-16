@@ -552,6 +552,9 @@ static int g_probe_overlap;        /* sd:/wiiu/our64/probe-overlap exists: no wa
 static int g_capture_at_start;     /* sd:/wiiu/our64/capture-at-start exists: a capture as each game starts or resets */
 static int g_tlb_links_switch;     /* sd:/wiiu/our64/tlb-links exists: every game links its TLB code */
 static int g_count_switch;         /* sd:/wiiu/our64/count-per-op holds 1-4: every game's counter factor */
+/* sd:/wiiu/our64/task-test holds up to 8 numbers: each game start takes the next (round robin) as its
+ * graphics task cap in emulated ms, 0 none, -1 the CPU waits for every task (issue 28 test) */
+static int g_task_test[8], g_task_test_n, g_task_test_run;
 static int g_build_shaders;        /* sd:/wiiu/our64/build-shaders exists: build every game's shaders, then stop */
 /* sd:/wiiu/our64/sweep exists: play every game for g_sweep_s seconds with nobody at the controls, then stop */
 static int g_sweep_s;
@@ -681,6 +684,21 @@ static void stats(double t)
 	            (v.cpu_wait_part_us[2] - wait_part[2]) * ms, (v.cpu_wait_part_us[3] - wait_part[3]) * ms,
 	            d[AUDIO_SECTION] * ms, d[COMPILER_SECTION] * ms,
 	            pacing * ms, 1e3 - (posting + d[AUDIO_SECTION] + d[COMPILER_SECTION] + pacing) * ms);
+	{
+		static double task_ms;
+		static uint32_t task_n;
+		double tms, tmax;
+		uint32_t tn;
+		gfx_task_times(&tms, &tmax, &tn);
+		static uint32_t capped;
+		uint32_t cap_now = gfx_tasks_capped();
+		if (tn != task_n)
+			report_line("  graphics tasks in emulated time: %u, %.1f ms each, longest %.1f ms; %.0f of 1000 emulated ms; %u waited for at the cap",
+			            tn - task_n, (tms - task_ms) / (tn - task_n), tmax, (tms - task_ms) / (s * 1e3) * 1e3, cap_now - capped);
+		capped = cap_now;
+		task_ms = tms;
+		task_n = tn;
+	}
 	extern volatile unsigned long long our64_alloc_ticks[3];
 	extern volatile unsigned our64_alloc_calls[3];
 	static unsigned long long alloc_ticks[3];
@@ -1562,6 +1580,13 @@ static void read_test_switches(const char *root)
 			g_sweep_s = 30;
 		fclose(f);
 	}
+	snprintf(path, sizeof(path), "%s/task-test", root);
+	g_task_test_n = 0;
+	if ((f = fopen(path, "r"))) {
+		while (g_task_test_n < 8 && fscanf(f, "%d", &g_task_test[g_task_test_n]) == 1)
+			g_task_test_n++;
+		fclose(f);
+	}
 	snprintf(path, sizeof(path), "%s/count-per-op", root);
 	g_count_switch = 0;
 	if ((f = fopen(path, "r"))) {
@@ -2019,6 +2044,31 @@ static int play_game(int index)
 	 * froze. */
 	if (!strncmp(fixname, "Rayman 2", 8))
 		g_sync_gfx = 1;
+	/* DK64: its graphics tasks took up to 33 ms of emulated time here, waiting
+	 * on the decoder, against 16-23 ms on the N64 (ares, DK Rap); the rap's
+	 * frames went to 3 VIs and it fell behind its music: 20-26 game frames a
+	 * second where ares holds 30 (issue 28). With the CPU waiting for a task
+	 * still in flight at 16 ms it held 30, at 59.9 VIs a second (console,
+	 * 2026-11-15). Every region is "DONKEY KONG 64". */
+	gfx_set_task_cap_ms(!strncmp(fixname, "DONKEY KONG 64", 14) ? 16 : 0);
+	if (g_task_test_n) {
+		int mode = g_task_test[g_task_test_run % g_task_test_n];
+		char l1[48], l2[64];
+		snprintf(l1, sizeof(l1), "Test run %d", g_task_test_run + 1);
+		if (mode < 0)
+			snprintf(l2, sizeof(l2), "CPU waits for every graphics task");
+		else if (mode == 0)
+			snprintf(l2, sizeof(l2), "No graphics task cap");
+		else
+			snprintf(l2, sizeof(l2), "Graphics task cap %d ms", mode);
+		if (mode < 0)
+			g_sync_gfx = 1;
+		else
+			gfx_set_task_cap_ms(mode);
+		g_task_test_run++;
+		ui_notice(UI_KEY_DEV, NOTICE_INFO, 8, l1, l2);
+		report_line("TASK TEST: %s: %s", l1, l2);
+	}
 	/* Known before the first task is decoded: a state saved with signal 0
 	 * set (ZSortBOSS's "carry on") made the first task after a resume look
 	 * like a yield request, and Stunt Racer waited for it forever. */

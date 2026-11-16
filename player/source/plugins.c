@@ -90,6 +90,16 @@ enum { ZSORT_INT_DELAY = 1000 }; /* Count; mupen64plus's SP interrupt after a gr
  * 400000 (2026-10-28). */
 enum { ZSORT_START_MAX = 150000 };
 static unsigned long g_zsort_start; /* Count when the ZSortBOSS task in flight was posted */
+/* Each graphics task's emulated time, posted to its interrupts (the stats line "graphics tasks in emulated
+ * time"): how much longer than the N64's RSP and RDP a task takes here (issue 28, DK64). */
+static unsigned long g_task_post[VIDEO_RESULTS];
+static double g_task_counts;
+static unsigned long g_task_counts_max;
+static uint32_t g_task_counts_n;
+/* Emulated ms; 0 off. A graphics task in flight this long makes the CPU wait for the decoder, so its
+ * interrupts come no later than an N64's would (gfx_set_task_cap_ms). */
+static double g_task_cap_ms;
+static uint32_t g_task_capped; /* tasks the CPU waited for at the cap */
 
 static unsigned gfx_poll_delay(void)
 {
@@ -139,6 +149,15 @@ static int gfx_finish_done(void)
 		}
 		/* What the HLE plugin does after a graphics task: halt, broke, task done. */
 		sp_register.sp_status_reg = (sp_register.sp_status_reg & ~clear) | set | 0x203;
+		{
+			unsigned long c = (unsigned long)(reg_cop0[9] - g_task_post[g_gfx_finished % VIDEO_RESULTS]);
+			if (c > 60ul * vi_register.vi_delay) /* posted before a reset or a load: Count started again */
+				c = 0;
+			g_task_counts += c;
+			if (c > g_task_counts_max)
+				g_task_counts_max = c;
+			g_task_counts_n++;
+		}
 		if (sp_register.sp_status_reg & 0x40) {
 			MI_register.mi_intr_reg |= 0x01;
 			raised = 1;
@@ -211,6 +230,17 @@ int gfx_int_event(void)
 			raised |= gfx_finish_done();
 		}
 	}
+	/* A task in flight past the game's cap by the next poll: the CPU waits for it now. */
+	if (g_task_cap_ms > 0 && !g_gfx_event && g_gfx_finished != g_gfx_tasks && g_gfx_yield != GFX_YIELDED &&
+	    !video_signal_ucode() && vi_register.vi_delay &&
+	    (double)(unsigned long)(reg_cop0[9] - g_task_post[g_gfx_finished % VIDEO_RESULTS]) + gfx_poll_delay() >
+	        g_task_cap_ms * 0.06 * vi_register.vi_delay) {
+		double t = report_now_us();
+		video_wait_task(g_gfx_finished, -1.0);
+		g_gfx_event_wait_us += report_now_us() - t;
+		g_task_capped++;
+		raised |= gfx_finish_done();
+	}
 	/* A ZSortBOSS task's first piece runs beside the CPU; past ZSORT_START_MAX
 	 * by the next poll, the CPU waits for it now. */
 	if (video_signal_ucode() && !g_gfx_event && g_gfx_finished != g_gfx_tasks && g_gfx_yield != GFX_YIELDED &&
@@ -229,6 +259,18 @@ int gfx_int_event(void)
 }
 
 double gfx_event_wait_us(void) { return g_gfx_event_wait_us; }
+
+void gfx_set_task_cap_ms(double ms) { g_task_cap_ms = ms; }
+uint32_t gfx_tasks_capped(void) { return g_task_capped; }
+
+void gfx_task_times(double *ms, double *max_ms, uint32_t *n)
+{
+	const double per = vi_register.vi_delay ? 1000.0 / 60.0 / vi_register.vi_delay : 0.0; /* ms of emulated time a count */
+	*ms = g_task_counts * per;
+	*max_ms = g_task_counts_max * per;
+	*n = g_task_counts_n;
+	g_task_counts_max = 0;
+}
 
 /* Before a save state loads or the game resets outside go(): every task
  * posted is decoded and forgotten. The new state has none in flight (states
@@ -260,6 +302,7 @@ static void gfx_task(int resume)
 			check_interupt();
 	}
 	video_submit_task();
+	g_task_post[g_gfx_tasks % VIDEO_RESULTS] = reg_cop0[9];
 	g_gfx_tasks++;
 	if (!resume)
 		g_zsort_start = reg_cop0[9];

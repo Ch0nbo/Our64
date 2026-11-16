@@ -197,6 +197,9 @@ void states_stats(char *buf, unsigned size); /* idle time per VI and capture cos
 void player_capture_task(uint32_t task);
 int  player_capturing(void);       /* a capture is running: decode synchronously */
 void player_capture_start(void);  /* GamePad minus, or the first unknown display list command */
+void gfx_set_task_cap_ms(double ms); /* plugins.c: a graphics task in flight this long (emulated ms) makes the CPU wait for it; 0 off */
+uint32_t gfx_tasks_capped(void);     /* plugins.c: tasks the CPU waited for at that cap (total) */
+void gfx_task_times(double *ms, double *max_ms, uint32_t *n); /* plugins.c: graphics tasks, posted to their interrupts, in emulated ms (total; longest since the last call) */
 double gfx_event_wait_us(void);   /* plugins.c: time the GFX_INT event waited for decoding (total) */
 uint32_t gfx_yields(void);        /* plugins.c: yield requests answered while a task was decoding (total) */
 uint32_t gfx_tasks_posted(void);  /* plugins.c: graphics tasks sent to the graphics core (total) */
