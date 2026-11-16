@@ -2012,6 +2012,13 @@ static int play_game(int index)
 	 * game (full speed, Zach on the console, 2026-10-30); the sync-gfx switch
 	 * brings the wait back. */
 	g_sync_gfx = g_sync_switch;
+	/* Rayman 2 stops when a graphics task stays in flight while it runs on:
+	 * its own crash 0.3 s into a task held 1.5 s, and display lists whose
+	 * calls loop back into themselves after a long task (issue 43, console
+	 * logs 2026-11-15). It waits for each task, as on the PC, where it never
+	 * froze. */
+	if (!strncmp(fixname, "Rayman 2", 8))
+		g_sync_gfx = 1;
 	/* Known before the first task is decoded: a state saved with signal 0
 	 * set (ZSortBOSS's "carry on") made the first task after a resume look
 	 * like a yield request, and Stunt Racer waited for it forever. */
