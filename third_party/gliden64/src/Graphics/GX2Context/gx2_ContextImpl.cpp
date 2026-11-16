@@ -27,6 +27,7 @@
 #include <vector>
 
 #include <cafeglsl/CafeGLSLCompiler.h>
+#include "../../our64_at.h"
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
 #include <coreinit/time.h>
@@ -142,7 +143,7 @@ public:
 			gx2::log("CHECK: ring request of %u bytes is larger than the ring (%u)\n", _size, m_size);
 		u32 start = (m_used + _align - 1) & ~(_align - 1);
 		if (start + _size > m_size) {
-			GX2DrawDone();
+			OUR64_GPU_WAIT(GX2DrawDone());
 			start = 0;
 			if (g_vcFrame)
 				invalidateVertexCache();
@@ -515,7 +516,7 @@ public:
 		// Once the GPU is done: what this context still holds, the frame
 		// buffers GLideN64 deleted at the end (they wait in m_pendingFree)
 		// and any it did not. The kept state (g_kept) stays for the next.
-		GX2DrawDone();
+		OUR64_GPU_WAIT(GX2DrawDone());
 		for (auto & pending : m_pendingFree) {
 			for (void * p : pending)
 				MEMFreeToDefaultHeap(p);
@@ -568,7 +569,7 @@ public:
 			// old one: its picture a corner of the TV, or cut off (2026-11-11).
 			const u32 w = dwnd().getScreenWidth(), h = dwnd().getScreenHeight();
 			if (m_screen.tex.surface.width != w || m_screen.tex.surface.height != h) {
-				GX2DrawDone(); // nothing still reads the old buffers
+				OUR64_GPU_WAIT(GX2DrawDone()); // nothing still reads the old buffers
 				if (m_screen.tex.surface.image != nullptr) MEMFreeToDefaultHeap(m_screen.tex.surface.image);
 				if (m_screenDepth.surface.image != nullptr) MEMFreeToDefaultHeap(m_screenDepth.surface.image);
 				if (m_present.allocated && m_present.tex.surface.image != nullptr) MEMFreeToDefaultHeap(m_present.tex.surface.image);
@@ -1067,7 +1068,7 @@ public:
 		m_profWhat = "untraced";
 		if (!tracing()) return;
 		GX2Flush();
-		GX2DrawDone();
+		OUR64_GPU_WAIT(GX2DrawDone());
 		gx2::log("trace %u: ok\n", m_traceIndex++);
 	}
 
@@ -1311,7 +1312,7 @@ public:
 		m_frameStamp[m_half] = GX2GetLastSubmittedTimeStamp();
 		m_half ^= 1;
 		const OSTime waitStart = OSGetSystemTime();
-		GX2WaitTimeStamp(m_frameStamp[m_half]);
+		OUR64_GPU_WAIT(GX2WaitTimeStamp(m_frameStamp[m_half]));
 		our64_gx2_frame_wait_us += OSTicksToMicroseconds(OSGetSystemTime() - waitStart);
 		ring().reset();
 		g_vcFrame = vcFrameVariant();
@@ -1438,7 +1439,7 @@ public:
 				m_profUnreadStamp = GX2GetLastSubmittedTimeStamp();
 				m_profUnread = true;
 			} else {
-				GX2DrawDone();
+				OUR64_GPU_WAIT(GX2DrawDone());
 				m_profCpuTicks += OSGetSystemTime() - m_profStart;
 				const bool swap = m_profN > 1 && __builtin_bswap64(m_prof[m_profN - 1]) - __builtin_bswap64(m_prof[0]) <
 					m_prof[m_profN - 1] - m_prof[0];
@@ -1471,7 +1472,7 @@ public:
 		if (!(debug().gpuProf || m_profQuietWas) || ++m_profFrame % 10 != 0)
 			return;
 		if (m_profUnread) { // 10 frames on: retired long since, so the wait returns at once
-			GX2WaitTimeStamp(m_profUnreadStamp);
+			OUR64_GPU_WAIT(GX2WaitTimeStamp(m_profUnreadStamp));
 			u64 total = 0;
 			const u64 frame = profRead(m_runSum, m_runKinds, total, &m_runIdle);
 			m_runTotal += frame;
@@ -1524,7 +1525,7 @@ public:
 		DCInvalidateRange(linear.image, linear.imageSize);
 		GX2CopySurface(&m_screen.tex.surface, 0, 0, &linear, 0, 0);
 		GX2Flush();
-		GX2DrawDone();
+		OUR64_GPU_WAIT(GX2DrawDone());
 		DCInvalidateRange(linear.image, linear.imageSize);
 		const u8 * src = static_cast<const u8*>(linear.image);
 		for (u32 y = 0; y < _height && y < linear.height; ++y)
@@ -2078,7 +2079,7 @@ public:
 		for (const MemoryCopy & c : m_memoryCopies) {
 			if (c.stamp > retired) {
 				++waited;
-				GX2WaitTimeStamp(c.stamp);
+				OUR64_GPU_WAIT(GX2WaitTimeStamp(c.stamp));
 			}
 			DCInvalidateRange(c.dst, c.bytes);
 		}
@@ -2459,7 +2460,7 @@ private:
 				GX2Invalidate(GX2_INVALIDATE_MODE_COLOR_BUFFER, t.tex.surface.image, t.tex.surface.imageSize);
 				GX2CopySurface(&t.tex.surface, 0, 0, &linear, 0, 0);
 				GX2Flush();
-				GX2DrawDone();
+				OUR64_GPU_WAIT(GX2DrawDone());
 				DCInvalidateRange(linear.image, linear.imageSize);
 				got[i] = static_cast<const u16*>(linear.image)[0];
 				MEMFreeToDefaultHeap(linear.image);
@@ -2929,7 +2930,7 @@ const ReadbackCopy * GX2ColorBufferReader::read(bool _pack16, bool _sync)
 			return nullptr;
 		}
 	}
-	GX2WaitTimeStamp(c->stamp);
+	OUR64_GPU_WAIT(GX2WaitTimeStamp(c->stamp));
 	DCInvalidateRange(c->linear.image, c->linear.imageSize);
 	return c;
 }

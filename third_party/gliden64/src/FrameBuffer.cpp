@@ -851,6 +851,8 @@ u32 FrameBufferList::re2Width() const
 
 void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _width, bool _cfb)
 {
+	our64_at_arg[0] = _address;
+	our64_at_arg[1] = (u32)_width << 16 | (u32)_format << 8 | (u32)_size << 1 | (_cfb ? 1 : 0);
 	OUR64_AT();
 	if (_width > 640)
 		return;
@@ -870,7 +872,9 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 		config.frameBufferEmulation.copyAuxToRDRAM != 0 &&
 		(config.generalEmulation.hacks & hack_Snap) == 0) {
 		if (m_pCurrent->isAuxiliary()) {
+			OUR64_AT();
 			FrameBuffer_CopyToRDRAM(m_pCurrent->m_startAddress, true);
+			OUR64_AT();
 			removeBuffer(m_pCurrent->m_startAddress);
 		}
 	}
@@ -889,11 +893,14 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 			!m_pCurrent->m_cleared &&
 			m_pCurrent->m_RdramCopy.empty() &&
 			m_pCurrent->m_height > 1) {
+			OUR64_AT();
 			m_pCurrent->copyRdram();
 		}
 
+		OUR64_AT();
 		removeIntersections();
 	}
+	OUR64_AT();
 
 	const float scaleX = config.frameBufferEmulation.nativeResFactor == 0 ?
 		wnd.getScaleX() :
@@ -901,6 +908,7 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 
 	if (m_pCurrent == nullptr || m_pCurrent->m_startAddress != _address || m_pCurrent->m_width != _width)
 		m_pCurrent = findBuffer(_address);
+	OUR64_AT();
 
 	auto isSubBuffer = [_address, _width, _size, &wnd](const FrameBuffer * _pBuffer) -> bool
 	{
@@ -946,12 +954,14 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 				m_pCurrent->m_endAddress = _address - 1;
 				m_pCurrent = nullptr;
 			} else {
+				OUR64_AT();
 				removeBuffer(m_pCurrent->m_startAddress);
 				m_pCurrent = nullptr;
 			}
 		} else if ((m_pCurrent->m_width != _width) ||
 					(m_pCurrent->m_size < _size) ||
 					(m_pCurrent->m_scale != scaleX)) {
+			OUR64_AT();
 			removeBuffer(m_pCurrent->m_startAddress);
 			m_pCurrent = nullptr;
 		} else {
@@ -965,6 +975,7 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 			// Drawn into again, the buffer takes a new copy when it is left.
 			if ((config.generalEmulation.hacks & hack_refreshRdramCopy) != 0 && !m_pCurrent->m_cfb)
 				m_pCurrent->m_RdramCopy.clear();
+			OUR64_AT();
 			gfxContext.bindFramebuffer(bufferTarget::FRAMEBUFFER, m_pCurrent->m_FBO);
 			if (m_pCurrent->m_size != _size) {
 				f32 fillColor[4];
@@ -987,13 +998,17 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 		// Wasn't found or removed, create a new one
 		m_list.emplace_front();
 		FrameBuffer & buffer = m_list.front();
+		OUR64_AT();
 		buffer.init(_address, _format, _size, _width, _cfb);
 		m_pCurrent = &buffer;
+		OUR64_AT();
 		RDRAMtoColorBuffer::get().copyFromRDRAM(m_pCurrent);
+		OUR64_AT();
 		if (_cfb)
 			m_pCurrent->copyRdram();
 	}
 
+	OUR64_AT();
 	if (_address == gDP.depthImageAddress)
 		depthBufferList().saveBuffer(_address);
 	else
@@ -1018,6 +1033,7 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 	m_pCurrent->m_isPauseScreen = m_pCurrent->m_isOBScreen = false;
 	m_pCurrent->m_copied = false;
 	m_pCurrent->m_swapCount = wnd.getBuffersSwapCount();
+	OUR64_AT(); // saveBuffer done
 }
 
 void FrameBufferList::copyAux()

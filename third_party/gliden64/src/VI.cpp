@@ -35,6 +35,11 @@ u16 VI_GetMaxBufferHeight(u16 _width)
 volatile const char *our64_at_file = "";
 volatile int our64_at_line;
 volatile unsigned our64_vi_w, our64_vi_h;
+volatile const char *our64_at_files[8];
+volatile int our64_at_lines[8];
+volatile unsigned our64_at_n;
+volatile unsigned our64_at_arg[2];
+volatile int our64_gpu_wait_line;
 
 void VI_UpdateSize()
 {

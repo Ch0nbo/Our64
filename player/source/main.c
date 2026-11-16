@@ -48,6 +48,7 @@
 #include "update_wiiu.h"
 
 #include <malloc.h>
+#include <gx2/event.h>
 #include <coreinit/codegen.h>
 #include <coreinit/context.h>
 #include <coreinit/exception.h>
@@ -960,6 +961,11 @@ extern volatile long long our64_gx2_compile_start; /* gx2_GL.cpp: non-zero while
 extern volatile const char *our64_at_file;            /* GLideN64's our64_at.h: the last mark passed */
 extern volatile int our64_at_line;
 extern volatile unsigned our64_vi_w, our64_vi_h;
+extern volatile const char *our64_at_files[8];      /* the last 8 marks, and saveBuffer's arguments */
+extern volatile int our64_at_lines[8];
+extern volatile unsigned our64_at_n;
+extern volatile unsigned our64_at_arg[2];
+extern volatile int our64_gpu_wait_line;            /* the GPU wait under way (its line), 0 none */
 extern volatile unsigned our64_gx2_compile_vs_bytes, our64_gx2_compile_ps_bytes;
 
 static OSThread *g_emu_thread;          /* the emulation thread, for the heartbeat's backtrace */
@@ -1253,8 +1259,31 @@ static int watchdog(int argc, const char **argv)
 			report_line("  graphics core passed %s:%d last; VI %ux%u; heap %u KB in use of %u KB taken from the system",
 			            (const char *)our64_at_file, our64_at_line, our64_vi_w, our64_vi_h, (unsigned)(mi.uordblks / 1024),
 			            (unsigned)(mi.arena / 1024));
-			report_save();
+			/* Rayman 2 (issue 43): the stack read below hung this thread, so
+			 * first the marks before the last, the GPU wait under way and
+			 * whether the GPU still finishes work. */
+			{
+				char trail[400];
+				int tn = 0;
+				const unsigned at = our64_at_n;
+				for (unsigned k = at >= 8 ? at - 8 : 0; k < at && tn < (int)sizeof(trail) - 1; k++) {
+					const char *f = (const char *)our64_at_files[k & 7];
+					const char *b = f ? strrchr(f, '/') : NULL;
+					tn += snprintf(trail + tn, sizeof(trail) - tn, " %s:%d", b ? b + 1 : (f ? f : "?"), our64_at_lines[k & 7]);
+				}
+				trail[sizeof(trail) - 1] = 0;
+				report_line("  marks, oldest first:%s", tn ? trail : " none");
+				report_line("  saveBuffer last: address %06X width %u format %u size %u cfb %u; GPU wait: %s%d",
+				            our64_at_arg[0] & 0xFFFFFF, our64_at_arg[1] >> 16, (our64_at_arg[1] >> 8) & 0xFF,
+				            (our64_at_arg[1] >> 1) & 0x7F, our64_at_arg[1] & 1,
+				            our64_gpu_wait_line ? "under way at the last mark, line " : "none ", our64_gpu_wait_line);
+				const unsigned long long sub = GX2GetLastSubmittedTimeStamp(), ret = GX2GetRetiredTimeStamp();
+				report_line("  GPU: submitted %llu, finished %llu (%llu behind)", sub, ret, sub - ret);
+				report_save();
+			}
 			if (busy < 15) { /* then its stack, once: stopping it can hang this thread too */
+				report_line("  reading the graphics core's stack next (no more lines: that read hung)");
+				report_save();
 				char where[512];
 				video_backtrace(where, sizeof(where));
 				report_line("  %s (code at %08X)", where, (unsigned)(uintptr_t)&watchdog);

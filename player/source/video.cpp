@@ -1086,7 +1086,7 @@ void run(Slot & s)
 			our64_settle_rdram_copies();
 		}
 		if (g_gx2_drain)
-			GX2DrawDone();
+			OUR64_GPU_WAIT(GX2DrawDone());
 		g_prof_in_task = false;
 		Result & r = g_results[s.task % RESULTS];
 		r.sp_set = g_regs.sp_status & ~s.sp_status;
@@ -1803,7 +1803,7 @@ void triple_buffers(void *)
 	memset(drc, 0, drc_size);
 	DCFlushRange(tv, tv_size);
 	DCFlushRange(drc, drc_size);
-	GX2DrawDone();
+	OUR64_GPU_WAIT(GX2DrawDone());
 	GX2Invalidate(GX2_INVALIDATE_MODE_CPU, tv, tv_size);
 	GX2Invalidate(GX2_INVALIDATE_MODE_CPU, drc, drc_size);
 	GX2SetTVBuffer(tv, tv_size, mode, format, GX2_BUFFERING_MODE_TRIPLE);

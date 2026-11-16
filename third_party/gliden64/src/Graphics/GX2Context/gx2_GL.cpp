@@ -11,6 +11,7 @@
 // in per-program images of the vertex and pixel uniform registers;
 // gx2_ContextImpl uploads them when it draws with the program.
 #include <cstdarg>
+#include "../../our64_at.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -917,7 +918,7 @@ void APIENTRY glDeleteProgram(GLuint program)
 	if (g_current == po)
 		g_current = nullptr;
 	// The GPU may still be reading the shaders of draws already queued.
-	GX2DrawDone();
+	OUR64_GPU_WAIT(GX2DrawDone());
 	freeProgram(po->program);
 	delete po;
 	g_programs.erase(program);
