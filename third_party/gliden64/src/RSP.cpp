@@ -461,6 +461,8 @@ void RSP_Init()
 		config.generalEmulation.hacks |= hack_fullRdramCopy;
 	else if (strstr(RSP.fixname, (const char *)"Fighting Force") != nullptr)
 		config.generalEmulation.hacks |= hack_fastLodSharpen;
+	else if (strstr(RSP.fixname, (const char *)"YOSHI STORY") != nullptr)
+		config.generalEmulation.hacks |= hack_noFill8bitBuffers;
 	else if (strstr(RSP.fixname, (const char *)"MarioTennis") != nullptr)
 		config.generalEmulation.hacks |= hack_fbTextureOffset | hack_refreshRdramCopy;
 	else if (strstr(RSP.fixname, (const char *)"Extreme G 2") != nullptr ||

@@ -1002,7 +1002,12 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 		buffer.init(_address, _format, _size, _width, _cfb);
 		m_pCurrent = &buffer;
 		OUR64_AT();
-		RDRAMtoColorBuffer::get().copyFromRDRAM(m_pCurrent);
+		/* Our64: Yoshi's Story makes a CI8 buffer about every frame only to copy a
+		 * background into it with a textured rectangle, which texturedRectBGCopy
+		 * does in RDRAM before removing the buffer unread. Filling it from RDRAM
+		 * first was a third of the decoder's time (issue 25, PC replay). */
+		if (_size != G_IM_SIZ_8b || (config.generalEmulation.hacks & hack_noFill8bitBuffers) == 0)
+			RDRAMtoColorBuffer::get().copyFromRDRAM(m_pCurrent);
 		OUR64_AT();
 		if (_cfb)
 			m_pCurrent->copyRdram();

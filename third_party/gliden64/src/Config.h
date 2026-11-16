@@ -287,6 +287,7 @@ struct Config
 #define hack_refreshRdramCopy		(1<<24) //Our64: a buffer drawn into again takes a new RDRAM copy for its validity check. Mario Tennis.
 #define hack_fullRdramCopy			(1<<25) //Our64: every buffer keeps every RDRAM word for the validity check. Dr. Mario 64.
 #define hack_fastLodSharpen			(1<<26) //Our64: the simple shaders' LOD fraction for sharpen in magnify as on the RDP. Fighting Force.
+#define hack_noFill8bitBuffers		(1<<27) //Our64: a new 8-bit buffer is not filled from RDRAM: texturedRectBGCopy draws it in RDRAM and removes it unread. Yoshi's Story.
 
 extern Config config;
 
