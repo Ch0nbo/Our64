@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
 #include "DebugDump.h"
 #include "RSP.h"
 #include "RDP.h"
@@ -43,10 +44,26 @@ u32 our64_cmd_count[256];
 #define OUR64_TIMED_CMD(call) call
 #endif
 
+// Our64: display list commands run since the last task began, for the
+// player's watchdog (our64_dl_state; issue 43, Rayman 2's endless task).
+static volatile u32 our64_dl_cmds;
+
+extern "C" void our64_dl_state(char * _out, unsigned _size)
+{
+	int n = snprintf(_out, _size, "display list: %u commands this task, microcode type %u, depth %u, at",
+	                 (unsigned)our64_dl_cmds, (unsigned)GBI.getMicrocodeType(), (unsigned)RSP.PCi);
+	for (u32 i = 0; i <= RSP.PCi && i < 18 && n > 0 && n < (int)_size; ++i)
+		n += snprintf(_out + n, _size - n, " %06X", (unsigned)RSP.PC[i]);
+	if (n > 0 && n < (int)_size)
+		snprintf(_out + n, _size - n, "; last %08X %08X; count %d, halt %d, infloop %d",
+		         (unsigned)RSP.w0, (unsigned)RSP.w1, (int)RSP.count, (int)RSP.halt, (int)RSP.infloop);
+}
+
 static
 void _ProcessDList()
 {
 	while (!RSP.halt) {
+		our64_dl_cmds = our64_dl_cmds + 1;
 		if ((RSP.PC[RSP.PCi] + 8) > RDRAMSize) {
 #ifdef DEBUG_DUMP
 			if ((config.debug.dumpMode & DEBUG_DETAIL) != 0)
@@ -154,6 +171,7 @@ void RSP_ProcessDList()
 
 		RSP.PC[0] = *(u32*)&DMEM[0x0FF0];
 		RSP.PCi = 0;
+		our64_dl_cmds = 0;
 		RSP.count = -1;
 
 		RSP.halt = false;

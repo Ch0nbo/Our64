@@ -1279,6 +1279,10 @@ static int watchdog(int argc, const char **argv)
 				            our64_gpu_wait_line ? "under way at the last mark, line " : "none ", our64_gpu_wait_line);
 				const unsigned long long sub = GX2GetLastSubmittedTimeStamp(), ret = GX2GetRetiredTimeStamp();
 				report_line("  GPU: submitted %llu, finished %llu (%llu behind)", sub, ret, sub - ret);
+				extern void our64_dl_state(char *out, unsigned size); /* GLideN64 RSP.cpp */
+				char dl[300];
+				our64_dl_state(dl, sizeof(dl));
+				report_line("  %s", dl);
 				report_save();
 			}
 			if (busy < 15) { /* then its stack, once: stopping it can hang this thread too */
