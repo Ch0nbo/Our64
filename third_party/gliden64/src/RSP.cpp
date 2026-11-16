@@ -79,11 +79,43 @@ extern "C" int our64_dl_dump(const char * _path)
 	return ok ? 0 : -2;
 }
 
+// Our64: Rayman 2 (issue 43) now and then sends a display list whose calls
+// lead back into themselves, so the task runs for seconds or never ends:
+// an 11 s task that ended by itself, then one still running after 200 s
+// (console log, 2026-11-15). Its tasks take at most about 0.3 s, so one
+// past 2 s is ended there: a frame drawn short instead of a freeze. The
+// player's our64_task_cut logs it.
+static bool our64_cut_long_tasks;
+extern "C" void our64_task_cut(unsigned _cmds) __attribute__((weak));
+#if defined(__WIIU__)
+static inline u64 our64_task_ticks() { return __builtin_ppc_get_timebase(); }
+static const u64 OUR64_TICKS_PER_MS = 62156; // the timebase runs at a quarter of the 248.625 MHz bus
+#else
+#include <chrono>
+static inline u64 our64_task_ticks()
+{
+	return (u64)std::chrono::duration_cast<std::chrono::nanoseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static const u64 OUR64_TICKS_PER_MS = 1000000;
+#endif
+static u64 our64_task_t0;
+static u64 our64_task_limit = 2000 * OUR64_TICKS_PER_MS;
+// The player's test switch: a shorter limit, so normal tasks get ended too.
+extern "C" void our64_set_task_limit_ms(unsigned _ms) { our64_task_limit = _ms * OUR64_TICKS_PER_MS; }
+
 static
 void _ProcessDList()
 {
 	while (!RSP.halt) {
 		our64_dl_cmds = our64_dl_cmds + 1;
+		if (our64_cut_long_tasks && (our64_dl_cmds & 0x3FFF) == 0 &&
+		    our64_task_ticks() - our64_task_t0 > our64_task_limit) {
+			if (our64_task_cut)
+				our64_task_cut(our64_dl_cmds);
+			RSP.halt = true;
+			break;
+		}
 		if ((RSP.PC[RSP.PCi] + 8) > RDRAMSize) {
 #ifdef DEBUG_DUMP
 			if ((config.debug.dumpMode & DEBUG_DETAIL) != 0)
@@ -250,6 +282,7 @@ void RSP_ProcessDList()
 		_ProcessDListFactor5();
 		break;
 	default:
+		our64_task_t0 = our64_task_ticks();
 		_ProcessDList();
 		break;
 	}
@@ -366,6 +399,7 @@ void RSP_Init()
 	while (RSP.fixname[0] && RSP.fixname[strlen(RSP.fixname) - 1] == ' ')
 		RSP.fixname[strlen(RSP.fixname) - 1] = 0;
 	setDepthClearColor();
+	our64_cut_long_tasks = strstr(RSP.fixname, (const char *)"Rayman 2") != nullptr;
 	config.generalEmulation.hacks = 0;
 	if (strstr(RSP.fixname, (const char *)"OgreBattle64") != nullptr)
 		config.generalEmulation.hacks |= hack_Ogre64;

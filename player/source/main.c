@@ -1206,6 +1206,26 @@ static void heartbeat(void)
 }
 #endif
 
+/* GLideN64's call when it ends one of Rayman 2's graphics tasks at 2 s, on
+ * the graphics core; the watchdog logs it. A developer build first writes
+ * the memory the list was read from, once a run. */
+static volatile unsigned g_tasks_cut, g_tasks_cut_told, g_task_cut_cmds;
+static const char *g_task_cut_dump = "";
+void our64_task_cut(unsigned cmds)
+{
+#ifndef OUR64_RELEASE
+	static int dumped;
+	if (!dumped) {
+		dumped = 1;
+		extern int our64_dl_dump(const char *path); /* GLideN64 RSP.cpp */
+		g_task_cut_dump = our64_dl_dump("/vol/external01/wiiu/our64/dl-dump.bin") ?
+			"; writing sd:/wiiu/our64/dl-dump.bin failed" : "; its memory is in sd:/wiiu/our64/dl-dump.bin";
+	}
+#endif
+	g_task_cut_cmds = cmds;
+	g_tasks_cut++;
+}
+
 static int watchdog(int argc, const char **argv)
 {
 	(void)argc; (void)argv;
@@ -1214,6 +1234,13 @@ static int watchdog(int argc, const char **argv)
 	unsigned tick = 0;
 	while (g_watch_on) {
 		OSSleepTicks(OSSecondsToTicks(1));
+		/* Rayman 2's tasks ended at 2 s (GLideN64 RSP.cpp, issue 43) */
+		if (g_tasks_cut != g_tasks_cut_told) {
+			g_tasks_cut_told = g_tasks_cut;
+			report_line("RAYMAN 2: a graphics task ran past its limit (%u commands), ended there so the game goes on; %u this run%s",
+			            g_task_cut_cmds, g_tasks_cut, g_task_cut_dump);
+			report_save();
+		}
 #ifndef OUR64_RELEASE
 		{
 			const OSTime hb_t0 = OSGetSystemTime();
@@ -1465,6 +1492,19 @@ static void read_test_switches(const char *root)
 	g_sync_switch = !stat(path, &st);
 	snprintf(path, sizeof(path), "%s/sync-before", root);
 	g_sync_before = !stat(path, &st);
+	/* task-limit-ms: Rayman 2's graphics tasks end at this many ms, not
+	 * 2000, so the end path runs in normal play (issue 43). */
+	snprintf(path, sizeof(path), "%s/task-limit-ms", root);
+	f = fopen(path, "r");
+	if (f) {
+		unsigned ms = 0;
+		if (fscanf(f, "%u", &ms) == 1 && ms) {
+			extern void our64_set_task_limit_ms(unsigned ms); /* GLideN64 RSP.cpp */
+			our64_set_task_limit_ms(ms);
+			report_line("TEST: Rayman 2's graphics tasks end at %u ms (task-limit-ms)", ms);
+		}
+		fclose(f);
+	}
 	if (g_sync_before)
 		report_line("TEST: the graphics core is idle before each graphics task is posted (sync-before)");
 	/* probe-overlap: Perfect Dark runs without the CPU waiting for each
