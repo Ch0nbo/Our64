@@ -49,6 +49,7 @@
 #include "our64_at.h"
 extern "C" {
 #include "report.h"
+extern "C" const char * player_rom_file(void); // main.c: the running game's ROM file name (the graphics profile's file)
 extern "C" unsigned our64_vi_holds, our64_vi_from_rdram, our64_vi_found_start, our64_vi_found_width, our64_vi_found_valid; /* GLideN64's VI.cpp */
 extern "C" unsigned our64_vi_cfb, our64_vi_swaps, our64_cfb_calls, our64_cfb_nobuffer, our64_cfb_noheight, our64_cfb_zero,
 	our64_cfb_drawn, our64_cfb_alpha, our64_cfb_last_height, our64_cfb_last_width; /* VI.cpp, RDRAMtoColorBuffer.cpp */
@@ -819,7 +820,13 @@ void prof_save()
 	const char * root = report_sd_root();
 	snprintf(path, sizeof(path), "%s/profile", root ? root : "");
 	mkdir(path, 0777);
-	snprintf(path, sizeof(path), "%s/profile/player-gfx.prof", root ? root : "");
+	/* one file per game: a second game played in the same run kept
+	 * overwriting the first's (Fighting Force, 2026-11-19) */
+	char game[64];
+	snprintf(game, sizeof(game), "%s", player_rom_file());
+	if (char * dot = strrchr(game, '.'))
+		*dot = 0;
+	snprintf(path, sizeof(path), "%s/profile/player-gfx-%s.prof", root ? root : "", game);
 	FILE * f = fopen(path, "wb");
 	if (!f)
 		return;
