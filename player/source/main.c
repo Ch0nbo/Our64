@@ -725,10 +725,12 @@ static void stats(double t)
 		static unsigned allocs0, releases0, released0;
 		unsigned live, slots, free_kb, pieces;
 		our64_code_heap_stats(&live, &slots, &free_kb, &pieces);
+		extern unsigned our64_tex_cache_count, our64_tex_cache_kb; /* GLideN64's Textures.cpp */
 		struct mallinfo mi = mallinfo();
-		report_line("  memory: heap %u KB in use of %u KB; generated code %u KB in %u funcs (%u blocks, table %u slots), "
+		report_line("  memory: heap %u KB in use of %u KB; texture cache %u textures, %u KB; generated code %u KB in %u funcs (%u blocks, table %u slots), "
 		            "%u blocks made (%u failed), %u KB free in %u pieces; full, made room %u times (%u funcs out); LRU resets %u",
-		            (unsigned)(mi.uordblks / 1024), (unsigned)(mi.arena / 1024), our64_jit_cache_bytes() / 1024,
+		            (unsigned)(mi.uordblks / 1024), (unsigned)(mi.arena / 1024), our64_tex_cache_count, our64_tex_cache_kb,
+		            our64_jit_cache_bytes() / 1024,
 		            our64_jit_cache_funcs(), live, slots, our64_heap_allocs - allocs0, our64_heap_failures, free_kb, pieces,
 		            our64_jit_releases - releases0, our64_jit_released - released0, our64_lru_resets);
 		allocs0 = our64_heap_allocs;

@@ -784,6 +784,7 @@ void TextureCache::destroy()
 	m_fbTextures.clear();
 
 	m_hdTexCacheSize = 0;
+	m_cacheBytes = 0u;
 }
 
 void TextureCache::_checkHdTexLimit()
@@ -803,6 +804,7 @@ void TextureCache::_checkHdTexLimit()
 		} else {
 			assert(m_hdTexCacheSize >= iter->textureBytes);
 			m_hdTexCacheSize -= iter->textureBytes;
+			_uncountTexture(*iter);
 			gfxContext.deleteTexture(iter->name);
 			m_lruTextureLocations.erase(iter->crc);
 			iter = decltype(iter)(m_textures.erase(std::next(iter).base()));
@@ -810,12 +812,33 @@ void TextureCache::_checkHdTexLimit()
 	}
 }
 
+/* Our64: the player's 10 s stats line (main.c "texture cache"). */
+extern "C" { unsigned our64_tex_cache_count, our64_tex_cache_kb; }
+
+void TextureCache::_countTexture(CachedTexture * _pTexture)
+{
+	const u32 w = std::max<u32>(_pTexture->width, _pTexture->mipmapAtlasWidth);
+	const u32 h = std::max<u32>(_pTexture->height, _pTexture->mipmapAtlasHeight);
+	_pTexture->cacheBytes = std::max<u32>(w * h * 4u, _pTexture->textureBytes);
+	m_cacheBytes += _pTexture->cacheBytes;
+	our64_tex_cache_count = (unsigned)m_textures.size();
+	our64_tex_cache_kb = (unsigned)(m_cacheBytes / 1024u);
+}
+
+void TextureCache::_uncountTexture(const CachedTexture & _texture)
+{
+	m_cacheBytes -= std::min<u64>(m_cacheBytes, _texture.cacheBytes);
+	our64_tex_cache_kb = (unsigned)(m_cacheBytes / 1024u);
+}
+
 void TextureCache::_checkCacheSize()
 {
-	if (m_textures.size() >= m_maxCacheSize) {
+	// Our64: by bytes too (m_maxCacheBytes); the oldest go first.
+	while (!m_textures.empty() && (m_textures.size() >= m_maxCacheSize || m_cacheBytes > m_maxCacheBytes)) {
 		CachedTexture& clsTex = m_textures.back();
 		if (clsTex.bHDTexture)
 			m_hdTexCacheSize -= clsTex.textureBytes;
+		_uncountTexture(clsTex);
 		gfxContext.deleteTexture(clsTex.name);
 		m_lruTextureLocations.erase(clsTex.crc);
 		m_textures.pop_back();
@@ -2048,6 +2071,7 @@ void TextureCache::_updateBackground()
 	pCurrent->offsetT = 0.0f;
 
 	_loadBackground(pCurrent);
+	_countTexture(pCurrent);
 	activateTexture(0, pCurrent);
 
 	current[0] = pCurrent;
@@ -2063,6 +2087,7 @@ void TextureCache::clear()
 	m_textures.clear();
 	m_lruTextureLocations.clear();
 	m_hdTexCacheSize = 0u;
+	m_cacheBytes = 0u;
 }
 
 void TextureCache::toggleDumpTex()
@@ -2152,6 +2177,7 @@ void TextureCache::update(u32 _t)
 
 		if (currentTex.bHDTexture)
 			m_hdTexCacheSize -= currentTex.textureBytes;
+		_uncountTexture(currentTex);
 		gfxContext.deleteTexture(currentTex.name);
 		m_lruTextureLocations.erase(locations_iter);
 		m_textures.erase(iter);
@@ -2203,6 +2229,7 @@ void TextureCache::update(u32 _t)
 	} else {
 		_loadAccurate(_t, pCurrent);
 	}
+	_countTexture(pCurrent);
 	activateTexture( _t, pCurrent );
 
 	current[_t] = pCurrent;

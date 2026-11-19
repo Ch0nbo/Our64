@@ -51,6 +51,7 @@ struct CachedTexture
 		fbMultiSample = 2
 	} frameBufferTexture{ fbNone };
 	bool bHDTexture{ false };
+	u32		cacheBytes{ 0 }; // Our64: what it counts in TextureCache::m_cacheBytes
 };
 
 struct TextureCache
@@ -86,6 +87,8 @@ private:
 	TextureCache(const TextureCache &) = delete;
 
 	void _checkCacheSize();
+	void _countTexture(CachedTexture * _pTexture);
+	void _uncountTexture(const CachedTexture & _texture);
 	void _checkHdTexLimit();
 	CachedTexture * _addTexture(u64 _crc64);
 	void _loadFast(u32 _tile, CachedTexture *_pTexture);
@@ -118,6 +121,12 @@ private:
 	const size_t m_maxCacheSize = 8000u;
 #endif
 	u64 m_hdTexCacheSize = 0u;
+	/* Our64: the cache also ends at this many bytes. Yoshi's Story makes a new
+	 * 336x256 background texture every frame or two as it scrolls; 8000 of them
+	 * took the console's memory (heap 224 MB to 872 MB in 3 minutes), and the
+	 * textures made after that came out as copies of others (2026-11-18). */
+	u64 m_cacheBytes = 0u;
+	const u64 m_maxCacheBytes = 128u * 1024u * 1024u;
 };
 
 void getTextureShiftScale(u32 tile, const TextureCache & cache, f32 & shiftScaleS, f32 & shiftScaleT);
