@@ -2157,6 +2157,19 @@ static int play_game(int index)
 	for (int p = 0; p < 4; p++)
 		paks[p] = gamedb_pak_for(g_game_paks);
 	player_set_paks(paks);
+	/* Turok: Rage Wars, every version: the code asking for a Rumble Pak picks
+	 * the Pak, a Controller Pak for its saves (pak_choose_by_caller, issue 33). */
+	static const uint32_t rage_wars[][2] = {
+		{0xADB9498B, 0xDAF28F55}, /* USA */
+		{0x2388984C, 0xDA7B3CC5}, /* USA (Rev 1) */
+		{0x1EA26214, 0xE790900F}, /* Europe */
+		{0xB6BE20A5, 0xFACAF66D}, /* Europe (En,Fr,It) */
+	};
+	for (unsigned i = 0; i < sizeof(rage_wars) / sizeof(rage_wars[0]); i++)
+		if (fix->crc1 == rage_wars[i][0] && fix->crc2 == rage_wars[i][1]) {
+			player_pak_by_caller();
+			report_line("PAK: Turok: Rage Wars: the code asking for a Rumble Pak picks the Pak");
+		}
 	if ((g_game_paks & GAMEDB_RUMBLE) && !strncmp(fixname, "Chameleon Twist ", 16))
 		player_pak_rumble_only(); /* not Chameleon Twist 2 */
 	/* A Transfer Pak game: a Game Boy game's save from RetroArch, a Virtual

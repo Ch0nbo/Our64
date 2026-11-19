@@ -626,22 +626,26 @@ static void boot_patches_vi(void)
 
 /* Each port's Pak for this game (gamedb.h): a Rumble Pak or a Controller Pak. */
 static unsigned g_pak_traced; /* Pak reads and writes logged for this game */
+static unsigned g_pak_motor_traced; /* motor commands among them (our64_pak_trace) */
 static unsigned g_pak_probed_vi[4]; /* osMotorInit's last probe (0xFE at 0x8000), +1; 0 never */
 static unsigned g_pak_used_vi[4]; /* the game's last use of a Controller Pak */
 static int g_pak_pulled[4];       /* the next status read says the Pak was pulled out */
 static unsigned g_pak_keep_until[4]; /* the VI until which ID checks find the Rumble Pak */
 static int g_pak_rumble_only; /* player_pak_rumble_only: the game's Pak checks never get a Controller Pak */
+static int g_pak_by_caller; /* player_pak_by_caller: each probe's caller picks the Pak (Turok: Rage Wars) */
 
 /* A new game: no Pak state carries over from the one before (NFL Blitz 2000
  * left a pulled-out report pending, and Destruction Derby, next, read its
  * Pak as pulled out at its first check). */
 void player_set_paks(const int *pak)
 {
-	g_pak_traced = 0; /* a new game: its own 150 */
+	g_pak_traced = 0; /* a new game: its own 400 */
+	g_pak_motor_traced = 0;
 	memset(g_pak_probed_vi, 0, sizeof(g_pak_probed_vi));
 	memset(g_pak_pulled, 0, sizeof(g_pak_pulled));
 	memset(g_pak_keep_until, 0, sizeof(g_pak_keep_until));
 	g_pak_rumble_only = 0;
+	g_pak_by_caller = 0;
 	g_boot_patched = 0;
 	for (int i = 0; i < 4; i++)
 		g_pak_used_vi[i] = player_vis();
@@ -675,13 +679,84 @@ void player_set_pak(int port, int pak)
 	}
 }
 
-/* Every Pak read and write, the first 150 of each game (Gauntlet Legends never rumbled,
+/* Every Pak read and write, the first 400 of each game (motor commands: 10) (Gauntlet Legends never rumbled,
  * 2026-10-20: in what order does a game look for each Pak?). */
+/* The return address at a stack offset of a probe's N64 caller, when it is
+ * one (the instruction two before is a JAL or JALR); 0 otherwise. The game's
+ * code may be TLB-mapped (Turok: Rage Wars runs at 0x00200000-0x00500000). */
+static uint32_t pak_probe_return(uint32_t offset)
+{
+	extern long long int reg[34];
+	extern unsigned long our64_tlb_peek(unsigned long addresse);
+	const uint32_t ram = (uint32_t)sizeof(rdram);
+	const uint32_t sp = (uint32_t)our64_tlb_peek((uint32_t)reg[29]) & 0x1FFFFFFF;
+	if (!sp || sp + offset + 4 > ram)
+		return 0;
+	const uint32_t w = rdram[(sp + offset) / 4];
+	if ((w & 3) || w < 0x1000 || w >= 0xA0000000)
+		return 0;
+	const uint32_t pa = (uint32_t)our64_tlb_peek(w) & 0x1FFFFFFF;
+	if (pa < 8 || pa + 4 > ram)
+		return 0;
+	const uint32_t ins = rdram[(pa - 8) / 4];
+	const int jal = (ins >> 26) == 3, jalr = (ins >> 26) == 0 && (ins & 0x3F) == 9 && (ins & 0x1F0000) == 0;
+	return jal || jalr ? w : 0;
+}
+
+/* Turok: Rage Wars (issue 33) asks only whether a Rumble Pak is in, and with
+ * one in it never reads its Controller Pak: on its own the question does not
+ * say which Pak it wants. Who asks does. In USA (Rev 1) the return address
+ * 0xF0 into the stack at each probe was 0x0026430C or 0x0026432C (its main
+ * code, the routine at 0x002642F0) for its 32 rumble checks, and 0x00404EA4
+ * (code loaded at 0x00400000 and up) for its 6 Controller Pak checks, each
+ * followed by the Controller Pak's bank select and reads; never otherwise
+ * (console log, 2026-11-19, the Controller Pak in all along). So each probe
+ * gets the Pak its caller wants: the main code a Rumble Pak, the rest a
+ * Controller Pak, which stays through the save until the next probe. No
+ * return address there (another version laid out otherwise): a Controller
+ * Pak, so it always saves. */
+static void pak_choose_by_caller(int port)
+{
+	const uint32_t ret = pak_probe_return(0xF0);
+	const int rumble = ret && ret < 0x00400000;
+	const int want = rumble ? PLUGIN_RUMBLE_PAK : PLUGIN_MEMPAK;
+	if (Controls[port].Plugin == want)
+		return;
+	Controls[port].Plugin = want;
+	static unsigned told;
+	if (told++ < 40)
+		report_line("PAK: VI %u port %d now has a %s (asked by %08lX)", player_vis(), port + 1,
+		            rumble ? "Rumble Pak" : "Controller Pak", (unsigned long)ret);
+}
+
+/* A game whose probes' callers pick the Pak (pak_choose_by_caller): the
+ * automatic swap is off for it. After player_set_paks. */
+void player_pak_by_caller(void)
+{
+	g_pak_by_caller = 1;
+	for (int i = 0; i < 4; i++)
+		g_pak_auto[i] = 0;
+}
+
 void our64_pak_trace(int port, int write, int address, int value)
 {
-	if (write && address == 0x8000 && value == 0xFE && port >= 0 && port < 4)
+	if (write && address == 0x8000 && value == 0xFE && port >= 0 && port < 4) {
 		g_pak_probed_vi[port] = player_vis() + 1;
-	if (g_pak_traced++ < 150)
+		if (g_pak_by_caller)
+			pak_choose_by_caller(port);
+	}
+	/* motor commands come every frame a game rumbles: past the first 10 they
+	 * would push its Controller Pak checks out of the log (Fighting Force used
+	 * all 150 in seconds; Turok: Rage Wars, issue 33, needs what it does as it
+	 * saves) */
+	if (write && address == 0xC000 && g_pak_motor_traced++ >= 10)
+		return;
+	static unsigned data_traced;
+	if (g_pak_traced == 0)
+		data_traced = 0;
+	if (address < 0x8000 && data_traced++ >= 40)
+		return; /* a save is hundreds of them */
+	if (g_pak_traced++ < 400)
 		report_line("PAK: VI %u port %d %s 0x%04X%s%s", player_vis(), port + 1, write ? "write" : "read", address,
 		            write ? (value == 0xFE ? " 0xFE" : value == 0x80 ? " 0x80" : value == 0 ? " 0x00" : " data") : "",
 		            Controls[port].Plugin == PLUGIN_RUMBLE_PAK ? " (holding a Rumble Pak)" :

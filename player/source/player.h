@@ -148,6 +148,7 @@ void input_game_start(void);     /* a game starting: controllers that are gone l
 void player_set_paks(const int *pak); /* plugins.c: PAK_ (gamedb.h) for ports 1-4 */
 void player_set_pak(int port, int pak);
 void player_pak_rumble_only(void); /* plugins.c: a Rumble Pak game whose Pak checks read the data area */
+void player_pak_by_caller(void);   /* plugins.c: each Pak probe's N64 caller picks the Pak (Turok: Rage Wars) */
 /* For menus, after input_read: per controller (0 the GamePad, 1-4 Wii Remote
  * channels), its INPUT_ type or -1, and SRC_ bits pressed by that read (the
  * left stick counts as SRC_LSTICK_ directions). Touch is on the UI canvas. */
