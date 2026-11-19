@@ -2049,8 +2049,12 @@ static int play_game(int index)
 	 * frames went to 3 VIs and it fell behind its music: 20-26 game frames a
 	 * second where ares holds 30 (issue 28). With the CPU waiting for a task
 	 * still in flight at 16 ms it held 30, at 59.9 VIs a second (console,
-	 * 2026-11-15). Every region is "DONKEY KONG 64". */
-	gfx_set_task_cap_ms(!strncmp(fixname, "DONKEY KONG 64", 14) ? 16 : 0);
+	 * 2026-11-15). Every region is "DONKEY KONG 64". 24 ms, not 16: at 16
+	 * Cranky's dialogue held nearly every task at the cap and fell to 52-58
+	 * VIs a second with 6-31 audio underruns per 10 s; at 24, 59.3 and 1;
+	 * with no cap the game fell to 22 frames a second (console, 2026-11-18).
+	 * The N64 ends the rap's tasks at 16-23 ms (ares). */
+	gfx_set_task_cap_ms(!strncmp(fixname, "DONKEY KONG 64", 14) ? 24 : 0);
 	if (g_task_test_n) {
 		int mode = g_task_test[g_task_test_run % g_task_test_n];
 		char l1[48], l2[64];
