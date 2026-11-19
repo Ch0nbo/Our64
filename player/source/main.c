@@ -2038,12 +2038,14 @@ static int play_game(int index)
 	 * brings the wait back. */
 	g_sync_gfx = g_sync_switch;
 	/* Rayman 2 stops when a graphics task stays in flight while it runs on:
-	 * its own crash 0.3 s into a task held 1.5 s, and display lists whose
-	 * calls loop back into themselves after a long task (issue 43, console
-	 * logs 2026-11-15). It waits for each task, as on the PC, where it never
-	 * froze. */
-	if (!strncmp(fixname, "Rayman 2", 8))
-		g_sync_gfx = 1;
+	 * its own crash 0.3 s into a task held 1.5 s (issue 43, console logs
+	 * 2026-11-15). It waited for each task until 2026-11-18, which cost the
+	 * Hall of Doors its speed: the CPU spent 34-57% of each second waiting
+	 * on the decoder, 53-57 VIs a second with 20-57 audio underruns per 10 s;
+	 * and two lists still looped (cut at 2 s) with that wait on. A cap (see
+	 * DK64's below) stops the game just the same while a long task runs, and
+	 * lets the usual 10-15 ms ones run beside the CPU. */
+	const int rayman2 = !strncmp(fixname, "Rayman 2", 8);
 	/* DK64: its graphics tasks took up to 33 ms of emulated time here, waiting
 	 * on the decoder, against 16-23 ms on the N64 (ares, DK Rap); the rap's
 	 * frames went to 3 VIs and it fell behind its music: 20-26 game frames a
@@ -2054,7 +2056,7 @@ static int play_game(int index)
 	 * VIs a second with 6-31 audio underruns per 10 s; at 24, 59.3 and 1;
 	 * with no cap the game fell to 22 frames a second (console, 2026-11-18).
 	 * The N64 ends the rap's tasks at 16-23 ms (ares). */
-	gfx_set_task_cap_ms(!strncmp(fixname, "DONKEY KONG 64", 14) ? 24 : 0);
+	gfx_set_task_cap_ms(!strncmp(fixname, "DONKEY KONG 64", 14) || rayman2 ? 24 : 0);
 	if (g_task_test_n) {
 		int mode = g_task_test[g_task_test_run % g_task_test_n];
 		char l1[48], l2[64];
