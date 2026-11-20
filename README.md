@@ -6,6 +6,10 @@
 
 A Nintendo 64 emulator for the Wii U, running natively under [Aroma](https://aroma.foryour.cafe/).
 
+Play your own N64 games on a Wii U: a native Wii U app under Aroma, no Virtual Console inject and no vWii.
+
+By Chonbo (GitHub: [Ch0nbo](https://github.com/Ch0nbo)).
+
 Our64 is built on top of the shoulders of giants. Modified for the Wii U:
 
 - [Not64](https://github.com/extremscorner/not64) by Extrems, from Wii64 and Mupen64: the CPU recompiler.
@@ -21,6 +25,19 @@ Used as they are:
 - [FatFs](https://elm-chan.org/fsw/ff/) by ChaN: reads USB drives.
 - [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails): the box art Fetch covers
   downloads, found by the No-Intro names in [libretro-database](https://github.com/libretro/libretro-database).
+
+## Our64, VC injects and Not64
+
+|               | Our64                                                                                                | N64 Virtual Console inject                                                    | Not64 in vWii                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Runs as       | A Wii U app under Aroma                                                                              | One Wii U Menu title per game, built on a PC from a Nintendo VC game (UWUVCI) | A Wii homebrew app in vWii (Wii mode)                                                             |
+| Adding a game | Copy the ROM to the SD card or a USB drive                                                           | Build and install an inject for each game                                     | Copy the ROM to the SD card or a USB drive                                                        |
+| Emulator      | Not64's CPU recompiler and GLideN64's graphics, with a backend for the Wii U's GPU                   | Nintendo's own, tuned for the games Nintendo released; others often need a per-game config file | Not64                                                                              |
+| Controllers   | GamePad, Pro Controller, Classic Controller, Wii Remote with or without a Nunchuk; up to 4 players   | GamePad, Pro Controller, Classic Controller                                   | Wii Remote with a Nunchuk, Classic Controller, GameCube controller; the GamePad is only a screen |
+| Paks          | Controller Pak, Rumble Pak, Transfer Pak                                                             | No Controller Pak                                                             | Controller Pak, Rumble Pak                                                                        |
+| Save states   | Save states, plus an autosave you resume from                                                        | One restore point                                                             | Save states                                                                                       |
+| Picture       | 480p, 720p or the N64's own resolution, per game; Scanlines and CRT filters; TV and GamePad at once | TV and GamePad                                                                | Up to 480p (Wii mode)                                                                             |
+| Updates       | Settings > Update, over Wi-Fi                                                                        | None: each inject keeps the emulator of its base game                         | Not64's own releases                                                                              |
 
 ## What you need
 
@@ -120,8 +137,9 @@ name. The magnifier at the start of the letter bar searches titles and file name
 
 Each game has its own options: press X on it in Our ROMs, or pause the game and choose Game options.
 
-- **Resolution:** 480p or 720p for this game. 720p is sharper on a TV, but many games slow down or stutter
-  with it, so it is never on unless you choose it. The Speed display shows how a game copes.
+- **Resolution:** 480p, 720p or Native for this game. 720p is sharper on a TV, but many games slow down or stutter
+  with it, so it is never on unless you choose it. The Speed display shows how a game copes. Native draws at
+  the N64's own resolution, most often 320x240, and enlarges the picture after: some games look right only this way.
 - **Picture:** this game's own Screen mode, Shape, Speed display and Filter. Default follows Settings > Picture.
 - **Fixes:** for a ROM hack. Our64 finds a game's fixes by its ROM header, which a hack often changes, so
   a hack can miss the fixes of the game it is made from (Rumble Pak, picture fixes, save size, speed). Pick
