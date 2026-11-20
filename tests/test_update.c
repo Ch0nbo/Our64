@@ -100,7 +100,7 @@ static const char LIST[] =
 	"{\"tag_name\":\"v1.3.2\",\"draft\":true,\"body\":\"Draft\",\"assets\":[]},"
 	"{\"tag_name\":\"v1.2.0\",\"body\":\"Old\",\"assets\":[]},"
 	"{\"tag_name\":\"v1.3.10\",\"body\":\"New Fantastic Amazing Features\\n---\\nTen\",\"assets\":[]},"
-	"{\"tag_name\":\"v1.3.0\",\"body\":\"New Fantastic Amazing Features\\n---\\nUpdater\\n\\nBug Fixes\\n---\\nRage Wars\",\"assets\":[]}]";
+	"{\"tag_name\":\"v1.3.0\",\"body\":\"New Fantastic Amazing Features\\n---\\nUpdater\\n\\n> Install this one from the zip.\\n\\nBug Fixes\\n---\\nRage Wars\",\"assets\":[]}]";
 
 static void list_gives_the_newest_and_every_versions_notes(void)
 {

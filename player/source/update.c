@@ -415,8 +415,8 @@ static void notes_one(notes_out *o, char *text, int heading, int *skipping)
 		notes_plain(q);
 		*skipping = notes_left_out(q);
 	}
-	if (*skipping)
-		return;
+	if (*skipping || *q == '>')
+		return; /* a quote is a note for GitHub's page (installing from the zip), not for the console */
 	if (!*q) {
 		if (!o->blank)
 			notes_line(o, "", 0);

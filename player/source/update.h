@@ -48,7 +48,9 @@ int update_parse_release(const char *json, update_release *out);
  * UPDATE_NOTES_VERSION then "Our64 1.3.1"; before the first that is not
  * newer than installed ("1.3.0") comes a line of UPDATE_NOTES_YOURS then
  * "You have 1.3.0". Sections named Install, In the zip and Problems are left
- * out (they are for the zip); every other heading is the author's own.
+ * out (they are for the zip), and so is every quote (a line starting with
+ * ">"): a note for GitHub's page alone. Every other heading is the author's
+ * own.
  *
  * Each release's notes (its "body", GitHub's Markdown) become plain lines,
  * each at most width bytes, cut at spaces; headings without their marks and
