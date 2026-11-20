@@ -26,10 +26,12 @@
 
 #include "cacert_pem.h" /* third_party/cacert/cacert.pem, built in (bin2s) */
 
-#define API_URL "https://api.github.com/repos/Ch0nbo/Our64/releases/latest"
+/* the last 10 releases, newest first: the newest is the update, and the
+ * Release notes page shows all of theirs from 1.3.0 on (one request, as before) */
+#define API_URL "https://api.github.com/repos/Ch0nbo/Our64/releases?per_page=10"
 #define SLICE_MS 100
 #define AC_TIMEOUT_MS 30000 /* to bring the network up */
-#define API_MAX (512 * 1024) /* a release's JSON: 11 KB for 1.2.0, its notes included */
+#define API_MAX (512 * 1024) /* the list's JSON: 40 KB for the 6 releases up to 1.2.0, their notes included */
 
 /* nn::ac::GetConnectStatus: wut declares it only for C++ (nn/ac/ac_cpp.h). */
 enum { AC_STATUS_FAILED = -1, AC_STATUS_OK = 0, AC_STATUS_PROCESSING = 1 };
@@ -53,7 +55,7 @@ static int g_loader;              /* Aroma's loader module was found */
 
 static update_release g_release;  /* the last good check's */
 static int g_shaders_new;
-static char g_notes[16 * 1024];   /* its notes, as lines for the Release notes page */
+static char g_notes[64 * 1024];   /* the releases' notes, as lines for the Release notes page */
 #define NOTES_WIDTH 70            /* bytes a line: the page's width at its text size */
 static update_release g_want;     /* a download's */
 static int g_want_app, g_want_shaders;
@@ -485,7 +487,7 @@ static int check(void)
 			char have[80];
 			shaders_have(have, sizeof(have));
 			g_release = rel;
-			update_release_notes(s.mem, g_notes, sizeof(g_notes), NOTES_WIDTH);
+			update_release_notes(s.mem, OUR64_VERSION, g_notes, sizeof(g_notes), NOTES_WIDTH);
 			g_shaders_new = rel.shaders.url[0] && (!rel.shaders.sha256[0] || strcmp(have, rel.shaders.sha256));
 			report_line("UPDATE: newest is %s (this is " OUR64_VERSION "): app %u bytes%s, shaders %u bytes%s", rel.version,
 			            rel.app.size, rel.app.url[0] ? "" : " (not in the release)", rel.shaders.size,

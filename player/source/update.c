@@ -163,16 +163,76 @@ static void asset_read(const char *obj, update_asset *a)
 	}
 }
 
-int update_parse_release(const char *json, update_release *out)
+typedef struct {
+	const char *obj;  /* the release's object in the JSON */
+	char version[24]; /* its tag without the "v" */
+} release_ref;
+
+static int flag_true(const char *obj, const char *key)
+{
+	const char *v = member(obj, key);
+	return v && !strncmp(v, "true", 4);
+}
+
+/* The release at obj, when it has a version tag and is neither a draft nor a
+ * pre-release. */
+static int release_ref_read(const char *obj, release_ref *r)
 {
 	char tag[64];
-	memset(out, 0, sizeof(*out));
-	if (!skip_value(json, 0) || string_value(member(json, "tag_name"), tag, sizeof(tag)))
-		return -1;
+	if (string_value(member(obj, "tag_name"), tag, sizeof(tag)))
+		return 0;
 	const char *v = tag[0] == 'v' || tag[0] == 'V' ? tag + 1 : tag;
-	if (!isdigit((unsigned char)*v))
+	if (!isdigit((unsigned char)*v) || flag_true(obj, "draft") || flag_true(obj, "prerelease"))
+		return 0;
+	r->obj = obj;
+	snprintf(r->version, sizeof(r->version), "%.*s", (int)sizeof(r->version) - 1, v);
+	return 1;
+}
+
+/* The releases in json (GitHub's list, or one release) at version from and
+ * up (from NULL: all), highest version first, at most max of them. */
+static int releases_listed(const char *json, release_ref *out, int max, const char *from)
+{
+	int n = 0;
+	const char *p = ws(json);
+	const int list = *p == '[';
+	if (list)
+		p = ws(p + 1);
+	while (*p == '{') {
+		release_ref r;
+		if (release_ref_read(p, &r) && (!from || update_version_cmp(r.version, from) >= 0)) {
+			int at = n;
+			while (at > 0 && update_version_cmp(out[at - 1].version, r.version) < 0)
+				at--;
+			if (at < max) {
+				const int keep = n < max ? n : max - 1;
+				memmove(out + at + 1, out + at, (size_t)(keep - at) * sizeof(*out));
+				out[at] = r;
+				if (n < max)
+					n++;
+			}
+		}
+		if (!list)
+			break;
+		p = skip_value(p, 0);
+		if (!p)
+			break;
+		p = ws(p);
+		if (*p != ',')
+			break;
+		p = ws(p + 1);
+	}
+	return n;
+}
+
+int update_parse_release(const char *json, update_release *out)
+{
+	release_ref newest;
+	memset(out, 0, sizeof(*out));
+	if (!skip_value(json, 0) || releases_listed(json, &newest, 1, NULL) != 1)
 		return -1;
-	snprintf(out->version, sizeof(out->version), "%.*s", (int)sizeof(out->version) - 1, v);
+	snprintf(out->version, sizeof(out->version), "%s", newest.version);
+	json = newest.obj;
 	const char *p = member(json, "assets");
 	if (!p || *p != '[')
 		return 0;
@@ -235,6 +295,7 @@ typedef struct {
 	char *out;
 	unsigned size, n, width;
 	int full;
+	int blank; /* the last line out was empty (or nothing is out yet) */
 } notes_out;
 
 static void notes_line(notes_out *o, const char *s, unsigned len)
@@ -321,21 +382,80 @@ static int only_of(const char *s, const char *set)
 	return strspn(s, set) == strlen(s);
 }
 
-unsigned update_release_notes(const char *json, char *out, unsigned size, unsigned width)
+/* The heading names the page leaves out in every release: installing from
+ * the zip, what the zip holds and where to report problems are for the
+ * release's page on GitHub, not for an Our64 that updates itself. */
+static int notes_left_out(const char *heading)
 {
-	notes_out o = { out, size, 0, width, 0 };
-	if (size)
-		out[0] = 0;
-	if (size < 64 || !skip_value(json, 0))
-		return 0;
-	char *body = malloc(size);
-	if (!body)
-		return 0;
-	body[0] = 0;
-	string_some(member(json, "body"), body, size);
+	static const char *const names[] = { "install", "in the zip", "problems" };
+	char h[64];
+	size_t n = 0;
+	for (const char *s = heading; *s && n + 1 < sizeof(h); s++)
+		h[n++] = (char)tolower((unsigned char)*s);
+	while (n > 0 && h[n - 1] == ' ')
+		n--;
+	h[n] = 0;
+	for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+		if (!strcmp(h, names[i]))
+			return 1;
+	return 0;
+}
+
+/* One line of a release's notes out; heading: a "#" line, or words with a
+ * line of dashes or equals under them. *skipping: inside a section left out. */
+static void notes_one(notes_out *o, char *text, int heading, int *skipping)
+{
+	char *q = text + strspn(text, " ");
+	if (*q == '#') {
+		q += strspn(q, "#");
+		q += strspn(q, " ");
+		heading = 1;
+	}
+	if (heading && *q) {
+		notes_plain(q);
+		*skipping = notes_left_out(q);
+	}
+	if (*skipping)
+		return;
+	if (!*q) {
+		if (!o->blank)
+			notes_line(o, "", 0);
+		o->blank = 1;
+	} else if (*q == '|') { /* a table's row; its ruler line is dropped */
+		if (!only_of(q, "|-: ")) {
+			char row[512] = "";
+			for (char *cell = strtok(q, "|"); cell; cell = strtok(NULL, "|")) {
+				cell += strspn(cell, " ");
+				char *e = cell + strlen(cell);
+				while (e > cell && e[-1] == ' ')
+					*--e = 0;
+				notes_plain(cell);
+				const size_t at = strlen(row);
+				snprintf(row + at, sizeof(row) - at, "\t%s", cell);
+			}
+			notes_line(o, row, (unsigned)strlen(row)); /* whole: the page lays its cells out in columns */
+			o->blank = 0;
+		}
+	} else if ((q[0] == '-' || q[0] == '*') && q[1] == ' ') {
+		notes_plain(q + 2);
+		notes_wrap(o, q + 2, "\xE2\x80\xA2 ", "  ");
+		o->blank = 0;
+	} else {
+		if (!heading)
+			notes_plain(q);
+		if (heading && !o->blank)
+			notes_line(o, "", 0);
+		notes_wrap(o, q, "", "");
+		o->blank = 0;
+	}
+}
+
+/* A release's notes (GitHub's Markdown, its escapes already read) as lines. */
+static void notes_body(notes_out *o, const char *body)
+{
 	char prev[512] = "", line[512];
-	int have_prev = 0, blank = 1; /* blank: the last line out was empty (or nothing is out yet) */
-	for (const char *p = body;; ) {
+	int have_prev = 0, skipping = 0;
+	for (const char *p = body;;) {
 		const size_t len = strcspn(p, "\n");
 		const int last = !p[len];
 		snprintf(line, sizeof(line), "%.*s", (int)(len < sizeof(line) - 1 ? len : sizeof(line) - 1), p);
@@ -345,70 +465,52 @@ unsigned update_release_notes(const char *json, char *out, unsigned size, unsign
 		const char *s = line + strspn(line, " ");
 		/* a line of dashes or equals under words makes those words a heading */
 		const int underline = have_prev && prev[0] && (only_of(s, "-") || only_of(s, "=")) && strlen(s) >= 3;
-		if (have_prev) {
-			char *q = prev + strspn(prev, " ");
-			int heading = underline;
-			if (*q == '#') {
-				q += strspn(q, "#");
-				heading = 1;
-			}
-			if (!*q) {
-				if (!blank)
-					notes_line(&o, "", 0);
-				blank = 1;
-			} else if (*q == '|') { /* a table's row; its ruler line is dropped */
-				if (!only_of(q, "|-: ")) {
-					char row[512] = "";
-					for (char *cell = strtok(q, "|"); cell; cell = strtok(NULL, "|")) {
-						cell += strspn(cell, " ");
-						char *e = cell + strlen(cell);
-						while (e > cell && e[-1] == ' ')
-							*--e = 0;
-						notes_plain(cell);
-						const size_t at = strlen(row);
-						snprintf(row + at, sizeof(row) - at, "\t%s", cell);
-					}
-					notes_line(&o, row, (unsigned)strlen(row)); /* whole: the page lays its cells out in columns */
-					blank = 0;
-				}
-			} else if ((q[0] == '-' || q[0] == '*') && q[1] == ' ') {
-				notes_plain(q + 2);
-				notes_wrap(&o, q + 2, "\xE2\x80\xA2 ", "  ");
-				blank = 0;
-			} else {
-				notes_plain(q);
-				if (heading && !blank)
-					notes_line(&o, "", 0);
-				notes_wrap(&o, q, "", "");
-				blank = 0;
-			}
-		}
-		if (underline) {
-			have_prev = 0;
-		} else {
+		if (have_prev)
+			notes_one(o, prev, underline, &skipping);
+		have_prev = !underline;
+		if (have_prev)
 			snprintf(prev, sizeof(prev), "%s", line);
-			have_prev = 1;
-		}
 		if (last) {
-			if (have_prev && prev[0]) { /* the last line, with nothing under it */
-				have_prev = 0;
-				snprintf(line, sizeof(line), "%s", "");
-				p += len;
-				/* run it through once more as prev */
-				char *q = prev + strspn(prev, " ");
-				if (*q == '#')
-					q += strspn(q, "#");
-				if ((q[0] == '-' || q[0] == '*') && q[1] == ' ') {
-					notes_plain(q + 2);
-					notes_wrap(&o, q + 2, "\xE2\x80\xA2 ", "  ");
-				} else if (*q && *q != '|') {
-					notes_plain(q);
-					notes_wrap(&o, q, "", "");
-				}
-			}
+			if (have_prev && prev[0])
+				notes_one(o, prev, 0, &skipping);
 			break;
 		}
 		p += len + 1;
+	}
+}
+
+unsigned update_release_notes(const char *json, const char *installed, char *out, unsigned size, unsigned width)
+{
+	notes_out o = { out, size, 0, width, 0, 1 };
+	if (size)
+		out[0] = 0;
+	if (size < 64 || !skip_value(json, 0))
+		return 0;
+	release_ref list[UPDATE_NOTES_MAX];
+	const int count = releases_listed(json, list, UPDATE_NOTES_MAX, UPDATE_NOTES_FROM);
+	char *body = malloc(size);
+	if (!body)
+		return 0;
+	int told = 0;
+	for (int i = 0; i < count && !o.full; i++) {
+		body[0] = 0;
+		string_some(member(list[i].obj, "body"), body, size);
+		if (!body[strspn(body, " \r\n\t")])
+			continue; /* no notes */
+		char head[64];
+		if (!told && installed && installed[0] && update_version_cmp(list[i].version, installed) <= 0) {
+			told = 1; /* the versions from here on are the one this Our64 is, and older */
+			if (!o.blank)
+				notes_line(&o, "", 0);
+			snprintf(head, sizeof(head), "%cYou have %s", UPDATE_NOTES_YOURS, installed);
+			notes_line(&o, head, (unsigned)strlen(head));
+		} else if (!o.blank) {
+			notes_line(&o, "", 0);
+		}
+		snprintf(head, sizeof(head), "%cOur64 %s", UPDATE_NOTES_VERSION, list[i].version);
+		notes_line(&o, head, (unsigned)strlen(head));
+		o.blank = 1; /* its first section's heading follows the version's at once */
+		notes_body(&o, body);
 	}
 	free(body);
 	while (o.n > 0 && out[o.n - 1] == '\n' && (o.n < 2 || out[o.n - 2] == '\n'))

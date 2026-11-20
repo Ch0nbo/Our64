@@ -117,8 +117,9 @@ int  games_legend(const games_ui *g, int type, pause_key *keys, int max); /* run
  *                or "Update shaders" when only shaders are new and Include
  *                shaders is on. Greyed while a game is loaded: an update
  *                restarts Our64.
- *   Release notes        what the newest release says, on its own page
- *                        (notes_ui); greyed until a check has an answer
+ *   Release notes        what every release from 1.3.0 on says, newest
+ *                        first, on its own page (notes_ui); greyed until a
+ *                        check has an answer
  *   Include shaders      On or Off: this update also takes the release's
  *                        pre-built shaders. Off each time the page opens,
  *                        and greyed when the release has none the card
@@ -176,20 +177,31 @@ int  upd_legend(const update_ui *u, int type, pause_key *keys, int max);
  * its title, "Our64 1.3.0 is available". */
 void upd_offer_title(const char *version, char *out, unsigned size);
 
-/* Settings > Update > Release notes: the newest release's notes as lines
- * (update_release_notes), NOTES_SHOWN at a time. Up and down move a few
- * lines, left and right a page; B goes back. */
+/* Settings > Update > Release notes: the notes of every release from 1.3.0
+ * on, newest first, as lines (update_release_notes), NOTES_SHOWN at a time.
+ * Up and down move a few lines, left and right a page, L and R (minus and
+ * plus on a Wii Remote) to the newer or older version's heading; B goes
+ * back. */
 #define NOTES_SHOWN 10
 typedef struct {
 	const char *text;    /* lines ending in \n; the caller's, kept while the page is open */
 	char version[24];    /* under the header: "Our64 1.3.0" */
 	int lines, top;
+	int versions;        /* the versions' headings in it */
 } notes_ui;
 enum { NACT_NONE, NACT_BACK, NACT_HOME };
+/* The page's own presses, beside pause.h's PEV_ ones (notes_events) */
+enum { NEV_NEWER = 48, NEV_OLDER };
+int  notes_events(int type, uint32_t pressed, int *out, int max);
 void notes_open(notes_ui *n, const char *version, const char *text);
 int  notes_event(notes_ui *n, int event, int target);
-/* The i-th line in view: where it starts and its length; 0 past the end. */
+/* The i-th line in view: where it starts and its length; 0 past the end. A
+ * version's heading and the "You have" line start with their mark
+ * (update.h's UPDATE_NOTES_VERSION and UPDATE_NOTES_YOURS), which
+ * notes_mark names and the page does not draw. */
 int  notes_line(const notes_ui *n, int i, const char **start, int *len);
+enum { NOTES_TEXT, NOTES_VERSION, NOTES_YOURS };
+int  notes_mark(const notes_ui *n, int i);
 /* A line that starts with a tab is a table's row, a tab before each cell.
  * For the i-th line in view: where its table starts and how many rows it
  * has, so the page can give every row the same columns; 0 when the line is

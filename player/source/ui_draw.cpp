@@ -2127,15 +2127,20 @@ const notes_columns & notes_layout(const char * first, int rows, int room)
 	return c;
 }
 
-// Settings > Update > Release notes: the newest release's notes as lines
-// (already cut to the page's width), ten at a time, with arrows in the margin
-// when lines are out of view, as the folder list has. A table's rows are
-// drawn in columns, its first row (the headings) in the muted ink.
+// Settings > Update > Release notes: the releases' notes as lines, newest
+// first (already cut to the page's width), ten at a time, with arrows in the
+// margin when lines are out of view, as the folder list has. Each version's
+// heading is in the accent, a size up; a rule with "You have 1.3.0" on it
+// comes before the installed version. A table's rows are drawn in columns,
+// its first row (the headings) in the muted ink.
 void draw_notes(const setup_view & sv)
 {
 	const notes_ui & nt = sv.notes;
 	char sub[48];
-	snprintf(sub, sizeof(sub), "Our64 %s", nt.version);
+	if (nt.versions > 1) // each version has its heading below
+		snprintf(sub, sizeof(sub), "Newest first");
+	else
+		snprintf(sub, sizeof(sub), "Our64 %s", nt.version);
 	setup_header("RELEASE NOTES", sub);
 	const int x = 40, y0 = 128, step = 26, px = 19, room = UI_W - 80 - 24;
 	for (int i = 0; i < NOTES_SHOWN; i++) {
@@ -2155,6 +2160,20 @@ void draw_notes(const setup_view & sv)
 				text(x + c.x[k], y0 + i * step + (px - c.px) / 2, clipped(cells[k].c_str(), c.px, c.w[k]).c_str(), c.px, ink);
 			continue;
 		}
+		const int mark = notes_mark(&nt, i);
+		if (mark == NOTES_VERSION) { // a version's heading: in the accent, a size up
+			const std::string line(start + 1, size_t(len - 1));
+			text(x, y0 + i * step - 2, line.c_str(), 24, rgb(T.screen.accent));
+			continue;
+		}
+		if (mark == NOTES_YOURS) { // "You have 1.3.0": a rule across the page, the words on it
+			const std::string line(start + 1, size_t(len - 1));
+			const int w = text_width(line.c_str(), px) + 32, mid = y0 + i * step + px / 2 + 1, side = (room - w) / 2;
+			box(x, mid, side, 2, rgb(T.screen.muted));
+			box(x + room - side, mid, side, 2, rgb(T.screen.muted));
+			text(x + room / 2, y0 + i * step, line.c_str(), px, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
+			continue;
+		}
 		const std::string line(start, size_t(len));
 		text(x, y0 + i * step, line.c_str(), fit(line.c_str(), px, 14, room), rgb(T.screen.ink));
 	}
@@ -2162,8 +2181,8 @@ void draw_notes(const setup_view & sv)
 		text(UI_W - 20, y0, "▲", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
 	if (notes_more(&nt, 1))
 		text(UI_W - 20, y0 + (NOTES_SHOWN - 1) * step, "▼", 18, rgb(T.screen.muted), GUI_TEXT_JUSTIFY_CENTER);
-	pause_key keys[4];
-	draw_keys(keys, notes_legend(&nt, sv.glyphs, keys, 4), nullptr);
+	pause_key keys[5];
+	draw_keys(keys, notes_legend(&nt, sv.glyphs, keys, 5), nullptr);
 }
 
 // An update in progress: Fetch covers' layout, with what is being done, one

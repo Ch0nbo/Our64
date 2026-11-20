@@ -1,6 +1,7 @@
 /* Our64 player: Our Settings, Our Controllers, Change order, Edit buttons (see setup.h). */
 #include "setup.h"
 #include "gameopt.h"
+#include "update.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -690,7 +691,7 @@ void upd_value(const update_ui *u, int row, char *out, unsigned size)
 const char *upd_row_about(const update_ui *u)
 {
 	switch (u->row) {
-	case UPD_NOTES: return u->notes ? "What the newest version changes" : "Check for updates first";
+	case UPD_NOTES: return u->notes ? "What each version changes" : "Check for updates first";
 	case UPD_SHADERS:
 		if (u->shaders_new)
 			return "Pre-built shaders: games start smoother";
@@ -785,10 +786,68 @@ void notes_open(notes_ui *n, const char *version, const char *text)
 	memset(n, 0, sizeof(*n));
 	n->text = text ? text : "";
 	snprintf(n->version, sizeof(n->version), "%s", version ? version : "");
-	for (const char *p = n->text; *p; p++)
+	for (const char *p = n->text; *p; p++) {
+		n->versions += *p == UPDATE_NOTES_VERSION && (p == n->text || p[-1] == '\n');
 		n->lines += *p == '\n';
+	}
 	if (n->text[0] && n->text[strlen(n->text) - 1] != '\n')
 		n->lines++;
+}
+
+int notes_events(int type, uint32_t pressed, int *out, int max)
+{
+	int ev[8], n = 0;
+	const int k = pause_events(type, pressed, ev, 8);
+	for (int i = 0; i < k && n < max; i++)
+		if (ev[i] != PEV_DELETE) /* minus on a Wii Remote: a version, below */
+			out[n++] = ev[i];
+	const int wii = type == INPUT_WIIMOTE || type == INPUT_NUNCHUK;
+	if (n < max && pressed & (wii ? BIT(SRC_MINUS) : BIT(SRC_L)))
+		out[n++] = NEV_NEWER;
+	if (n < max && pressed & (wii ? BIT(SRC_PLUS) : BIT(SRC_R)))
+		out[n++] = NEV_OLDER;
+	return n;
+}
+
+/* The line at index i of the whole text: its first byte, or 0 past the end. */
+static char notes_first_byte(const notes_ui *n, int i)
+{
+	const char *p = n->text;
+	for (int k = 0; k < i; k++) {
+		p = strchr(p, '\n');
+		if (!p)
+			return 0;
+		p++;
+	}
+	return *p;
+}
+
+/* To the heading of the version after (older, by 1) or before (newer, -1)
+ * the one at the top, with the "You have" line over it when there is one. */
+static void notes_jump(notes_ui *n, int by)
+{
+	int to = -1;
+	/* the heading at the top, or the one under the "You have" line at the top, is the version shown */
+	int from = n->top;
+	if (notes_first_byte(n, from) == UPDATE_NOTES_YOURS)
+		from++;
+	if (by > 0) {
+		for (int i = from + 1; i < n->lines && to < 0; i++)
+			if (notes_first_byte(n, i) == UPDATE_NOTES_VERSION)
+				to = i;
+	} else {
+		for (int i = from - 1; i >= 0 && to < 0; i--)
+			if (notes_first_byte(n, i) == UPDATE_NOTES_VERSION)
+				to = i;
+	}
+	if (to < 0)
+		return;
+	if (to > 0 && notes_first_byte(n, to - 1) == UPDATE_NOTES_YOURS)
+		to--;
+	const int last = n->lines > NOTES_SHOWN ? n->lines - NOTES_SHOWN : 0;
+	if (by > 0 && n->top >= last)
+		return; /* at the end already */
+	n->top = to < last ? to : last;
 }
 
 static void notes_move(notes_ui *n, int by)
@@ -809,6 +868,8 @@ int notes_event(notes_ui *n, int event, int target)
 	case PEV_DOWN: notes_move(n, 3); break;
 	case PEV_LEFT: notes_move(n, -(NOTES_SHOWN - 1)); break;
 	case PEV_RIGHT: notes_move(n, NOTES_SHOWN - 1); break;
+	case NEV_NEWER: notes_jump(n, -1); break;
+	case NEV_OLDER: notes_jump(n, 1); break;
 	case PEV_BACK: return NACT_BACK;
 	case PEV_HOME: return NACT_HOME;
 	}
@@ -860,12 +921,24 @@ int notes_table(const notes_ui *n, int i, const char **first, int *rows)
 
 int notes_more(const notes_ui *n, int below) { return below ? n->top + NOTES_SHOWN < n->lines : n->top > 0; }
 
+int notes_mark(const notes_ui *n, int i)
+{
+	const char *start;
+	int len;
+	if (!notes_line(n, i, &start, &len) || !len)
+		return NOTES_TEXT;
+	return *start == UPDATE_NOTES_VERSION ? NOTES_VERSION : *start == UPDATE_NOTES_YOURS ? NOTES_YOURS : NOTES_TEXT;
+}
+
 int notes_legend(const notes_ui *n, int type, pause_key *keys, int max)
 {
 	int k = 0;
 	keys_add(keys, &k, max, GLYPH_HOME, "Wii U Menu", 0);
 	keys_add(keys, &k, max, back_glyph(type), "Back", 0);
 	keys_add(keys, &k, max, GLYPH_DPAD, "Scroll", n->lines <= NOTES_SHOWN);
+	const int wii = type == INPUT_WIIMOTE || type == INPUT_NUNCHUK;
+	keys_add(keys, &k, max, wii ? GLYPH_MINUS : GLYPH_L, "Newer", n->versions < 2);
+	keys_add(keys, &k, max, wii ? GLYPH_PLUS : GLYPH_R, "Older", n->versions < 2);
 	return k;
 }
 

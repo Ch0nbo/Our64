@@ -251,6 +251,40 @@ static void release_notes_scroll_between_their_ends(void)
 	notes_event(&n, PEV_DOWN, -1);
 	CHECK(n.lines == 3 && n.top == 0 && notes_line(&n, 1, &s, &len) && len == 0 && notes_line(&n, 2, &s, &len) && len == 5);
 	CHECK(!notes_line(&n, 3, &s, &len));
+	/* versions: L and R (minus and plus on a Wii Remote) to the next heading,
+	 * the "You have" line kept over the one it marks */
+	char v[1200] = "";
+	strcat(v, "\001Our64 1.3.2\n");
+	for (int i = 0; i < 14; i++)
+		strcat(v, "new words\n");
+	strcat(v, "\n\002You have 1.3.1\n\001Our64 1.3.1\n");
+	for (int i = 0; i < 14; i++)
+		strcat(v, "fixes\n");
+	strcat(v, "\n\001Our64 1.3.0\n");
+	for (int i = 0; i < 14; i++)
+		strcat(v, "first\n");
+	notes_open(&n, "1.3.2", v); /* headings at lines 0, 17, 33; "You have" at 16; 48 lines */
+	CHECK(n.versions == 3 && n.lines == 48 && notes_mark(&n, 0) == NOTES_VERSION && notes_mark(&n, 1) == NOTES_TEXT);
+	notes_event(&n, NEV_OLDER, -1);
+	CHECK(n.top == 16 && notes_mark(&n, 0) == NOTES_YOURS && notes_mark(&n, 1) == NOTES_VERSION);
+	notes_event(&n, NEV_OLDER, -1);
+	CHECK(n.top == 33);
+	notes_event(&n, NEV_OLDER, -1); /* the last version: stays */
+	CHECK(n.top == 33);
+	notes_event(&n, NEV_NEWER, -1);
+	CHECK(n.top == 16);
+	notes_event(&n, PEV_DOWN, -1); /* in the middle of 1.3.1: L goes to its own heading */
+	CHECK(n.top == 19);
+	notes_event(&n, NEV_NEWER, -1);
+	CHECK(n.top == 16);
+	notes_event(&n, NEV_NEWER, -1);
+	notes_event(&n, NEV_NEWER, -1); /* the first: stays */
+	CHECK(n.top == 0);
+	int ev[8];
+	CHECK(notes_events(INPUT_PRO, BIT(SRC_L), ev, 8) == 1 && ev[0] == NEV_NEWER);
+	CHECK(notes_events(INPUT_PRO, BIT(SRC_R), ev, 8) == 1 && ev[0] == NEV_OLDER);
+	CHECK(notes_events(INPUT_WIIMOTE, BIT(SRC_MINUS), ev, 8) == 1 && ev[0] == NEV_NEWER);
+	CHECK(notes_events(INPUT_WIIMOTE, BIT(SRC_PLUS), ev, 8) == 1 && ev[0] == NEV_OLDER);
 }
 
 /* Settings > Theme: the colors and Our ROMs' layout, each applied with A (2026-10-30). */

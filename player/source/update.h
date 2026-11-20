@@ -36,19 +36,33 @@ typedef struct {
  * left out. */
 int update_version_cmp(const char *a, const char *b);
 
-/* GitHub's answer for releases/latest. 0, or -1 when it is not that (no tag,
- * or not JSON). A release without our64.wuhb parses: app.url is "". */
+/* GitHub's answer for the release list (releases?per_page=10) or for one
+ * release (releases/latest): the newest by version of those that are neither
+ * drafts nor pre-releases. 0, or -1 when there is none (no tag, or not JSON).
+ * A release without our64.wuhb parses: app.url is "". */
 int update_parse_release(const char *json, update_release *out);
 
-/* The release's notes (its "body", GitHub's Markdown) as plain lines for the
- * Release notes page: each at most width bytes, cut at spaces; headings
- * without their marks and with an empty line before them, "**" and "`"
- * gone, links as their words, list items under a bullet with the lines that
- * continue them indented. A table's row is one line, however long, with a
- * tab before each cell: the page lays the cells out in columns. The count of
- * bytes written, 0 when the release has no notes; notes that do not
- * fit end at the last whole line with "...". */
-unsigned update_release_notes(const char *json, char *out, unsigned size, unsigned width);
+/* The notes of the releases in json (the list, or one release) for the
+ * Release notes page: those from UPDATE_NOTES_FROM on, at most
+ * UPDATE_NOTES_MAX, highest version first. Each starts with a line of
+ * UPDATE_NOTES_VERSION then "Our64 1.3.1"; before the first that is not
+ * newer than installed ("1.3.0") comes a line of UPDATE_NOTES_YOURS then
+ * "You have 1.3.0". Sections named Install, In the zip and Problems are left
+ * out (they are for the zip); every other heading is the author's own.
+ *
+ * Each release's notes (its "body", GitHub's Markdown) become plain lines,
+ * each at most width bytes, cut at spaces; headings without their marks and
+ * with an empty line before them, "**" and "`" gone, links as their words,
+ * list items under a bullet with the lines that continue them indented. A
+ * table's row is one line, however long, with a tab before each cell: the
+ * page lays the cells out in columns. The count of bytes written, 0 when no
+ * release has notes; notes that do not fit end at the last whole line with
+ * "...". */
+#define UPDATE_NOTES_FROM "1.3.0" /* the first version with the updater */
+#define UPDATE_NOTES_MAX 10
+#define UPDATE_NOTES_VERSION '\x01'
+#define UPDATE_NOTES_YOURS '\x02'
+unsigned update_release_notes(const char *json, const char *installed, char *out, unsigned size, unsigned width);
 
 /* ---- shaders.zip ---- */
 

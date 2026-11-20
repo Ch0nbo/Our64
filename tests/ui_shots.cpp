@@ -761,23 +761,86 @@ void shots_setup()
 	snprintf(sv.game, sizeof(sv.game), "Super Mario 64");
 	shot("update-paused", v);
 	sv.game[0] = 0;
-	{ // Release notes: 1.2.0's own, as update_release_notes makes them
+	{ // Release notes: a 1.3.1 made up over 1.3.0's draft, as update_release_notes makes them for 1.3.0
 		static const char notes[] =
-			"New\n\nGame options. Every game has its own options: press X on it in Our\nROMs, or pause the game and choose Game options.\n\n"
-			"\xE2\x80\xA2 Resolution: 480p or 720p for that game (#22, #35). See \"720p\"\n  below before you turn it on.\n"
-			"\xE2\x80\xA2 Picture: the game's own Screen mode, Shape, Speed display and\n  Filter. Default follows Settings > Picture.\n"
-			"\xE2\x80\xA2 Cover: pick any PNG on the SD card as the game's cover (#29). A\n  PNG named like the ROM file in sd:/wiiu/our64/art/custom/ works too:\n  My Game.z64 takes My Game.png.\n"
-			"\nThese five held up:\n\n\tGame\tMistimed frames\tTV refreshes skipped\tFrames drawn\tGPU time a frame (ms)\tDelay to the TV (ms)\n"
-			"\tSuper Mario 64\t2 \xE2\x86\x92 6\t0 \xE2\x86\x92 0\tsame\t2.4 \xE2\x86\x92 8.4\t28 \xE2\x86\x92 32\n"
-			"\tStar Fox 64\t4 \xE2\x86\x92 6\t0 \xE2\x86\x92 0\tsame\t3.6 \xE2\x86\x92 5.4\t36 \xE2\x86\x92 30\n"
-			"\tStar Wars: Rogue Squadron\t5 \xE2\x86\x92 8\t0 \xE2\x86\x92 2\tsame\t4.4 \xE2\x86\x92 8.5\t33 \xE2\x86\x92 41\n"
-			"\nA small one:\n\n\tGame\tBefore\tAfter\n\tSuper Mario 64\t2\t6\n\tStar Fox 64\t4\t6\n";
+			"\x01""Our64 1.3.1\n"
+			"Bug Fixes\n"
+			"\n"
+			"\xE2""\x80""\xA2"" Fighting Force: the health bar no longer fills the screen in level\n"
+			"  1.3.\n"
+			"\xE2""\x80""\xA2"" Example Game: a second fix, long enough to take two lines on the\n"
+			"  page.\n"
+			"\n"
+			"\x02""You have 1.3.0\n"
+			"\x01""Our64 1.3.0\n"
+			"New Fantastic Amazing Features\n"
+			"\n"
+			"Auto Update from inside Our64. Settings > Update checks GitHub for a\n"
+			"newer Our64 and installs it. Our64 restarts by itself when it is done.\n"
+			"\n"
+			"\xE2""\x80""\xA2"" Release notes: read what the new version changes before you\n"
+			"  update.\n"
+			"\xE2""\x80""\xA2"" Include shaders: also download the new version's pre-built\n"
+			"  shaders. It is off each time, because it takes several minutes and\n"
+			"  isn't always necessary. Our64 tells you about how long before it\n"
+			"  starts.\n"
+			"\xE2""\x80""\xA2"" Check automatically: on by default. Our64 checks quietly when it\n"
+			"  starts and asks once per new version. Turn it off and Our64 checks\n"
+			"  only when you ask.\n"
+			"\n"
+			"1.3.0 is the first version with the updater, so this time install it\n"
+			"from the zip (see Install below). From 1.3.0 on, Settings > Update\n"
+			"does it.\n"
+			"\n"
+			"Native resolution. Game options > Resolution has a third choice,\n"
+			"Native: the game draws at the N64's own resolution, most often\n"
+			"320x240, and the picture is enlarged after. Some games look right only\n"
+			"this way, such as Automobili Lamborghini's letters and F-1 World Grand\n"
+			"Prix's menus (#40).\n"
+			"\n"
+			"Fixes for ROM hacks. Game options > Fixes lets you select specific\n"
+			"base game fixes to apply to any other ROM. This allows ROM hacks that\n"
+			"are not identified by the system to apply their necessary specific\n"
+			"fixes.\n"
+			"\n"
+			"Covers for changed ROMs. Covers are now also looked up by game code\n"
+			"and by title, so more translated, patched and differently dumped ROMs\n"
+			"get one (#41). Settings > Games > Match changed ROMs (off by default)\n"
+			"applies to your entire library of hacks and translations with the\n"
+			"original game's cover, and Game options > Cover > Original game's\n"
+			"cover does it for just the selected game.\n"
+			"\n"
+			"Bug Fixes\n"
+			"\n"
+			"\xE2""\x80""\xA2"" Turok: Rage Wars saves to its Controller Pak and still rumbles\n"
+			"  (#33).\n"
+			"\xE2""\x80""\xA2"" Rayman 2 no longer freezes (#43).\n"
+			"\xE2""\x80""\xA2"" Donkey Kong 64 runs at the N64's speed in the DK Rap and speeds up\n"
+			"  gameplay in general (#28).\n"
+			"\xE2""\x80""\xA2"" Yoshi's Story runs at full speed on its stages (#25).\n"
+			"\xE2""\x80""\xA2"" Fighting Force: the floors are drawn right (#42).\n"
+			"\xE2""\x80""\xA2"" Castlevania & Legacy of Darkness: the menus, torches, and other\n"
+			"  texel issues are fixed, and the cursor on Player Select no longer\n"
+			"  hides the portrait under it.\n"
+			"\xE2""\x80""\xA2"" Dr. Mario 64: the screen no longer flashes black at each pill\n"
+			"  throw (#46).\n"
+			"\xE2""\x80""\xA2"" Pokemon Stadium: no more constant static in the sound (#48).\n"
+			"\xE2""\x80""\xA2"" Nightmare Creatures runs smoothly now (#39).\n"
+			"\n"
+			"\tGame\t1.2.0\t1.3.0\n"
+			"\tDK64, DK Rap\t20-26 fps\t30 fps\n"
+			"\tYoshi's Story\t42-55 fps\t57-60 fps\n"
+			"\tNightmare Creatures\t8-11 fps\t37-40 fps\n";
 		sv.screen = SETUP_NOTES;
-		notes_open(&sv.notes, "1.3.0", notes);
+		notes_open(&sv.notes, "1.3.1", notes);
 		shot("notes", v);
+		notes_event(&sv.notes, NEV_OLDER, -1);
+		shot("notes-yours", v);
+		notes_event(&sv.notes, PEV_DOWN, -1);
 		notes_event(&sv.notes, PEV_RIGHT, -1);
 		shot("notes-scrolled", v);
-		notes_event(&sv.notes, PEV_RIGHT, -1);
+		for (int i = 0; i < 8; i++)
+			notes_event(&sv.notes, PEV_RIGHT, -1);
 		shot("notes-end", v);
 	}
 	upd_open(&sv.update, 1, 0);

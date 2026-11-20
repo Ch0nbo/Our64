@@ -1662,7 +1662,7 @@ static int run_notes(void)
 	int touching = 0, target = -1;
 	for (;;) {
 		show();
-		read_frame(&f, NULL, &touching, &target);
+		read_frame_with(&f, notes_events, NULL, &touching, &target);
 		if (player_closing())
 			return 1;
 		for (int i = 0; i < f.n; i++) {

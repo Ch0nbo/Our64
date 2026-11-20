@@ -66,9 +66,9 @@ static void notes_become_plain_lines(void)
 	                   "**Updater.** Our64 updates itself: [Settings](https://x.y/z) > `Update`.\\r\\n\\r\\n"
 	                   "- **One:** first item that is long enough to need a second line here\\r\\n- Two\\r\\n\\r\\n"
 	                   "## Fixed\\r\\n| Game | Before |\\r\\n| --- | --- |\\r\\n| Mario | 2 |\\r\\nLast line\"}";
-	const unsigned n = update_release_notes(json, out, sizeof(out), 40);
+	const unsigned n = update_release_notes(json, "1.2.0", out, sizeof(out), 40);
 	CHECK(n == strlen(out));
-	CHECK(!strcmp(out, "New\n\n"
+	CHECK(!strcmp(out, "\001Our64 1.3.0\nNew\n\n"
 	                   "Updater. Our64 updates itself: Settings\n> Update.\n\n"
 	                   "\xE2\x80\xA2 One: first item that is long enough\n  to need a second line here\n\xE2\x80\xA2 Two\n\n"
 	                   "Fixed\n\tGame\tBefore\n\tMario\t2\nLast line\n"));
@@ -78,15 +78,44 @@ static void notes_become_plain_lines(void)
 		p += len + (p[len] == '\n');
 	}
 	/* no notes, or not JSON: empty */
-	CHECK(update_release_notes("{\"tag_name\":\"v1.3.0\"}", out, sizeof(out), 40) == 0 && out[0] == 0);
-	CHECK(update_release_notes("<html>", out, sizeof(out), 40) == 0);
+	CHECK(update_release_notes("{\"tag_name\":\"v1.3.0\"}", "1.3.0", out, sizeof(out), 40) == 0 && out[0] == 0);
+	CHECK(update_release_notes("<html>", "1.3.0", out, sizeof(out), 40) == 0);
 	/* more than fits: ends at a whole line, with "..." */
-	char big[4000] = "{\"body\":\"";
+	char big[4000] = "{\"tag_name\":\"v1.3.0\",\"body\":\"";
 	for (int i = 0; i < 100; i++)
 		strcat(big, "a line of words here\\n");
 	strcat(big, "\"}");
-	const unsigned k = update_release_notes(big, out, 200, 40);
+	const unsigned k = update_release_notes(big, "1.3.0", out, 200, 40);
 	CHECK(k < 200 && k > 100 && !strcmp(out + k - 4, "...\n"));
+}
+
+/* The list: newest version first whatever its order, from 1.3.0 on, without
+ * drafts and pre-releases; "You have" before the installed one; the zip's
+ * sections left out, every other heading kept as written. */
+static const char LIST[] =
+	"[{\"tag_name\":\"v1.3.1\",\"draft\":false,\"prerelease\":false,\"body\":\"Bug Fixes\\r\\n---\\r\\n- Fox fixed\\r\\n\\r\\n"
+	"Install\\r\\n---\\r\\n1. Copy the zip\\r\\n\\r\\nIn the zip\\r\\n---\\r\\n- the app\\r\\n\\r\\n## Problems\\r\\nOpen an issue\","
+	"\"assets\":[{\"name\":\"our64.wuhb\",\"size\":2,\"browser_download_url\":\"https://g/131/our64.wuhb\"}]},"
+	"{\"tag_name\":\"v1.4.0-beta\",\"prerelease\":true,\"body\":\"Beta\",\"assets\":[]},"
+	"{\"tag_name\":\"v1.3.2\",\"draft\":true,\"body\":\"Draft\",\"assets\":[]},"
+	"{\"tag_name\":\"v1.2.0\",\"body\":\"Old\",\"assets\":[]},"
+	"{\"tag_name\":\"v1.3.10\",\"body\":\"New Fantastic Amazing Features\\n---\\nTen\",\"assets\":[]},"
+	"{\"tag_name\":\"v1.3.0\",\"body\":\"New Fantastic Amazing Features\\n---\\nUpdater\\n\\nBug Fixes\\n---\\nRage Wars\",\"assets\":[]}]";
+
+static void list_gives_the_newest_and_every_versions_notes(void)
+{
+	update_release r;
+	CHECK(update_parse_release(LIST, &r) == 0 && !strcmp(r.version, "1.3.10") && r.app.url[0] == 0);
+	CHECK(update_parse_release("[]", &r) < 0);
+	CHECK(update_parse_release("[{\"tag_name\":\"v1.3.0\",\"assets\":[{\"name\":\"our64.wuhb\",\"browser_download_url\":\"u\"}]}]", &r) == 0 &&
+	      !strcmp(r.version, "1.3.0") && !strcmp(r.app.url, "u"));
+	char out[2048];
+	update_release_notes(LIST, "1.3.1", out, sizeof(out), 40);
+	CHECK(!strcmp(out, "\001Our64 1.3.10\nNew Fantastic Amazing Features\nTen\n\n"
+	                   "\002You have 1.3.1\n\001Our64 1.3.1\nBug Fixes\n\xE2\x80\xA2 Fox fixed\n\n"
+	                   "\001Our64 1.3.0\nNew Fantastic Amazing Features\nUpdater\n\nBug Fixes\nRage Wars\n"));
+	update_release_notes(LIST, "1.3.10", out, sizeof(out), 40); /* up to date: the line comes first */
+	CHECK(!strncmp(out, "\002You have 1.3.10\n\001Our64 1.3.10\n", 31));
 }
 
 /* ---- a zip made here: one file stored, one deflated ---- */
@@ -252,6 +281,7 @@ int main(void)
 	RUN(release_gives_the_tag_and_our_files);
 	RUN(release_refuses_what_is_not_one);
 	RUN(notes_become_plain_lines);
+	RUN(list_gives_the_newest_and_every_versions_notes);
 	RUN(zip_lists_and_unpacks);
 	RUN(zip_refuses_other_files);
 	RUN(packs_merge_keeps_the_cards_own_pairs);
