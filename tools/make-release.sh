@@ -77,3 +77,54 @@ mkdir -p "$ROOT/release"
 rm -f "$OUT"
 (cd "$STAGE" && zip -qr -X "$OUT" wiiu)
 echo "$OUT: $(du -h "$OUT" | cut -f1), $(find "$G" -type f | wc -l) shader files"
+
+# The release notes, release/Our64-<version>-notes.md, started once (an edited
+# file is never written over); publish them with
+#   gh release create v<version> --notes-file release/Our64-<version>-notes.md
+# Their first line is the sentence every release opens with: it is what search
+# engines show for the release page. It is a quote (">") because Settings >
+# Update's Release notes page leaves quotes out (update.h): on the console the
+# notes start at the first heading, as before.
+SENTENCE="Our64 is a Nintendo 64 emulator for the Wii U, running natively under Aroma."
+NOTES="$ROOT/release/Our64-$VERSION-notes.md"
+if [ ! -f "$NOTES" ]; then
+	cat > "$NOTES" <<NOTES_END
+> $SENTENCE
+
+New
+-------------------
+
+Bug Fixes
+-------------------
+
+Install
+-------------------
+
+1. Download \`Our64-$VERSION.zip\` below.
+2. Copy its \`wiiu\` folder to the root of your SD card.
+3. Put your own N64 games (\`.z64\`, \`.n64\` or \`.v64\`) in \`sd:/wiiu/our64/roms\`, or pick another folder in Settings > Games > ROM folder.
+4. Start Our64 from the Wii U Menu.
+
+Already on 1.3.0 or later: Settings > Update installs it. From an older version: copy the \`wiiu\` folder over the old one and replace the files. Your games, saves, save states and settings stay.
+
+In the zip
+-------------------
+
+- \`wiiu/apps/our64.wuhb\`: the app.
+- \`wiiu/our64/shaders/\`: graphics shaders built ahead of time for $(ls "$G"/games/*.pack | wc -l) games, so effects don't stall the first time they appear.
+- \`wiiu/our64/GLideN64.custom.ini\`: per-game graphics settings.
+- \`wiiu/our64/roms/\`: empty, for your games.
+
+The release also has \`our64.wuhb\`, \`GLideN64.custom.ini\` and \`shaders.zip\` on their own: those are what Settings > Update downloads.
+
+Problems
+-------------------
+
+Check the [known issues](https://github.com/Ch0nbo/Our64/issues?q=is%3Aissue+label%3A%22known+issue%22) first. To report something new, open an [issue](https://github.com/Ch0nbo/Our64/issues/new/choose) and attach \`sd:/wiiu/our64/player-log.txt\` from the SD card.
+
+Our64 comes with no games.
+NOTES_END
+	echo "$NOTES: started; fill in New and Bug Fixes"
+elif [ "$(head -n1 "$NOTES")" != "> $SENTENCE" ]; then
+	echo "Warning: $NOTES does not open with \"> $SENTENCE\""
+fi
