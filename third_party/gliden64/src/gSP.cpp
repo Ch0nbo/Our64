@@ -2037,6 +2037,14 @@ void gSPModifyVertex( u32 _vtx, u32 _where, u32 _val )
 			vtx0.y = _FIXED2FLOAT((s16)_SHIFTR(_val, 0, 16), 2);
 			vtx0.modify |= MODIFY_XY;
 			vtx0.clip &= ~(CLIP_POSX | CLIP_NEGX | CLIP_POSY | CLIP_NEGY);
+			/* The vertex shader multiplies screen x and y by w. A vertex placed
+			 * on the screen that kept w <= 0 from an earlier transform lands
+			 * behind the camera and its triangle covers the screen: Fighting
+			 * Force's health bar (w -98) filled it red and yellow. */
+			if (vtx0.w <= 0.0f) {
+				vtx0.w = 1.0f;
+				vtx0.clip &= ~CLIP_W;
+			}
 			if ((config.generalEmulation.hacks & hack_ModifyVertexXyInShader) == 0) {
 				if (dwnd().isAdjustScreen()) {
 					const f32 adjustScale = dwnd().getAdjustScale();
